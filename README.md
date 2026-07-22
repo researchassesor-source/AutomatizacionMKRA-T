@@ -24,8 +24,13 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 - **Handoff**: al completar el curso, MKRA-T **crea una inscripción en `ra-training-finance`** (la fuente de verdad de certificados y avales) vía su API, guarda la referencia (`financeInscripcionId`) en el lead y encola el aviso con el enlace de verificación.
 - **La emisión y verificación del certificado (y el aval del Ministerio de Trabajo) viven en `ra-training-finance`**, no aquí. `/verificar` redirige a ese sistema. MKRA-T no duplica esa lógica: única fuente de verdad.
 
+**Fase 4 — Scoring de ventas y pipeline**
+- **Scoring** automático de cada lead según su actividad (completar un curso vale mucho); recalculado al captar y al completar un curso.
+- Los leads que cruzan el umbral (≥ 50, típicamente los que completaron un curso gratuito) se promueven a **OPORTUNIDAD**.
+- **Pipeline de ventas** (`/admin/ventas`): oportunidades ordenadas por puntaje con desglose transparente y acciones (marcar cliente / perdido / reabrir), más botón de recalcular.
+
 **Panel de administración** (`/admin`, protegido con contraseña)
-- Resumen con métricas, lista de **leads**, cola de **nurture**, **certificados** emitidos y gestión de **redes** (probar conexión, registrar cuentas, crear/programar/publicar posts).
+- Resumen con métricas, **leads**, **nurture**, **ventas** (pipeline), **certificados** (handoffs) y **redes**.
 
 ## Roadmap
 
@@ -33,9 +38,9 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 |------|--------|--------|
 | 1 | Captación: landing + captura de leads + publicación en redes | ✅ |
 | 2 | Nurture: secuencias de email/WhatsApp de bienvenida | ✅ |
-| 3 | Curso + certificado con folio único y verificación pública | ✅ |
+| 3 | Curso + handoff a ra-training-finance (certificado + aval) | ✅ |
+| 4 | Ventas: scoring de leads y pipeline hacia catálogo de pago | ✅ |
 | — | Panel de administración | ✅ |
-| 4 | Ventas: scoring de leads y pipeline hacia catálogo de pago | 🔜 Modelo previsto |
 
 ---
 
@@ -59,7 +64,7 @@ src/
 │   ├── aula/[slug]/             # Aula virtual + finalización (handoff a finance)
 │   ├── verificar/               # Redirige a la verificación de ra-training-finance
 │   ├── gracias/                 # Página de confirmación
-│   ├── admin/                   # Panel: resumen, leads, mensajes, certificados, redes
+│   ├── admin/                   # Panel: resumen, leads, nurture, ventas, certificados, redes
 │   └── api/
 │       ├── leads/               # POST captura de leads (dispara nurture)
 │       ├── courses/complete/    # POST completar curso → emite certificado
@@ -70,6 +75,7 @@ src/
 │   ├── db.ts                    # Cliente Prisma
 │   ├── admin-auth.ts            # Autenticación del panel
 │   ├── leads.ts                 # Lógica de captura de leads
+│   ├── scoring.ts               # Scoring de ventas y promoción a oportunidad
 │   ├── finance/                 # Cliente de ra-training-finance (handoff + verificación)
 │   ├── nurture/                 # Motor de secuencias + canales (email/WhatsApp)
 │   └── social/                  # Orquestador + adaptadores por red social

@@ -8,6 +8,7 @@ import {
   isAutoEmitEnabled,
   isFinanceConfigured,
 } from "@/lib/finance/client";
+import { rescoreLead } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -132,6 +133,13 @@ export async function POST(request: Request) {
         stepKey: emitido ? "emitido" : "handoff",
       },
     });
+
+    // Scoring: completar un curso es una senal fuerte; puede promover a OPORTUNIDAD.
+    try {
+      await rescoreLead(lead.id);
+    } catch (err) {
+      console.error("[courses/complete] rescoreLead fallo", err);
+    }
 
     return NextResponse.json(
       { ok: true, inscripcionId: id, verifyUrl, emitido },

@@ -4,21 +4,21 @@ import { AdminNav } from "./AdminNav";
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboard() {
-  const [leads, inscritos, msgPend, msgEnviados, postsProg, cuentas] =
+  const [leads, oportunidades, clientes, msgPend, postsProg, cuentas] =
     await Promise.all([
       prisma.lead.count(),
-      prisma.lead.count({ where: { stage: "INSCRITO" } }),
+      prisma.lead.count({ where: { stage: "OPORTUNIDAD" } }),
+      prisma.lead.count({ where: { stage: "CLIENTE" } }),
       prisma.outboundMessage.count({ where: { status: "PROGRAMADO" } }),
-      prisma.outboundMessage.count({ where: { status: "ENVIADO" } }),
       prisma.socialPost.count({ where: { status: "PROGRAMADO" } }),
       prisma.socialAccount.count(),
     ]);
 
   const stats = [
     { n: leads, l: "Leads totales" },
-    { n: inscritos, l: "Inscritos" },
+    { n: oportunidades, l: "Oportunidades" },
+    { n: clientes, l: "Clientes" },
     { n: msgPend, l: "Mensajes en cola" },
-    { n: msgEnviados, l: "Mensajes enviados" },
     { n: postsProg, l: "Posts programados" },
     { n: cuentas, l: "Cuentas de redes" },
   ];

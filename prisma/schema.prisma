@@ -61,11 +61,18 @@ model Lead {
   // verdad de certificados). Se llena en el handoff al completar el curso.
   financeInscripcionId String?
 
+  // Scoring de ventas (Fase 4): puntaje calculado a partir de la actividad
+  // del lead. scoreBreakdown guarda el desglose para mostrarlo en el panel.
+  score          Int      @default(0)
+  scoreBreakdown Json?
+  scoredAt       DateTime?
+
   events   LeadEvent[]
   messages OutboundMessage[]
 
   @@index([email])
   @@index([stage])
+  @@index([score])
   @@map("leads")
 }
 

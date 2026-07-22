@@ -30,9 +30,29 @@
                                      │  lead "caliente"
                                      ▼
                  ┌─────────────────────────────────────────────┐
-                 │  5. VENDER  (scoring → catálogo de pago) [F4]│
+                 │  5. VENDER  [Fase 4]                        │
+                 │  scoring → OPORTUNIDAD → pipeline /ventas    │
                  └─────────────────────────────────────────────┘
 ```
+
+## Scoring de ventas (Fase 4)
+
+`src/lib/scoring.ts` calcula un puntaje por lead a partir de sus eventos
+(`LeadEvent`). Pesos configurables en `SCORE_WEIGHTS`:
+
+| Señal | Puntos |
+|-------|--------|
+| Captura del lead | 10 |
+| Dejó WhatsApp | 15 |
+| Completó un curso | 40 |
+| Certificado emitido | 10 |
+| Curso adicional | 10 c/u |
+| Lead reciente (≤ 7 días) | 5 |
+
+Al cruzar `UMBRAL_OPORTUNIDAD` (50) el lead se promueve a `OPORTUNIDAD`. El
+recálculo se dispara al captar y al completar un curso, y hay un endpoint para
+recalcular en lote (`/api/admin/scoring/recompute`). El pipeline vive en
+`/admin/ventas`.
 
 ## Integración con `ra-training-finance` (fuente de verdad)
 

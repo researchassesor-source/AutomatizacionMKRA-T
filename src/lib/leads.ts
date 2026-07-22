@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { enqueueSequence } from "@/lib/nurture/engine";
+import { rescoreLead } from "@/lib/scoring";
 
 // Validacion del formulario de captacion de leads.
 export const leadInputSchema = z.object({
@@ -75,6 +76,13 @@ export async function captureLead(input: LeadInput) {
   } catch (err) {
     // No bloqueamos la captura del lead si el nurture falla.
     console.error("[leads] enqueueSequence fallo", err);
+  }
+
+  // Scoring de ventas: calcula el puntaje inicial del lead.
+  try {
+    await rescoreLead(lead.id);
+  } catch (err) {
+    console.error("[leads] rescoreLead fallo", err);
   }
 
   return lead;

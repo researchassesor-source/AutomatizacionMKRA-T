@@ -520,3 +520,81 @@ table.data th {
     border-color: #0d6cf2;
   }
 }
+
+/* ================= Pipeline de ventas ================= */
+.sales-cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 860px) {
+  .sales-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.sales-col h2 {
+  font-size: 1rem;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sales-col h2 .count {
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.sales-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.sales-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.sales-name {
+  font-weight: 700;
+}
+.sales-score {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.05rem;
+  min-width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sales-breakdown {
+  list-style: none;
+  padding: 10px 0 0;
+  margin: 10px 0 0;
+  border-top: 1px dashed var(--border);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.sales-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+.sales-breakdown li span:last-child {
+  color: var(--ok);
+  font-weight: 700;
+}
+.sales-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}

@@ -51,9 +51,10 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 - **Zod** — validación de entradas.
 - APIs oficiales de las plataformas (Meta Graph API, WhatsApp Cloud API, etc.).
 
-## Arquitectura
+## Arquitectura y despliegue
 
-Ver [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) para el diagrama del embudo y las decisiones de diseño.
+- [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) — diagrama del embudo y decisiones de diseño.
+- [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md) — guía paso a paso para producción (Vercel + Postgres + Meta + email + finance + cron).
 
 ```
 src/

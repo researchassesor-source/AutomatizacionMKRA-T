@@ -19,8 +19,14 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 - **Canales con adaptadores**: email (Resend como ejemplo) y WhatsApp Cloud API. Sin credenciales funcionan en **modo log** para probar toda la secuencia.
 - **Dispatcher** que envía los mensajes vencidos (pensado para un cron).
 
+**Fase 3 — Curso + certificado verificable**
+- **Aula virtual** (`/aula/[slug]`) con las lecciones del curso y botón de finalización.
+- **Emisión de certificado** con **folio único** (ej. `RA-2026-6D6SUN`) al completar el curso; transiciona el lead a `CERTIFICADO` y encola el aviso "certificado listo".
+- **Certificado imprimible/PDF** (`/certificado/[folio]`) y **verificación pública** (`/verificar/[folio]`) para que un empleador confirme su autenticidad.
+- Salvaguarda legal: es una **"constancia de finalización"** salvo que el curso tenga `hasCertificate` activado (aval del Ministerio de Trabajo gestionado).
+
 **Panel de administración** (`/admin`, protegido con contraseña)
-- Resumen con métricas, lista de **leads**, cola de **nurture** y gestión de **redes** (probar conexión, registrar cuentas, crear/programar/publicar posts).
+- Resumen con métricas, lista de **leads**, cola de **nurture**, **certificados** emitidos y gestión de **redes** (probar conexión, registrar cuentas, crear/programar/publicar posts).
 
 ## Roadmap
 
@@ -28,8 +34,8 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 |------|--------|--------|
 | 1 | Captación: landing + captura de leads + publicación en redes | ✅ |
 | 2 | Nurture: secuencias de email/WhatsApp de bienvenida | ✅ |
+| 3 | Curso + certificado con folio único y verificación pública | ✅ |
 | — | Panel de administración | ✅ |
-| 3 | Curso + certificado con folio único y verificación pública | 🔜 Modelo previsto |
 | 4 | Ventas: scoring de leads y pipeline hacia catálogo de pago | 🔜 Modelo previsto |
 
 ---
@@ -51,10 +57,14 @@ src/
 ├── app/
 │   ├── page.tsx                 # Home con listado de cursos
 │   ├── cursos/[slug]/           # Landing de curso + formulario (LeadForm)
+│   ├── aula/[slug]/             # Aula virtual + finalización del curso
+│   ├── certificado/[folio]/     # Certificado imprimible (PDF)
+│   ├── verificar/               # Verificación pública de certificados
 │   ├── gracias/                 # Página de confirmación
-│   ├── admin/                   # Panel: resumen, leads, mensajes, redes, login
+│   ├── admin/                   # Panel: resumen, leads, mensajes, certificados, redes
 │   └── api/
 │       ├── leads/               # POST captura de leads (dispara nurture)
+│       ├── courses/complete/    # POST completar curso → emite certificado
 │       ├── nurture/dispatch/    # POST cron: envía mensajes vencidos
 │       ├── social/publish/      # POST cron: publica posts programados
 │       └── admin/               # API del panel (login, social, nurture)
@@ -62,9 +72,10 @@ src/
 │   ├── db.ts                    # Cliente Prisma
 │   ├── admin-auth.ts            # Autenticación del panel
 │   ├── leads.ts                 # Lógica de captura de leads
+│   ├── certificates.ts          # Emisión y verificación de certificados
 │   ├── nurture/                 # Motor de secuencias + canales (email/WhatsApp)
 │   └── social/                  # Orquestador + adaptadores por red social
-└── data/courses.ts              # Catálogo semilla de cursos
+└── data/courses.ts              # Catálogo semilla de cursos (con lecciones)
 ```
 
 ### Panel de administración

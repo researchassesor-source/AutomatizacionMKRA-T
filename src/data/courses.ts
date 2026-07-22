@@ -2,6 +2,11 @@
 // En produccion esto vive en la base de datos (tabla courses);
 // aqui sirve como fuente para el seed y como fallback de demostracion.
 
+export type Lesson = {
+  title: string;
+  content: string;
+};
+
 export type SeedCourse = {
   slug: string;
   title: string;
@@ -11,6 +16,7 @@ export type SeedCourse = {
   duration: string;
   hasCertificate: boolean;
   benefits: string[];
+  lessons: Lesson[];
 };
 
 export const seedCourses: SeedCourse[] = [
@@ -30,6 +36,23 @@ export const seedCourses: SeedCourse[] = [
       "Constancia de finalizacion",
       "Sin costo y sin letra pequena",
     ],
+    lessons: [
+      {
+        title: "¿Que es la Seguridad y Salud en el Trabajo?",
+        content:
+          "La SST es la disciplina que busca prevenir las lesiones y enfermedades causadas por las condiciones de trabajo. Protege y promueve la salud de los trabajadores mediante el control de los riesgos en el lugar de trabajo.",
+      },
+      {
+        title: "Identificacion de peligros y riesgos",
+        content:
+          "Un peligro es una fuente con potencial de causar dano; el riesgo es la probabilidad de que ese dano ocurra. Aprender a identificarlos es el primer paso para prevenir accidentes.",
+      },
+      {
+        title: "Elementos de proteccion personal (EPP)",
+        content:
+          "Los EPP son la ultima barrera de proteccion frente a los riesgos. Casco, guantes, calzado y proteccion visual o auditiva deben usarse segun cada tarea.",
+      },
+    ],
   },
   {
     slug: "excel-basico-para-el-trabajo",
@@ -45,6 +68,23 @@ export const seedCourses: SeedCourse[] = [
       "Plantillas listas para usar",
       "Constancia de finalizacion",
       "Acceso inmediato",
+    ],
+    lessons: [
+      {
+        title: "La interfaz de Excel",
+        content:
+          "Conoce la cinta de opciones, las celdas, filas y columnas. Aprende a moverte con rapidez por una hoja de calculo y a guardar tu trabajo.",
+      },
+      {
+        title: "Formulas basicas",
+        content:
+          "SUMA, PROMEDIO, MAX y MIN son las funciones que resuelven el 80% de las tareas diarias. Practica combinandolas con rangos de celdas.",
+      },
+      {
+        title: "Formato y presentacion",
+        content:
+          "Un dato bien presentado comunica mejor. Aplica formato de numero, moneda y porcentaje, y resalta lo importante con formato condicional.",
+      },
     ],
   },
 ];

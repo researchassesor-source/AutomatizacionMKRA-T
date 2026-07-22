@@ -4,6 +4,7 @@ const links = [
   { href: "/admin", label: "Resumen" },
   { href: "/admin/leads", label: "Leads" },
   { href: "/admin/mensajes", label: "Nurture" },
+  { href: "/admin/certificados", label: "Certificados" },
   { href: "/admin/redes", label: "Redes" },
 ];
 

@@ -30,6 +30,20 @@ export function getAdapter(platform: Platform): SocialAdapter | undefined {
 }
 
 /**
+ * Verifica la conexion con una plataforma (token/ids validos).
+ * Hoy soportado para Instagram/Facebook (Meta).
+ */
+export async function verifyPlatformConnection(
+  platform: Platform,
+): Promise<{ ok: boolean; name?: string; error?: string }> {
+  const adapter = adapters[platform];
+  if (adapter instanceof MetaAdapter) {
+    return adapter.verifyConnection();
+  }
+  return { ok: false, error: `verificacion no soportada para ${platform}` };
+}
+
+/**
  * Publica un SocialPost concreto (por id) usando el adaptador de su cuenta.
  * Actualiza el estado del post en la base de datos segun el resultado.
  */

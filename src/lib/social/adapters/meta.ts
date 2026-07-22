@@ -33,6 +33,34 @@ export class MetaAdapter implements SocialAdapter {
       : Boolean(this.config.pageId);
   }
 
+  /**
+   * Verifica que el token y los ids son validos consultando la Graph API.
+   * Util para el boton "probar conexion" del panel antes de publicar.
+   */
+  async verifyConnection(): Promise<{ ok: boolean; name?: string; error?: string }> {
+    if (!this.isConfigured()) {
+      return { ok: false, error: "credenciales incompletas" };
+    }
+    const id =
+      this.platform === "INSTAGRAM" ? this.config.igUserId : this.config.pageId;
+    const fields = this.platform === "INSTAGRAM" ? "username" : "name";
+    try {
+      const url = `${GRAPH}/${id}?fields=${fields}&access_token=${this.config.accessToken}`;
+      const res = await fetch(url);
+      const data = (await res.json()) as {
+        name?: string;
+        username?: string;
+        error?: { message?: string };
+      };
+      if (data.error) {
+        return { ok: false, error: data.error.message ?? "token invalido" };
+      }
+      return { ok: true, name: data.name ?? data.username };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
   async publish(input: PublishInput): Promise<PublishResult> {
     if (!this.isConfigured()) {
       return { ok: false, error: `${this.platform}: credenciales no configuradas` };

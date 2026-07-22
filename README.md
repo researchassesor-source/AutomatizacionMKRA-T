@@ -6,19 +6,29 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 
 ---
 
-## ¿Qué hace hoy? (Fase 1 — Captación de leads)
+## ¿Qué hace hoy?
 
+**Fase 1 — Captación de leads**
 - **Landing pages de cursos gratuitos** con formulario de inscripción (`/cursos/[slug]`).
 - **Captura de leads** en el CRM propio (deduplicación por email, tracking de UTM).
 - **Base del CRM**: contactos, etapas del embudo, bitácora de eventos.
-- **Orquestador de publicación en redes**: cola de publicaciones + adaptadores por red social (Meta/Instagram/Facebook listo; TikTok, YouTube y LinkedIn preparados para añadir).
+- **Orquestador de publicación en redes**: cola de publicaciones + adaptadores por red social (Meta/Instagram/Facebook listo; TikTok, YouTube y LinkedIn preparados para añadir) + verificación de conexión.
+
+**Fase 2 — Nurture (email / WhatsApp)**
+- **Secuencia de bienvenida** que se encola automáticamente al inscribirse un lead (idempotente): email de acceso inmediato, recordatorio a las 24 h y oferta del catálogo a las 72 h.
+- **Canales con adaptadores**: email (Resend como ejemplo) y WhatsApp Cloud API. Sin credenciales funcionan en **modo log** para probar toda la secuencia.
+- **Dispatcher** que envía los mensajes vencidos (pensado para un cron).
+
+**Panel de administración** (`/admin`, protegido con contraseña)
+- Resumen con métricas, lista de **leads**, cola de **nurture** y gestión de **redes** (probar conexión, registrar cuentas, crear/programar/publicar posts).
 
 ## Roadmap
 
 | Fase | Módulo | Estado |
 |------|--------|--------|
-| 1 | Captación: landing + captura de leads + publicación en redes | ✅ Base construida |
-| 2 | Nurture: secuencias de email/WhatsApp de bienvenida | 🔜 Hooks preparados |
+| 1 | Captación: landing + captura de leads + publicación en redes | ✅ |
+| 2 | Nurture: secuencias de email/WhatsApp de bienvenida | ✅ |
+| — | Panel de administración | ✅ |
 | 3 | Curso + certificado con folio único y verificación pública | 🔜 Modelo previsto |
 | 4 | Ventas: scoring de leads y pipeline hacia catálogo de pago | 🔜 Modelo previsto |
 
@@ -37,18 +47,37 @@ Ver [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) para el diagrama del embudo y
 
 ```
 src/
+├── middleware.ts                # Protege /admin y /api/admin
 ├── app/
 │   ├── page.tsx                 # Home con listado de cursos
 │   ├── cursos/[slug]/           # Landing de curso + formulario (LeadForm)
 │   ├── gracias/                 # Página de confirmación
+│   ├── admin/                   # Panel: resumen, leads, mensajes, redes, login
 │   └── api/
-│       ├── leads/               # POST captura de leads
-│       └── social/publish/      # POST orquestador de publicación
+│       ├── leads/               # POST captura de leads (dispara nurture)
+│       ├── nurture/dispatch/    # POST cron: envía mensajes vencidos
+│       ├── social/publish/      # POST cron: publica posts programados
+│       └── admin/               # API del panel (login, social, nurture)
 ├── lib/
 │   ├── db.ts                    # Cliente Prisma
+│   ├── admin-auth.ts            # Autenticación del panel
 │   ├── leads.ts                 # Lógica de captura de leads
+│   ├── nurture/                 # Motor de secuencias + canales (email/WhatsApp)
 │   └── social/                  # Orquestador + adaptadores por red social
 └── data/courses.ts              # Catálogo semilla de cursos
+```
+
+### Panel de administración
+
+Define `ADMIN_PASSWORD` en `.env` para habilitarlo (sin ella queda deshabilitado)
+y entra en `http://localhost:3000/admin`.
+
+### Nurture (cron)
+
+Igual que la publicación en redes, programa una llamada periódica:
+
+```bash
+curl -X POST https://TU-DOMINIO/api/nurture/dispatch
 ```
 
 ---

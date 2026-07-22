@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { enqueueSequence } from "@/lib/nurture/engine";
 
 // Validacion del formulario de captacion de leads.
 export const leadInputSchema = z.object({
@@ -67,8 +68,14 @@ export async function captureLead(input: LeadInput) {
     },
   });
 
-  // Punto de enganche para la fase de nurture (email/WhatsApp de bienvenida).
-  // await enqueueWelcomeSequence(lead.id);
+  // Fase de nurture: encola la secuencia de bienvenida (email/WhatsApp).
+  // Es idempotente, asi que reenviar el formulario no duplica mensajes.
+  try {
+    await enqueueSequence(lead.id);
+  } catch (err) {
+    // No bloqueamos la captura del lead si el nurture falla.
+    console.error("[leads] enqueueSequence fallo", err);
+  }
 
   return lead;
 }

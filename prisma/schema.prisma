@@ -58,6 +58,7 @@ model Lead {
   updatedAt DateTime @updatedAt
 
   events    LeadEvent[]
+  messages  OutboundMessage[]
 
   @@index([email])
   @@index([stage])
@@ -138,4 +139,41 @@ enum PostStatus {
   PUBLICANDO
   PUBLICADO
   FALLIDO
+}
+
+// --- Mensajes salientes (nurture: email / WhatsApp) ---
+// Cada paso de una secuencia genera un OutboundMessage programado; un
+// dispatcher (cron) los envia cuando llega su hora. Mismo patron que SocialPost.
+model OutboundMessage {
+  id          String   @id @default(cuid())
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId      String
+  channel     MessageChannel
+  toAddress   String        // correo o telefono destino
+  subject     String?
+  body        String
+  status      MessageStatus @default(PROGRAMADO)
+  scheduledAt DateTime
+  sentAt      DateTime?
+  error       String?
+  sequenceKey String?       // que secuencia lo genero, ej "bienvenida"
+  stepKey     String?       // que paso, ej "acceso"
+  createdAt   DateTime      @default(now())
+
+  @@index([status, scheduledAt])
+  @@index([leadId])
+  @@map("outbound_messages")
+}
+
+enum MessageChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum MessageStatus {
+  PROGRAMADO
+  ENVIANDO
+  ENVIADO
+  FALLIDO
+  OMITIDO
 }

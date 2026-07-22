@@ -7,8 +7,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Conexion con pooler (pgbouncer) para la app en serverless.
+  url       = env("POSTGRES_PRISMA_URL")
+  // Conexion directa para migraciones / db push.
+  directUrl = env("POSTGRES_URL_NON_POOLING")
 }
 
 // --- Catalogo de cursos (los gratuitos de enganche y, luego, los de pago) ---

@@ -19,11 +19,10 @@ Automatización de marketing y ventas para **[ra-training.com](https://ra-traini
 - **Canales con adaptadores**: email (Resend como ejemplo) y WhatsApp Cloud API. Sin credenciales funcionan en **modo log** para probar toda la secuencia.
 - **Dispatcher** que envía los mensajes vencidos (pensado para un cron).
 
-**Fase 3 — Curso + certificado verificable**
+**Fase 3 — Curso + handoff a `ra-training-finance`**
 - **Aula virtual** (`/aula/[slug]`) con las lecciones del curso y botón de finalización.
-- **Emisión de certificado** con **folio único** (ej. `RA-2026-6D6SUN`) al completar el curso; transiciona el lead a `CERTIFICADO` y encola el aviso "certificado listo".
-- **Certificado imprimible/PDF** (`/certificado/[folio]`) y **verificación pública** (`/verificar/[folio]`) para que un empleador confirme su autenticidad.
-- Salvaguarda legal: es una **"constancia de finalización"** salvo que el curso tenga `hasCertificate` activado (aval del Ministerio de Trabajo gestionado).
+- **Handoff**: al completar el curso, MKRA-T **crea una inscripción en `ra-training-finance`** (la fuente de verdad de certificados y avales) vía su API, guarda la referencia (`financeInscripcionId`) en el lead y encola el aviso con el enlace de verificación.
+- **La emisión y verificación del certificado (y el aval del Ministerio de Trabajo) viven en `ra-training-finance`**, no aquí. `/verificar` redirige a ese sistema. MKRA-T no duplica esa lógica: única fuente de verdad.
 
 **Panel de administración** (`/admin`, protegido con contraseña)
 - Resumen con métricas, lista de **leads**, cola de **nurture**, **certificados** emitidos y gestión de **redes** (probar conexión, registrar cuentas, crear/programar/publicar posts).
@@ -57,9 +56,8 @@ src/
 ├── app/
 │   ├── page.tsx                 # Home con listado de cursos
 │   ├── cursos/[slug]/           # Landing de curso + formulario (LeadForm)
-│   ├── aula/[slug]/             # Aula virtual + finalización del curso
-│   ├── certificado/[folio]/     # Certificado imprimible (PDF)
-│   ├── verificar/               # Verificación pública de certificados
+│   ├── aula/[slug]/             # Aula virtual + finalización (handoff a finance)
+│   ├── verificar/               # Redirige a la verificación de ra-training-finance
 │   ├── gracias/                 # Página de confirmación
 │   ├── admin/                   # Panel: resumen, leads, mensajes, certificados, redes
 │   └── api/
@@ -72,7 +70,7 @@ src/
 │   ├── db.ts                    # Cliente Prisma
 │   ├── admin-auth.ts            # Autenticación del panel
 │   ├── leads.ts                 # Lógica de captura de leads
-│   ├── certificates.ts          # Emisión y verificación de certificados
+│   ├── finance/                 # Cliente de ra-training-finance (handoff + verificación)
 │   ├── nurture/                 # Motor de secuencias + canales (email/WhatsApp)
 │   └── social/                  # Orquestador + adaptadores por red social
 └── data/courses.ts              # Catálogo semilla de cursos (con lecciones)
@@ -90,6 +88,22 @@ Igual que la publicación en redes, programa una llamada periódica:
 ```bash
 curl -X POST https://TU-DOMINIO/api/nurture/dispatch
 ```
+
+### Integración con `ra-training-finance`
+
+`ra-training-finance` es la **fuente de verdad** de certificados y del aval del
+Ministerio de Trabajo. MKRA-T se integra así:
+
+- **Handoff**: al completar un curso (`/api/courses/complete`), MKRA-T se
+  autentica con un usuario de servicio (rol `vendedor`) y crea una **inscripción**
+  (`addInscripcion`) en finance. Guarda el `INS_...` en el lead.
+- **Verificación**: `/verificar/*` redirige a `FINANCE_APP_URL/verificar/...`.
+- Configúralo con las variables `FINANCE_*` de `.env`. Sin ellas, el handoff
+  responde `503` (no toca finance).
+
+> ⚠️ `addInscripcion` **crea también un ingreso** en la contabilidad de finance.
+> Por eso el handoff se dispara sólo al **completar** el curso (no en cada
+> captura), con `monto: 0` y una nota de origen.
 
 ---
 

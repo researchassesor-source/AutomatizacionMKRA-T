@@ -22,7 +22,10 @@
                                      │  completa el curso
                                      ▼
                  ┌─────────────────────────────────────────────┐
-                 │  4. CERTIFICAR  (folio + verificación) [F3] │
+                 │  4. CERTIFICAR  [Fase 3 · handoff]          │
+                 │  /api/courses/complete → addInscripcion     │
+                 │  ─────────────► ra-training-finance ◄─────  │
+                 │  (fuente de verdad: certificado + AVAL)     │
                  └───────────────────┬─────────────────────────┘
                                      │  lead "caliente"
                                      ▼
@@ -30,6 +33,23 @@
                  │  5. VENDER  (scoring → catálogo de pago) [F4]│
                  └─────────────────────────────────────────────┘
 ```
+
+## Integración con `ra-training-finance` (fuente de verdad)
+
+MKRA-T es el **embudo de marketing**; `ra-training-finance` es el **sistema de
+registro** (inscripciones, pagos, certificados, aval del Ministerio de Trabajo).
+No duplicamos: MKRA-T entrega y enlaza.
+
+```
+MKRA-T                                  ra-training-finance (Apps Script + Sheets)
+  completa curso ──addInscripcion()──►  crea Inscripción (INS_...) + Ingreso
+  guarda financeInscripcionId
+  /verificar/* ───redirige──────────►  /verificar/{INS_...}  (verificación + QR)
+```
+
+- Cliente en `src/lib/finance/client.ts` (login con token de servicio cacheado).
+- El certificado se **emite en finance** (allí también se gestiona el aval); MKRA-T
+  nunca marca un certificado como oficial por su cuenta.
 
 ## Principio de diseño: adaptadores
 

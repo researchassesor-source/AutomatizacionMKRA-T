@@ -1,49 +1,24 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+export const dynamic = "force-dynamic";
 
-export default function VerificarBuscar() {
-  const router = useRouter();
-  const [folio, setFolio] = useState("");
+// El buscador de verificacion tambien vive en ra-training-finance.
+export default function VerificarIndex() {
+  const base = (process.env.FINANCE_APP_URL ?? "").replace(/\/$/, "");
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const clean = folio.trim().toUpperCase();
-    if (clean) router.push(`/verificar/${encodeURIComponent(clean)}`);
+  if (!base) {
+    return (
+      <main className="verify-box">
+        <div className="verify-card">
+          <h1 style={{ marginTop: 0 }}>Verificar un certificado</h1>
+          <p className="muted">
+            La verificacion se realiza en el sistema de RA-Training. Configura{" "}
+            <code>FINANCE_APP_URL</code> para habilitar el enlace.
+          </p>
+        </div>
+      </main>
+    );
   }
 
-  return (
-    <main className="verify-box">
-      <div className="verify-card">
-        <h1 style={{ marginTop: 0 }}>Verificar un certificado</h1>
-        <p className="muted">
-          Ingresa el folio del certificado para comprobar su autenticidad.
-        </p>
-        <form onSubmit={handleSubmit} style={{ marginTop: 20 }}>
-          <div className="field">
-            <input
-              type="text"
-              placeholder="RA-2026-XXXXXX"
-              value={folio}
-              onChange={(e) => setFolio(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "12px",
-                border: "1px solid var(--border)",
-                borderRadius: 10,
-                fontSize: "1rem",
-                textAlign: "center",
-                letterSpacing: "0.06em",
-              }}
-              required
-            />
-          </div>
-          <button className="btn" type="submit">
-            Verificar
-          </button>
-        </form>
-      </div>
-    </main>
-  );
+  redirect(`${base}/verificar`);
 }

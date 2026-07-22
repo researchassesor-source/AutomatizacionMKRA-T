@@ -29,8 +29,7 @@ model Course {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  leads        Lead[]
-  certificates Certificate[]
+  leads Lead[]
 
   @@map("courses")
 }
@@ -58,9 +57,12 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  events       LeadEvent[]
-  messages     OutboundMessage[]
-  certificates Certificate[]
+  // Referencia a la inscripcion creada en ra-training-finance (fuente de
+  // verdad de certificados). Se llena en el handoff al completar el curso.
+  financeInscripcionId String?
+
+  events   LeadEvent[]
+  messages OutboundMessage[]
 
   @@index([email])
   @@index([stage])
@@ -178,24 +180,4 @@ enum MessageStatus {
   ENVIADO
   FALLIDO
   OMITIDO
-}
-
-// --- Certificados / constancias con folio verificable ---
-model Certificate {
-  id          String   @id @default(cuid())
-  folio       String   @unique // codigo publico, ej "RA-2026-A1B2C3"
-  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  leadId      String
-  course      Course   @relation(fields: [courseId], references: [id])
-  courseId    String
-  holderName  String   // nombre en el certificado (snapshot)
-  courseTitle String   // titulo del curso (snapshot al momento de emitir)
-  // Si el curso tiene aval oficial gestionado; se congela al emitir
-  official    Boolean  @default(false)
-  issuedAt    DateTime @default(now())
-  revoked     Boolean  @default(false)
-
-  @@unique([leadId, courseId]) // un certificado por lead+curso
-  @@index([folio])
-  @@map("certificates")
 }

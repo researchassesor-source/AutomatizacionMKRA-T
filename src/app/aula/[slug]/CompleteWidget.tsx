@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export function CompleteWidget({ courseSlug }: { courseSlug: string }) {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,11 +24,30 @@ export function CompleteWidget({ courseSlug }: { courseSlug: string }) {
         setLoading(false);
         return;
       }
-      router.push(`/certificado/${json.folio}`);
+      setDone(json.verifyUrl ?? null);
+      setLoading(false);
     } catch {
       setError("Error de conexion.");
       setLoading(false);
     }
+  }
+
+  if (done !== null) {
+    return (
+      <div className="card" style={{ marginTop: 24, textAlign: "center" }}>
+        <div style={{ fontSize: "2.4rem" }}>🎉</div>
+        <h2>¡Curso completado!</h2>
+        <p className="sub">
+          Registramos tu inscripcion. RA-Training emitira tu certificado y podras
+          verificarlo en el siguiente enlace.
+        </p>
+        {done && (
+          <a className="btn" href={done} target="_blank" rel="noreferrer">
+            Ver / verificar mi certificado
+          </a>
+        )}
+      </div>
+    );
   }
 
   return (

@@ -130,6 +130,30 @@ export async function createInscripcion(
   return { id };
 }
 
+/**
+ * ¿Emision automatica del certificado tras el handoff?
+ * Por defecto NO (manual): finance emite el certificado por su flujo normal.
+ * Actívalo con FINANCE_AUTO_EMIT=true (util para cursos gratuitos de enganche).
+ */
+export function isAutoEmitEnabled(): boolean {
+  return /^(1|true|yes|on|si)$/i.test(process.env.FINANCE_AUTO_EMIT ?? "");
+}
+
+/**
+ * Marca el certificado de una inscripcion como "emitido" en finance.
+ * Envia solo los campos necesarios; el resto queda intacto (updateRow ignora
+ * los undefined). monto:0 porque son cursos gratuitos.
+ */
+export async function emitCertificate(inscripcionId: string): Promise<void> {
+  const res = await authedCall<unknown>("updateInscripcion", {
+    id: inscripcionId,
+    inscripcion: { estadoCertificado: "emitido", monto: 0 },
+  });
+  if (!res.success) {
+    throw new Error(res.error ?? "updateInscripcion (emitir) fallo");
+  }
+}
+
 /** Verificacion publica (sin token) de un certificado por su ID de inscripcion. */
 export async function verifyCertificate(id: string) {
   const res = await rawCall<Record<string, unknown>>("verificarCertificado", {

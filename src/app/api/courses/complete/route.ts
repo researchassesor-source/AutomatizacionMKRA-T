@@ -3,7 +3,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
   createInscripcion,
+  emitCertificate,
   financeVerificationUrl,
+  isAutoEmitEnabled,
   isFinanceConfigured,
 } from "@/lib/finance/client";
 
@@ -75,6 +77,18 @@ export async function POST(request: Request) {
       notas: `Curso gratuito MKRA-T: ${course.title}`,
     });
 
+    // Emision automatica opcional (por defecto manual: finance lo emite).
+    let emitido = false;
+    if (isAutoEmitEnabled()) {
+      try {
+        await emitCertificate(id);
+        emitido = true;
+      } catch (err) {
+        // No bloqueamos el handoff si la emision automatica falla; queda manual.
+        console.error("[courses/complete] auto-emit fallo", err);
+      }
+    }
+
     await prisma.lead.update({
       where: { id: lead.id },
       data: { financeInscripcionId: id, stage: "CERTIFICADO" },
@@ -83,8 +97,8 @@ export async function POST(request: Request) {
     await prisma.leadEvent.create({
       data: {
         leadId: lead.id,
-        type: "finance_handoff",
-        payload: { inscripcionId: id, courseSlug: course.slug },
+        type: emitido ? "certificate_issued" : "finance_handoff",
+        payload: { inscripcionId: id, courseSlug: course.slug, emitido },
       },
     });
 
@@ -97,12 +111,16 @@ export async function POST(request: Request) {
         leadId: lead.id,
         channel: "EMAIL",
         toAddress: lead.email,
-        subject: "Tu inscripcion quedo registrada",
+        subject: emitido
+          ? "🎓 Tu certificado esta listo"
+          : "Tu inscripcion quedo registrada",
         body: [
           `Hola ${nombre},`,
           "",
           `¡Felicidades por completar "${course.title}"!`,
-          "RA-Training emitira tu certificado. Podras verificarlo aqui:",
+          emitido
+            ? "Ya puedes ver y verificar tu certificado aqui:"
+            : "RA-Training emitira tu certificado. Podras verificarlo aqui:",
           "",
           verifyUrl,
           "",
@@ -111,11 +129,14 @@ export async function POST(request: Request) {
         status: "PROGRAMADO",
         scheduledAt: new Date(),
         sequenceKey: "certificado",
-        stepKey: "handoff",
+        stepKey: emitido ? "emitido" : "handoff",
       },
     });
 
-    return NextResponse.json({ ok: true, inscripcionId: id, verifyUrl }, { status: 201 });
+    return NextResponse.json(
+      { ok: true, inscripcionId: id, verifyUrl, emitido },
+      { status: 201 },
+    );
   } catch (err) {
     console.error("[courses/complete] handoff error", err);
     return NextResponse.json(

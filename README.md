@@ -98,6 +98,11 @@ Ministerio de Trabajo. MKRA-T se integra así:
   autentica con un usuario de servicio (rol `vendedor`) y crea una **inscripción**
   (`addInscripcion`) en finance. Guarda el `INS_...` en el lead.
 - **Verificación**: `/verificar/*` redirige a `FINANCE_APP_URL/verificar/...`.
+- **Emisión del certificado**: por defecto **manual** (finance lo emite por su
+  flujo normal). Pon `FINANCE_AUTO_EMIT=true` para que MKRA-T lo emita solo al
+  completar el curso (`updateInscripcion` → `estadoCertificado: emitido`),
+  recomendado sólo para cursos gratuitos de enganche. Si la emisión automática
+  falla, el handoff no se bloquea y el certificado queda pendiente (manual).
 - Configúralo con las variables `FINANCE_*` de `.env`. Sin ellas, el handoff
   responde `503` (no toca finance).
 

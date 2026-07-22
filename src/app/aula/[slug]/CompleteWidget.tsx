@@ -6,7 +6,9 @@ export function CompleteWidget({ courseSlug }: { courseSlug: string }) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [done, setDone] = useState<{ verifyUrl: string | null; emitido: boolean } | null>(
+    null,
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,7 +26,7 @@ export function CompleteWidget({ courseSlug }: { courseSlug: string }) {
         setLoading(false);
         return;
       }
-      setDone(json.verifyUrl ?? null);
+      setDone({ verifyUrl: json.verifyUrl ?? null, emitido: json.emitido === true });
       setLoading(false);
     } catch {
       setError("Error de conexion.");
@@ -38,12 +40,13 @@ export function CompleteWidget({ courseSlug }: { courseSlug: string }) {
         <div style={{ fontSize: "2.4rem" }}>🎉</div>
         <h2>¡Curso completado!</h2>
         <p className="sub">
-          Registramos tu inscripcion. RA-Training emitira tu certificado y podras
-          verificarlo en el siguiente enlace.
+          {done.emitido
+            ? "Tu certificado ya fue emitido. Puedes verlo y verificarlo aqui."
+            : "Registramos tu inscripcion. RA-Training emitira tu certificado y podras verificarlo en el siguiente enlace."}
         </p>
-        {done && (
-          <a className="btn" href={done} target="_blank" rel="noreferrer">
-            Ver / verificar mi certificado
+        {done.verifyUrl && (
+          <a className="btn" href={done.verifyUrl} target="_blank" rel="noreferrer">
+            {done.emitido ? "Ver / verificar mi certificado" : "Ver estado de mi certificado"}
           </a>
         )}
       </div>

@@ -132,20 +132,44 @@ npm run db:seed     # carga los cursos de ejemplo (opcional)
 
 ---
 
-## Paso 7 · Cron jobs (ya configurados)
+## Paso 7 · Cron jobs
 
-El archivo `vercel.json` ya define los dos cron:
+Hay dos tareas periódicas que disparan la automatización:
 
-- `/api/nurture/dispatch` cada 10 min — envía los correos/WhatsApp vencidos.
-- `/api/social/publish` cada 15 min — publica los posts programados.
+- `/api/nurture/dispatch` — envía los correos/WhatsApp vencidos (cada ~10 min).
+- `/api/social/publish` — publica los posts programados (cada ~15 min).
 
-Vercel los protege enviando `Authorization: Bearer <CRON_SECRET>`. No hay que
-hacer nada más si definiste `CRON_SECRET`.
+Ambas aceptan `GET` protegido con `CRON_SECRET` (cabecera
+`Authorization: Bearer <CRON_SECRET>`).
 
-> **Plan Hobby de Vercel**: los cron corren como máximo **una vez al día**. Para
-> la frecuencia de arriba necesitas el plan **Pro**, o usar un cron externo
-> gratuito (ej. cron-job.org) que haga `GET` a esas URLs con la cabecera
-> `Authorization: Bearer <CRON_SECRET>`.
+### Opción A — Plan gratuito (Hobby): cron externo
+
+El plan Hobby de Vercel **solo permite cron una vez al día**, insuficiente para
+esto. Usa un cron externo gratuito, ej. **[cron-job.org](https://cron-job.org)**:
+
+1. Crea dos "cronjobs", uno por URL:
+   - `https://TU-APP/api/nurture/dispatch` cada 10 min.
+   - `https://TU-APP/api/social/publish` cada 15 min.
+2. En cada uno, agrega una **cabecera HTTP**:
+   `Authorization: Bearer <tu CRON_SECRET>`.
+3. Método **GET**. Guarda.
+
+### Opción B — Plan Pro: cron nativo de Vercel
+
+Con el plan Pro puedes usar el cron de Vercel. Agrega esto a `vercel.json` y
+vuelve a desplegar:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/nurture/dispatch", "schedule": "*/10 * * * *" },
+    { "path": "/api/social/publish", "schedule": "*/15 * * * *" }
+  ]
+}
+```
+
+Vercel envía solo la cabecera `Authorization: Bearer <CRON_SECRET>`.
 
 ---
 

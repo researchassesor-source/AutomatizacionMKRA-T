@@ -35,6 +35,32 @@ export function RedesManager({
   const [testPlatform, setTestPlatform] = useState("INSTAGRAM");
   const [testResult, setTestResult] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setUploadMsg(`✗ ${data.error ?? "no se pudo subir"}`);
+      } else {
+        setMediaUrl(data.url);
+        setUploadMsg("✓ Imagen lista");
+      }
+    } catch {
+      setUploadMsg("✗ error de conexion");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function testConnection() {
     setBusy("test");
@@ -74,7 +100,7 @@ export function RedesManager({
     const { ok, data } = await postJson("/api/admin/social/posts", {
       accountId: f.get("accountId"),
       caption: f.get("caption"),
-      mediaUrl: f.get("mediaUrl") || "",
+      mediaUrl: mediaUrl || f.get("mediaUrl") || "",
       linkUrl: f.get("linkUrl") || "",
       scheduledAt: scheduledAtRaw
         ? new Date(scheduledAtRaw).toISOString()
@@ -83,6 +109,8 @@ export function RedesManager({
     setBusy(null);
     if (ok) {
       (e.target as HTMLFormElement).reset();
+      setMediaUrl("");
+      setUploadMsg(null);
       router.refresh();
     } else {
       alert(data.error ?? "Error al crear el post");
@@ -187,7 +215,6 @@ export function RedesManager({
                   </option>
                 ))}
               </select>
-              <input name="mediaUrl" placeholder="URL de imagen (IG requiere)" />
               <input name="linkUrl" placeholder="URL de enlace (opcional)" />
               <input
                 name="scheduledAt"
@@ -195,6 +222,35 @@ export function RedesManager({
                 title="Dejar vacio = borrador"
               />
             </div>
+
+            {/* Imagen: subir desde el equipo o pegar una URL */}
+            <div className="form-row" style={{ alignItems: "center" }}>
+              <label className="btn-sm ghost" style={{ cursor: "pointer", textAlign: "center" }}>
+                {uploading ? "Subiendo..." : "📷 Subir imagen"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  onChange={handleUpload}
+                  disabled={uploading}
+                  style={{ display: "none" }}
+                />
+              </label>
+              <input
+                name="mediaUrl"
+                placeholder="...o pega la URL de la imagen"
+                value={mediaUrl}
+                onChange={(e) => setMediaUrl(e.target.value)}
+              />
+              {uploadMsg && <span className="result-line">{uploadMsg}</span>}
+            </div>
+            {mediaUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={mediaUrl}
+                alt="vista previa"
+                style={{ maxHeight: 90, borderRadius: 8, margin: "4px 0 12px" }}
+              />
+            )}
             <div className="form-row" style={{ gridTemplateColumns: "1fr" }}>
               <textarea
                 name="caption"

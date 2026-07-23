@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
+import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 // Sube una imagen a Vercel Blob y devuelve su URL publica.
 // Requiere el almacenamiento Blob conectado en Vercel (variable
@@ -37,14 +39,23 @@ export async function POST(request: Request) {
   }
 
   try {
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const blob = await put(`social/${Date.now()}-${safeName}`, file, {
+    // Convierte SIEMPRE a JPG (Instagram no acepta PNG) y limita el ancho para
+    // que sea compatible y liviana. Asi cualquier imagen que suba el usuario
+    // funciona en Instagram y Facebook.
+    const input = Buffer.from(await file.arrayBuffer());
+    const jpg = await sharp(input)
+      .rotate() // respeta la orientacion EXIF
+      .resize({ width: 1440, withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    const blob = await put(`social/${Date.now()}.jpg`, jpg, {
       access: "public",
-      contentType: file.type,
+      contentType: "image/jpeg",
     });
     return NextResponse.json({ url: blob.url });
   } catch (err) {
     console.error("[admin/upload] error", err);
-    return NextResponse.json({ error: "no se pudo subir la imagen" }, { status: 500 });
+    return NextResponse.json({ error: "no se pudo procesar la imagen" }, { status: 500 });
   }
 }

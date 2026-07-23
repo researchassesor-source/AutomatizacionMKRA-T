@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { MetaAdapter } from "./adapters/meta";
+import { TikTokAdapter } from "./adapters/tiktok";
 import type { Platform, SocialAdapter } from "./types";
 
 /**
@@ -17,7 +18,12 @@ function buildAdapters(): Partial<Record<Platform, SocialAdapter>> {
   return {
     INSTAGRAM: new MetaAdapter("INSTAGRAM", metaConfig),
     FACEBOOK: new MetaAdapter("FACEBOOK", metaConfig),
-    // TIKTOK: new TikTokAdapter(...),
+    TIKTOK: new TikTokAdapter({
+      clientKey: process.env.TIKTOK_CLIENT_KEY,
+      clientSecret: process.env.TIKTOK_CLIENT_SECRET,
+      refreshToken: process.env.TIKTOK_REFRESH_TOKEN,
+      privacy: process.env.TIKTOK_PRIVACY,
+    }),
     // YOUTUBE: new YouTubeAdapter(...),
     // LINKEDIN: new LinkedInAdapter(...),
   };
@@ -37,7 +43,7 @@ export async function verifyPlatformConnection(
   platform: Platform,
 ): Promise<{ ok: boolean; name?: string; error?: string }> {
   const adapter = adapters[platform];
-  if (adapter instanceof MetaAdapter) {
+  if (adapter instanceof MetaAdapter || adapter instanceof TikTokAdapter) {
     return adapter.verifyConnection();
   }
   return { ok: false, error: `verificacion no soportada para ${platform}` };

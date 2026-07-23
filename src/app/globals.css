@@ -260,6 +260,27 @@ a {
   text-align: center;
 }
 
+/* --- Boton flotante de WhatsApp --- */
+.wa-float {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #25d366;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45);
+  z-index: 1000;
+  transition: transform 0.15s;
+}
+.wa-float:hover {
+  transform: scale(1.08);
+}
+
 /* ================= Panel de administracion ================= */
 .admin-shell {
   padding: 28px 0 60px;

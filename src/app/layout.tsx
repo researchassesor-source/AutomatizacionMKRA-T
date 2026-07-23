@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WhatsAppButton } from "./WhatsAppButton";
 
 export const metadata: Metadata = {
   title: "RA-Training | Capacitate gratis y certifica tu futuro",
@@ -33,6 +34,7 @@ export default function RootLayout({
             RA-Training · ra-training.com — Capacitacion profesional online.
           </div>
         </footer>
+        <WhatsAppButton />
       </body>
     </html>
   );

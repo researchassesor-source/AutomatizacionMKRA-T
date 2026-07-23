@@ -229,7 +229,7 @@ export function RedesManager({
                 {uploading ? "Subiendo..." : "📷 Subir imagen"}
                 <input
                   type="file"
-                  accept="image/jpeg,image/png"
+                  accept="image/*"
                   onChange={handleUpload}
                   disabled={uploading}
                   style={{ display: "none" }}

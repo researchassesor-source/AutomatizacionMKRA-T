@@ -76,46 +76,107 @@ export class MetaAdapter implements SocialAdapter {
 
   private async publishInstagram(input: PublishInput): Promise<PublishResult> {
     if (!input.mediaUrl) {
-      return { ok: false, error: "Instagram requiere una imagen (mediaUrl)" };
+      return { ok: false, error: "Instagram requiere una imagen o video (mediaUrl)" };
     }
     const { igUserId, accessToken } = this.config;
+    const video = isVideo(input.mediaUrl);
 
-    // Paso 1: crear el container
-    const container = await this.graph(`${igUserId}/media`, {
-      image_url: input.mediaUrl,
-      caption: input.caption,
-      access_token: accessToken!,
-    });
+    // Paso 1: crear el container (imagen o Reel de video)
+    const container = await this.graph(
+      `${igUserId}/media`,
+      video
+        ? {
+            media_type: "REELS",
+            video_url: input.mediaUrl,
+            caption: input.caption,
+            access_token: accessToken!,
+          }
+        : {
+            image_url: input.mediaUrl,
+            caption: input.caption,
+            access_token: accessToken!,
+          },
+    );
     if (!container.id) {
-      return { ok: false, error: `IG container: ${JSON.stringify(container)}` };
+      const msg = errText(container) ?? JSON.stringify(container);
+      return { ok: false, error: `IG container: ${msg}` };
     }
 
-    // Paso 2: publicar el container
+    // Paso 2: esperar a que Instagram procese el media antes de publicar.
+    // Las imagenes quedan listas casi al instante; los videos tardan mas.
+    const ready = await this.waitForContainer(
+      container.id,
+      accessToken!,
+      video ? 20 : 8,
+    );
+    if (!ready.ok) return { ok: false, error: ready.error! };
+
+    // Paso 3: publicar el container
     const published = await this.graph(`${igUserId}/media_publish`, {
       creation_id: container.id,
       access_token: accessToken!,
     });
     if (!published.id) {
-      return { ok: false, error: `IG publish: ${JSON.stringify(published)}` };
+      const msg = errText(published) ?? JSON.stringify(published);
+      return { ok: false, error: `IG publish: ${msg}` };
     }
     return { ok: true, externalPostId: published.id };
   }
 
+  /** Sondea el estado del container hasta que quede FINISHED (o falle). */
+  private async waitForContainer(
+    containerId: string,
+    token: string,
+    maxIntentos: number,
+  ): Promise<{ ok: boolean; error?: string }> {
+    for (let i = 0; i < maxIntentos; i++) {
+      const url = `${GRAPH}/${containerId}?fields=status_code,status&access_token=${token}`;
+      const data = (await (await fetch(url)).json()) as {
+        status_code?: string;
+        status?: string;
+      };
+      if (data.status_code === "FINISHED") return { ok: true };
+      if (data.status_code === "ERROR" || data.status_code === "EXPIRED") {
+        return {
+          ok: false,
+          error: `IG media ${data.status_code}: ${data.status ?? "revisa formato/proporcion de la imagen o video"}`,
+        };
+      }
+      await sleep(2500);
+    }
+    return {
+      ok: false,
+      error: "IG: el contenido no quedo listo a tiempo, intenta de nuevo",
+    };
+  }
+
   private async publishFacebook(input: PublishInput): Promise<PublishResult> {
     const { pageId, accessToken } = this.config;
+    const caption = input.linkUrl
+      ? `${input.caption}\n\n${input.linkUrl}`
+      : input.caption;
 
-    // Con imagen -> publicacion de foto (/photos). Sin imagen -> texto (/feed).
+    // Video -> /videos ; imagen -> /photos ; solo texto -> /feed
+    if (input.mediaUrl && isVideo(input.mediaUrl)) {
+      const res = await this.graph(`${pageId}/videos`, {
+        file_url: input.mediaUrl,
+        description: caption,
+        access_token: accessToken!,
+      });
+      if (!res.id) {
+        return { ok: false, error: `FB video: ${errText(res) ?? JSON.stringify(res)}` };
+      }
+      return { ok: true, externalPostId: res.id };
+    }
+
     if (input.mediaUrl) {
-      const caption = input.linkUrl
-        ? `${input.caption}\n\n${input.linkUrl}`
-        : input.caption;
       const res = await this.graph(`${pageId}/photos`, {
         url: input.mediaUrl,
         caption,
         access_token: accessToken!,
       });
       const id = res.post_id ?? res.id;
-      if (!id) return { ok: false, error: `FB photo: ${JSON.stringify(res)}` };
+      if (!id) return { ok: false, error: `FB photo: ${errText(res) ?? JSON.stringify(res)}` };
       return { ok: true, externalPostId: id };
     }
 
@@ -127,7 +188,7 @@ export class MetaAdapter implements SocialAdapter {
 
     const res = await this.graph(`${pageId}/feed`, params);
     if (!res.id) {
-      return { ok: false, error: `FB publish: ${JSON.stringify(res)}` };
+      return { ok: false, error: `FB publish: ${errText(res) ?? JSON.stringify(res)}` };
     }
     return { ok: true, externalPostId: res.id };
   }
@@ -135,6 +196,22 @@ export class MetaAdapter implements SocialAdapter {
   private async graph(path: string, params: Record<string, string>) {
     const body = new URLSearchParams(params);
     const res = await fetch(`${GRAPH}/${path}`, { method: "POST", body });
-    return (await res.json()) as { id?: string; post_id?: string; error?: unknown };
+    return (await res.json()) as {
+      id?: string;
+      post_id?: string;
+      error?: { message?: string };
+    };
   }
+}
+
+function isVideo(url: string): boolean {
+  return /\.(mp4|mov|m4v|webm)(\?|$)/i.test(url);
+}
+
+function errText(res: { error?: { message?: string } }): string | undefined {
+  return res.error?.message;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

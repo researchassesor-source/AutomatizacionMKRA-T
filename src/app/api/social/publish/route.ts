@@ -3,6 +3,7 @@ import { processScheduledPosts, publishPost } from "@/lib/social/orchestrator";
 import { checkCronAuth } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * Endpoint del orquestador de publicaciones.

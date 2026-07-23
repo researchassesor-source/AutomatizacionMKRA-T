@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { publishPost } from "@/lib/social/orchestrator";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Publica un post concreto de inmediato desde el panel.
 export async function POST(request: Request) {

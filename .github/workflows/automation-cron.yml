@@ -1,0 +1,27 @@
+name: Automatizacion (cron)
+
+# Reloj gratuito que dispara las tareas programadas del sistema:
+#  - publicar los posts programados cuya hora ya llego
+#  - enviar los correos/WhatsApp de nurture vencidos
+#
+# Corre cada 15 minutos. Reemplaza al cron de Vercel (que en el plan gratis
+# solo corre 1 vez al dia). Requiere un secreto de repositorio: CRON_SECRET
+# (mismo valor que la variable CRON_SECRET en Vercel).
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {} # permite dispararlo a mano desde la pestana Actions
+
+jobs:
+  disparar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publicar posts programados
+        run: |
+          curl -sS -X GET "https://automatizacion-mkra-t2.vercel.app/api/social/publish" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" -w "\nHTTP %{http_code}\n"
+      - name: Enviar nurture pendiente
+        run: |
+          curl -sS -X GET "https://automatizacion-mkra-t2.vercel.app/api/nurture/dispatch" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" -w "\nHTTP %{http_code}\n"

@@ -45,22 +45,36 @@ export function RedesManager({
     setUploading(true);
     setUploadMsg(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) {
-        setUploadMsg(`✗ ${data.error ?? "no se pudo subir"}`);
+      if (file.type.startsWith("video/")) {
+        // Video: subida directa a Blob (soporta archivos grandes).
+        const { upload } = await import("@vercel/blob/client");
+        const blob = await upload(`social/${Date.now()}-${file.name}`, file, {
+          access: "public",
+          handleUploadUrl: "/api/admin/upload/token",
+        });
+        setMediaUrl(blob.url);
+        setUploadMsg("✓ Video listo");
       } else {
-        setMediaUrl(data.url);
-        setUploadMsg("✓ Imagen lista");
+        // Imagen: subida al servidor (convierte a JPG para Instagram).
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          setUploadMsg(`✗ ${data.error ?? "no se pudo subir"}`);
+        } else {
+          setMediaUrl(data.url);
+          setUploadMsg("✓ Imagen lista");
+        }
       }
-    } catch {
-      setUploadMsg("✗ error de conexion");
+    } catch (err) {
+      setUploadMsg(`✗ ${(err as Error).message ?? "error al subir"}`);
     } finally {
       setUploading(false);
     }
   }
+
+  const isVideoUrl = /\.(mp4|mov|m4v|webm)(\?|$)/i.test(mediaUrl);
 
   async function testConnection() {
     setBusy("test");
@@ -226,10 +240,10 @@ export function RedesManager({
             {/* Imagen: subir desde el equipo o pegar una URL */}
             <div className="form-row" style={{ alignItems: "center" }}>
               <label className="btn-sm ghost" style={{ cursor: "pointer", textAlign: "center" }}>
-                {uploading ? "Subiendo..." : "📷 Subir imagen"}
+                {uploading ? "Subiendo..." : "📷 Subir imagen o video"}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   onChange={handleUpload}
                   disabled={uploading}
                   style={{ display: "none" }}
@@ -237,20 +251,27 @@ export function RedesManager({
               </label>
               <input
                 name="mediaUrl"
-                placeholder="...o pega la URL de la imagen"
+                placeholder="...o pega la URL de la imagen/video"
                 value={mediaUrl}
                 onChange={(e) => setMediaUrl(e.target.value)}
               />
               {uploadMsg && <span className="result-line">{uploadMsg}</span>}
             </div>
-            {mediaUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={mediaUrl}
-                alt="vista previa"
-                style={{ maxHeight: 90, borderRadius: 8, margin: "4px 0 12px" }}
-              />
-            )}
+            {mediaUrl &&
+              (isVideoUrl ? (
+                <video
+                  src={mediaUrl}
+                  controls
+                  style={{ maxHeight: 140, borderRadius: 8, margin: "4px 0 12px" }}
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={mediaUrl}
+                  alt="vista previa"
+                  style={{ maxHeight: 90, borderRadius: 8, margin: "4px 0 12px" }}
+                />
+              ))}
             <div className="form-row" style={{ gridTemplateColumns: "1fr" }}>
               <textarea
                 name="caption"

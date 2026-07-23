@@ -103,6 +103,22 @@ export class MetaAdapter implements SocialAdapter {
 
   private async publishFacebook(input: PublishInput): Promise<PublishResult> {
     const { pageId, accessToken } = this.config;
+
+    // Con imagen -> publicacion de foto (/photos). Sin imagen -> texto (/feed).
+    if (input.mediaUrl) {
+      const caption = input.linkUrl
+        ? `${input.caption}\n\n${input.linkUrl}`
+        : input.caption;
+      const res = await this.graph(`${pageId}/photos`, {
+        url: input.mediaUrl,
+        caption,
+        access_token: accessToken!,
+      });
+      const id = res.post_id ?? res.id;
+      if (!id) return { ok: false, error: `FB photo: ${JSON.stringify(res)}` };
+      return { ok: true, externalPostId: id };
+    }
+
     const params: Record<string, string> = {
       message: input.caption,
       access_token: accessToken!,
@@ -119,6 +135,6 @@ export class MetaAdapter implements SocialAdapter {
   private async graph(path: string, params: Record<string, string>) {
     const body = new URLSearchParams(params);
     const res = await fetch(`${GRAPH}/${path}`, { method: "POST", body });
-    return (await res.json()) as { id?: string; error?: unknown };
+    return (await res.json()) as { id?: string; post_id?: string; error?: unknown };
   }
 }

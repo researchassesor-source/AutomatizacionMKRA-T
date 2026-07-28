@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default async function GraciasPage({
   searchParams,
 }: {
@@ -15,20 +17,20 @@ export default async function GraciasPage({
           pasos. Si no lo ves, revisa la carpeta de spam.
         </p>
         {curso && (
-          <a
+          <Link
             className="btn"
             href={`/aula/${curso}`}
             style={{ maxWidth: 300, margin: "20px auto 8px" }}
           >
             Ir al aula ahora
-          </a>
+          </Link>
         )}
-        <a
+        <Link
           href="/"
           style={{ display: "inline-block", marginTop: 8, fontWeight: 600 }}
         >
           Ver mas cursos
-        </a>
+        </Link>
       </div>
     </main>
   );

@@ -1,94 +1,99 @@
-// Catalogo semilla de cursos gratuitos de enganche.
-// En produccion esto vive en la base de datos (tabla courses);
-// aqui sirve como fuente para el seed y como fallback de demostracion.
+export const COURSE_CATALOG_URL =
+  process.env.NEXT_PUBLIC_COURSE_CATALOG_URL ?? "https://ra-training.com/courses-1/";
 
-export type Lesson = {
-  title: string;
-  content: string;
-};
+export const MOODLE_BASE_URL = "https://moodle.ra-training.com";
 
 export type SeedCourse = {
   slug: string;
   title: string;
   subtitle: string;
   description: string;
-  isFree: boolean;
+  category: string;
+  officialCourseUrl: string;
+  price: number;
   duration: string;
+  isFree: boolean;
+  isPublished: boolean;
+  isLeadMagnet: boolean;
   hasCertificate: boolean;
+  displayOrder: number;
   benefits: string[];
-  lessons: Lesson[];
 };
 
+// Catalogo comprobado en la pagina institucional el 28-07-2026. Cuando no
+// existe una pagina individual confirmada se conserva el catalogo como destino.
 export const seedCourses: SeedCourse[] = [
   {
-    slug: "seguridad-y-salud-en-el-trabajo",
-    title: "Introduccion a la Seguridad y Salud en el Trabajo",
-    subtitle: "Curso gratuito de enganche - certificate en 3 horas",
-    description:
-      "Aprende los fundamentos del SG-SST y da tu primer paso en el mundo de la prevencion de riesgos laborales. Ideal para trabajadores, supervisores y quienes buscan una nueva oportunidad laboral.",
-    isFree: true,
-    duration: "3 horas",
-    // Marcar en true SOLO cuando el aval del Ministerio de Trabajo este gestionado.
-    hasCertificate: false,
-    benefits: [
-      "100% online y a tu ritmo",
-      "Material descargable incluido",
-      "Constancia de finalizacion",
-      "Sin costo y sin letra pequena",
-    ],
-    lessons: [
-      {
-        title: "¿Que es la Seguridad y Salud en el Trabajo?",
-        content:
-          "La SST es la disciplina que busca prevenir las lesiones y enfermedades causadas por las condiciones de trabajo. Protege y promueve la salud de los trabajadores mediante el control de los riesgos en el lugar de trabajo.",
-      },
-      {
-        title: "Identificacion de peligros y riesgos",
-        content:
-          "Un peligro es una fuente con potencial de causar dano; el riesgo es la probabilidad de que ese dano ocurra. Aprender a identificarlos es el primer paso para prevenir accidentes.",
-      },
-      {
-        title: "Elementos de proteccion personal (EPP)",
-        content:
-          "Los EPP son la ultima barrera de proteccion frente a los riesgos. Casco, guantes, calzado y proteccion visual o auditiva deben usarse segun cada tarea.",
-      },
-    ],
+    slug: "ia-planificacion-recursos-educativos",
+    title: "IA para la Planificación de Recursos Educativos",
+    subtitle: "Formación virtual aplicada a la gestión educativa",
+    description: "Curso institucional de inteligencia artificial aplicada a la planificación de recursos educativos.",
+    category: "IA para Educación",
+    officialCourseUrl: "https://ra-training.com/cursos/ia-para-la-planificacion-de-recursos-educativos/",
+    price: 20,
+    duration: "60 horas",
+    isFree: false,
+    isPublished: true,
+    isLeadMagnet: false,
+    hasCertificate: true,
+    displayOrder: 10,
+    benefits: ["Modalidad virtual", "Acompañamiento profesional", "Certificado verificable"],
   },
   {
-    slug: "excel-basico-para-el-trabajo",
-    title: "Excel Basico para el Trabajo",
-    subtitle: "De cero a productivo en una tarde",
-    description:
-      "Domina las formulas y funciones que todo puesto administrativo pide. Un curso practico y directo al grano para mejorar tu perfil laboral.",
-    isFree: true,
-    duration: "2 horas",
-    hasCertificate: false,
-    benefits: [
-      "Ejercicios practicos reales",
-      "Plantillas listas para usar",
-      "Constancia de finalizacion",
-      "Acceso inmediato",
-    ],
-    lessons: [
-      {
-        title: "La interfaz de Excel",
-        content:
-          "Conoce la cinta de opciones, las celdas, filas y columnas. Aprende a moverte con rapidez por una hoja de calculo y a guardar tu trabajo.",
-      },
-      {
-        title: "Formulas basicas",
-        content:
-          "SUMA, PROMEDIO, MAX y MIN son las funciones que resuelven el 80% de las tareas diarias. Practica combinandolas con rangos de celdas.",
-      },
-      {
-        title: "Formato y presentacion",
-        content:
-          "Un dato bien presentado comunica mejor. Aplica formato de numero, moneda y porcentaje, y resalta lo importante con formato condicional.",
-      },
-    ],
+    slug: "ia-apoyo-tareas-estudiantiles",
+    title: "IA para Apoyo en Tareas Estudiantiles",
+    subtitle: "Uso responsable de IA en actividades académicas",
+    description: "Curso institucional para aplicar inteligencia artificial como apoyo en tareas estudiantiles.",
+    category: "IA para Educación",
+    officialCourseUrl: "https://ra-training.com/cursos/ia-para-apoyo-en-tareas-escolares/",
+    price: 20,
+    duration: "60 horas",
+    isFree: false,
+    isPublished: true,
+    isLeadMagnet: false,
+    hasCertificate: true,
+    displayOrder: 20,
+    benefits: ["Modalidad virtual", "Aplicación práctica", "Certificado verificable"],
   },
+  {
+    slug: "ia-planificacion-educativa",
+    title: "IA para la Planificación Educativa",
+    subtitle: "Herramientas de IA para el trabajo docente",
+    description: "Curso institucional para incorporar inteligencia artificial en la planificación educativa.",
+    category: "IA para Educación",
+    officialCourseUrl: "https://ra-training.com/cursos/ia-para-la-planificacion-educativa/",
+    price: 20,
+    duration: "60 horas",
+    isFree: false,
+    isPublished: true,
+    isLeadMagnet: false,
+    hasCertificate: true,
+    displayOrder: 30,
+    benefits: ["Modalidad virtual", "Recursos aplicables", "Certificado verificable"],
+  },
+  ...[
+    ["ia-generativa-claude-basico", "IA Generativa con Claude (Nivel Básico)", "IA para Investigación", 40],
+    ["ia-desarrollo-tesis", "IA aplicada al Desarrollo de Tesis", "IA para Investigación", 50],
+    ["ia-investigacion-contenido-marketing", "IA en Investigación: Generación de Contenido y Marketing", "IA para Investigación", 60],
+    ["equipos-ganan-elecciones", "Equipos que Ganan Elecciones", "Gestión Pública y Ciudadanía", 70],
+    ["procedimientos-parlamentarios", "Procedimientos Parlamentarios para Organizaciones Sociales", "Gestión Pública y Ciudadanía", 80],
+    ["comunicacion-estrategica-organizacional", "Comunicación Estratégica Organizacional en Entornos Digitales", "Gestión Pública y Ciudadanía", 90],
+    ["redaccion-elaboracion-oficios", "Redacción y Elaboración de Oficios", "Redacción y Desarrollo Profesional", 100],
+    ["habilidades-blandas-profesionales", "Habilidades Blandas para Profesionales", "Redacción y Desarrollo Profesional", 110],
+  ].map(([slug, title, category, displayOrder]) => ({
+    slug: String(slug),
+    title: String(title),
+    subtitle: "Formación profesional de R.A. Training",
+    description: `Curso institucional: ${String(title)}.`,
+    category: String(category),
+    officialCourseUrl: COURSE_CATALOG_URL,
+    price: 30,
+    duration: "60 horas",
+    isFree: false,
+    isPublished: true,
+    isLeadMagnet: false,
+    hasCertificate: true,
+    displayOrder: Number(displayOrder),
+    benefits: ["Modalidad virtual", "Contenido especializado", "Certificado verificable"],
+  })),
 ];
-
-export function getSeedCourse(slug: string): SeedCourse | undefined {
-  return seedCourses.find((c) => c.slug === slug);
-}

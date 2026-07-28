@@ -1,66 +1,40 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import type { Lead } from "@prisma/client";
+import { currentAdminSession } from "@/lib/auth/server";
+import { AdminEmptyState } from "../AdminEmptyState";
+import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
+import { AdminPageHeader } from "../AdminPageHeader";
 import { VentasManager } from "./VentasManager";
 import { UMBRAL_OPORTUNIDAD } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
-
 type ScoreItem = { label: string; points: number };
 
-function toSalesLead(l: Lead & { course: { title: string } | null }) {
-  const breakdown = Array.isArray(l.scoreBreakdown)
-    ? (l.scoreBreakdown as unknown as ScoreItem[])
-    : [];
-  return {
-    id: l.id,
-    fullName: l.fullName,
-    email: l.email,
-    phone: l.phone,
-    stage: l.stage,
-    score: l.score,
-    breakdown,
-    course: l.course?.title ?? null,
+export default async function SalesPage({ searchParams }: { searchParams: Promise<{ q?: string; course?: string; assigned?: string }> }) {
+  const filters = await searchParams;
+  const session = await currentAdminSession();
+  if (!session || !["ADMIN", "VENTAS"].includes(session.role)) return <main className="container admin-shell"><AdminNav /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para administrar el pipeline." /></main>;
+  const common: Prisma.LeadWhereInput = {
+    isArchived: false,
+    ...(filters.q ? { OR: [{ fullName: { contains: filters.q, mode: "insensitive" } }, { email: { contains: filters.q, mode: "insensitive" } }, { phone: { contains: filters.q } }] } : {}),
+    ...(filters.course ? { enrollments: { some: { courseId: filters.course } } } : {}),
+    ...(filters.assigned ? { assignedToId: filters.assigned } : {}),
   };
-}
-
-export default async function AdminVentas() {
-  const [oportunidades, clientes, perdidos] = await Promise.all([
-    prisma.lead.findMany({
-      where: { stage: "OPORTUNIDAD" },
-      orderBy: { score: "desc" },
-      include: { course: true },
-      take: 100,
-    }),
-    prisma.lead.findMany({
-      where: { stage: "CLIENTE" },
-      orderBy: { score: "desc" },
-      include: { course: true },
-      take: 100,
-    }),
-    prisma.lead.findMany({
-      where: { stage: "PERDIDO" },
-      orderBy: { updatedAt: "desc" },
-      include: { course: true },
-      take: 100,
-    }),
+  const include = { enrollments: { include: { course: true } }, assignedTo: true } as const;
+  const [opportunities, clients, lost, courses, users] = await Promise.all([
+    prisma.lead.findMany({ where: { ...common, stage: "OPORTUNIDAD" }, orderBy: { score: "desc" }, include, take: 100 }),
+    prisma.lead.findMany({ where: { ...common, stage: "CLIENTE" }, orderBy: { updatedAt: "desc" }, include, take: 100 }),
+    prisma.lead.findMany({ where: { ...common, stage: "PERDIDO" }, orderBy: { updatedAt: "desc" }, include, take: 100 }),
+    prisma.course.findMany({ orderBy: { title: "asc" }, select: { id: true, title: true } }),
+    prisma.adminUser.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
-
-  return (
-    <main className="container admin-shell">
-      <AdminNav active="/admin/ventas" />
-      <h1 style={{ marginTop: 0 }}>Pipeline de ventas</h1>
-      <p className="muted" style={{ marginTop: -6 }}>
-        Los leads con puntaje ≥ {UMBRAL_OPORTUNIDAD} (tipicamente los que
-        completaron un curso gratuito) se convierten en oportunidades de venta
-        del catalogo de pago.
-      </p>
-
-      <VentasManager
-        oportunidades={oportunidades.map(toSalesLead)}
-        clientes={clientes.map(toSalesLead)}
-        perdidos={perdidos.map(toSalesLead)}
-      />
-    </main>
-  );
+  const serialize = (lead: (typeof opportunities)[number]) => ({
+    id: lead.id, fullName: lead.fullName, email: lead.email, phone: lead.phone, stage: lead.stage,
+    score: lead.score, breakdown: Array.isArray(lead.scoreBreakdown) ? lead.scoreBreakdown as unknown as ScoreItem[] : [],
+    course: lead.enrollments.map((item) => item.course.title).join(", ") || null,
+    assignedTo: lead.assignedTo?.name ?? null, lostReason: lead.lostReason,
+    nextActionAt: lead.nextActionAt?.toISOString() ?? null,
+  });
+  return <main className="container admin-shell"><AdminNav /><AdminPageHeader eyebrow="Puntaje comercial" title="Pipeline de ventas" description="Prioriza oportunidades, acompaña cierres y conserva el contexto de cada negociación." actions={<span className="pill info">Umbral de oportunidad: {UMBRAL_OPORTUNIDAD}</span>} /><form><AdminFilterPanel label="Filtros del pipeline"><div className="filter-bar"><input name="q" defaultValue={filters.q} placeholder="Nombre, correo o WhatsApp" /><select name="course" defaultValue={filters.course ?? ""}><option value="">Todos los cursos</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select><select name="assigned" defaultValue={filters.assigned ?? ""}><option value="">Todos los responsables</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select><button type="submit" className="btn-sm">Filtrar</button></div></AdminFilterPanel></form><VentasManager oportunidades={opportunities.map(serialize)} clientes={clients.map(serialize)} perdidos={lost.map(serialize)} /></main>;
 }

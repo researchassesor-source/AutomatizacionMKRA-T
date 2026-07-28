@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AdminEmptyState } from "../AdminEmptyState";
+import { AdminIcon } from "../AdminIcon";
 
 type ScoreItem = { label: string; points: number };
 type SalesLead = {
@@ -13,6 +15,9 @@ type SalesLead = {
   score: number;
   breakdown: ScoreItem[];
   course: string | null;
+  assignedTo: string | null;
+  lostReason: string | null;
+  nextActionAt: string | null;
 };
 
 async function postJson(url: string, body: unknown) {
@@ -40,7 +45,7 @@ function LeadCard({
       <div className="sales-card-head">
         <div>
           <div className="sales-name">{lead.fullName}</div>
-          <div className="muted" style={{ fontSize: "0.8rem" }}>
+          <div className="sales-meta">
             {lead.email}
             {lead.phone ? ` · ${lead.phone}` : ""}
           </div>
@@ -50,14 +55,23 @@ function LeadCard({
         </div>
       </div>
       {lead.course && (
-        <div className="muted" style={{ fontSize: "0.8rem", marginTop: 4 }}>
+        <div className="sales-meta">
           {lead.course}
         </div>
       )}
+      <div className="sales-meta">
+        Responsable: {lead.assignedTo ?? "Sin asignar"}
+      </div>
+      {lead.nextActionAt && (
+        <div className="sales-meta">
+          Próxima acción: {new Date(lead.nextActionAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}
+        </div>
+      )}
+      {lead.lostReason && <div className="muted">Motivo: {lead.lostReason}</div>}
       {lead.breakdown.length > 0 && (
         <ul className="sales-breakdown">
-          {lead.breakdown.map((b, i) => (
-            <li key={i}>
+          {lead.breakdown.map((b) => (
+            <li key={`${b.label}:${b.points}`}>
               <span>{b.label}</span>
               <span>+{b.points}</span>
             </li>
@@ -67,6 +81,7 @@ function LeadCard({
       <div className="sales-actions">
         {actions.map((a) => (
           <button
+            type="button"
             key={a.stage}
             className={`btn-sm ${a.ghost ? "ghost" : ""}`}
             disabled={busy === lead.id}
@@ -114,20 +129,20 @@ export function VentasManager({
 
   return (
     <>
-      <div className="panel">
-        <button className="btn-sm" onClick={recompute} disabled={recomputing}>
+      <div className="panel sales-toolbar-panel">
+        <button className="btn-sm" type="button" onClick={recompute} disabled={recomputing}>
           {recomputing ? "Recalculando..." : "Recalcular puntajes"}
         </button>
-        {msg && <span className="result-line" style={{ marginLeft: 10 }}>{msg}</span>}
+        {msg && <span className="result-line">{msg}</span>}
       </div>
 
       <div className="sales-cols">
         <section className="sales-col">
           <h2>
-            🔥 Oportunidades <span className="count">{oportunidades.length}</span>
+            <AdminIcon name="activity" size={18} /> Oportunidades <span className="count">{oportunidades.length}</span>
           </h2>
           {oportunidades.length === 0 ? (
-            <p className="muted">Sin oportunidades. Recalcula o espera captaciones.</p>
+            <AdminEmptyState icon="activity" title="Sin oportunidades" description="Recalcula los puntajes o espera nuevas captaciones." />
           ) : (
             oportunidades.map((l) => (
               <LeadCard
@@ -146,10 +161,10 @@ export function VentasManager({
 
         <section className="sales-col">
           <h2>
-            ✅ Clientes <span className="count">{clientes.length}</span>
+            <AdminIcon name="sales" size={18} /> Clientes <span className="count">{clientes.length}</span>
           </h2>
           {clientes.length === 0 ? (
-            <p className="muted">Aun no hay clientes.</p>
+            <AdminEmptyState icon="contacts" title="Aún no hay clientes" description="Los cierres confirmados aparecerán en esta columna." />
           ) : (
             clientes.map((l) => (
               <LeadCard
@@ -165,10 +180,10 @@ export function VentasManager({
 
         <section className="sales-col">
           <h2>
-            ✖ Perdidos <span className="count">{perdidos.length}</span>
+            <AdminIcon name="close" size={18} /> Perdidos <span className="count">{perdidos.length}</span>
           </h2>
           {perdidos.length === 0 ? (
-            <p className="muted">Sin leads perdidos.</p>
+            <AdminEmptyState icon="secure" title="Sin contactos perdidos" description="No hay negociaciones cerradas como perdidas." />
           ) : (
             perdidos.map((l) => (
               <LeadCard

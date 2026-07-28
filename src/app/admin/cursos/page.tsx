@@ -1,0 +1,54 @@
+import Link from "next/link";
+import { prisma } from "@/lib/db";
+import { currentAdminSession } from "@/lib/auth/server";
+import { AdminFilterPanel } from "../AdminFilterPanel";
+import { AdminNav } from "../AdminNav";
+import { AdminPageHeader } from "../AdminPageHeader";
+import { CourseManager, type CourseRow } from "./CourseManager";
+
+export const dynamic = "force-dynamic";
+
+export default async function CoursesPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; category?: string; new?: string }> }) {
+  const filters = await searchParams;
+  const session = await currentAdminSession();
+  const status = filters.status === "inactive" ? "inactive" : filters.status === "all" ? "all" : "active";
+  const canEdit = session?.role === "ADMIN" || session?.role === "MARKETING";
+  const queryWithoutCreate = new URLSearchParams();
+  if (filters.q) queryWithoutCreate.set("q", filters.q);
+  queryWithoutCreate.set("status", status);
+  if (filters.category) queryWithoutCreate.set("category", filters.category);
+  const closeHref = `/admin/cursos?${queryWithoutCreate}`;
+  const createHref = `${closeHref}&new=true`;
+  const courses = await prisma.course.findMany({
+    where: {
+      ...(filters.q ? { OR: [{ title: { contains: filters.q, mode: "insensitive" } }, { slug: { contains: filters.q, mode: "insensitive" } }] } : {}),
+      ...(status === "active" ? { isPublished: true } : status === "inactive" ? { isPublished: false } : {}),
+      ...(filters.category ? { category: filters.category } : {}),
+    },
+    orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
+  });
+  const categories = await prisma.course.findMany({ distinct: ["category"], select: { category: true }, where: { category: { not: null } } });
+  const rows: CourseRow[] = courses.map((course) => ({ ...course, price: course.price === null ? null : Number(course.price) }));
+  return (
+    <main className="container admin-shell">
+      <AdminNav />
+      <AdminPageHeader
+        eyebrow="Catálogo"
+        title="Cursos"
+        description="Organiza la oferta académica, su publicación y la información visible para los estudiantes."
+        actions={canEdit ? <Link className="btn-sm" href={createHref} scroll={false}>Crear curso</Link> : null}
+      />
+      <form>
+        <AdminFilterPanel label="Filtros del catálogo">
+        <div className="filter-bar course-filter-bar">
+        <input name="q" aria-label="Buscar cursos" defaultValue={filters.q} placeholder="Buscar por título o identificador" />
+        <select name="status" aria-label="Estado del curso" defaultValue={status}><option value="active">Activos</option><option value="inactive">Inactivos</option><option value="all">Todos</option></select>
+        <select name="category" aria-label="Categoría del curso" defaultValue={filters.category ?? ""}><option value="">Todas las categorías</option>{categories.map(({ category }) => <option key={category!}>{category}</option>)}</select>
+        <button type="submit" className="btn-sm">Filtrar</button>
+        </div>
+        </AdminFilterPanel>
+      </form>
+      <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
+    </main>
+  );
+}

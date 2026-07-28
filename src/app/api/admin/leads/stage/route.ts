@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { requireRole } from "@/lib/auth/authorization";
+import { writeAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,8 @@ const schema = z.object({
 
 // Mueve un lead de etapa en el pipeline (ej. OPORTUNIDAD -> CLIENTE / PERDIDO).
 export async function POST(request: Request) {
+  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  if (auth.error) return auth.error;
   let body: unknown;
   try {
     body = await request.json();
@@ -48,6 +52,8 @@ export async function POST(request: Request) {
       payload: { from: lead.stage, to: parsed.data.stage },
     },
   });
+
+  await writeAudit({ session: auth.session, action: "LEAD_STAGE_CHANGED", entityType: "Lead", entityId: parsed.data.leadId, metadata: { from: lead.stage, to: parsed.data.stage } });
 
   return NextResponse.json({ ok: true });
 }

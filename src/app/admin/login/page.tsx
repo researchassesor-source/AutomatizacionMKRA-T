@@ -42,10 +42,10 @@ export default function AdminLoginPage() {
         <section className="login-identity" aria-labelledby="crm-name">
           <div className="login-logo-wrap">
             <Image
-              src="/logo-ra-training.webp"
-              alt="Símbolo oficial de R.A. Training"
-              width={288}
-              height={275}
+              src="/crm-logo.png"
+              alt="Icono oficial del CRM de R.A. Training"
+              width={320}
+              height={320}
               priority
             />
           </div>

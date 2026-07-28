@@ -139,7 +139,7 @@ export function AdminNav() {
         </button>
         <Link className="admin-sidebar-brand" href="/admin" onClick={() => setOpen(false)}>
           <span className="admin-sidebar-brand-row">
-            <Image src="/logo-ra-training-on-light.png" alt="" width={52} height={52} priority />
+            <Image src="/crm-logo.png" alt="" width={64} height={64} priority />
             <strong>R.A. Training</strong>
           </span>
           <span>Panel administrativo</span>

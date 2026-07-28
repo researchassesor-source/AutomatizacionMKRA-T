@@ -3,32 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function DispatchButton() {
+export function DispatchButton({ simulation }: { simulation: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
+  const [message, setMessage] = useState<string | null>(null);
   async function run() {
     setLoading(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/admin/nurture/dispatch", { method: "POST" });
-      const json = await res.json();
-      setMsg(`Procesados: ${json.processed ?? 0} mensaje(s).`);
-      router.refresh();
-    } catch {
-      setMsg("Error al procesar la cola.");
-    } finally {
-      setLoading(false);
-    }
+    const response = await fetch("/api/admin/nurture/dispatch", { method: "POST" });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? `${result.processed ?? 0} mensaje(s) procesados.` : result.error ?? "No se pudieron procesar los mensajes.");
+    setLoading(false);
+    router.refresh();
   }
-
-  return (
-    <div>
-      <button className="btn-sm" onClick={run} disabled={loading}>
-        {loading ? "Procesando..." : "Procesar cola ahora"}
-      </button>
-      {msg && <span className="result-line" style={{ marginLeft: 10 }}>{msg}</span>}
-    </div>
-  );
+  return <div className="toolbar"><button type="button" className="btn-sm" onClick={run} disabled={loading}>{loading ? "Procesando…" : simulation ? "Simular mensajes pendientes" : "Enviar mensajes pendientes"}</button>{message && <span className="result-line" role="status">{message}</span>}</div>;
 }

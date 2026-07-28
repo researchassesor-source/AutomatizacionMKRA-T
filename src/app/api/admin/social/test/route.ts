@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyPlatformConnection } from "@/lib/social/orchestrator";
 import type { Platform } from "@/lib/social/types";
+import { requireRole } from "@/lib/auth/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,8 @@ const PLATFORMS: Platform[] = [
 ];
 
 export async function POST(request: Request) {
+  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  if (auth.error) return auth.error;
   let platform: string | undefined;
   try {
     platform = (await request.json())?.platform;

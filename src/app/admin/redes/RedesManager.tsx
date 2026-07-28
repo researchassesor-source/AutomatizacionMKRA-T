@@ -2,358 +2,115 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AdminEmptyState } from "../AdminEmptyState";
+import { presentAdminValue } from "../adminPresentation";
+import { ecuadorLocalDateTimeToIso } from "@/lib/time";
 
-type Account = { id: string; platform: string; displayName: string };
-type Post = {
-  id: string;
-  caption: string;
-  status: string;
-  account: string;
-  scheduledAt: string | null;
-  error: string | null;
-};
+type Account = { id: string; platform: string; displayName: string; isActive: boolean; connectorState: "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED" };
+type Post = { id: string; caption: string; mediaUrl: string | null; linkUrl: string | null; status: string; account: string; scheduledAt: string | null; error: string | null };
+type Schedule = { id: string; name: string; weekday: number; localTime: string; isActive: boolean; nextRunAt: string; account: string };
+const platforms = [
+  { value: "INSTAGRAM", label: "Instagram" },
+  { value: "FACEBOOK", label: "Facebook" },
+  { value: "TIKTOK", label: "TikTok" },
+  { value: "YOUTUBE", label: "YouTube (sin conector)", disabled: true },
+  { value: "LINKEDIN", label: "LinkedIn (sin conector)", disabled: true },
+];
+const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
-const PLATFORMS = ["INSTAGRAM", "FACEBOOK", "TIKTOK", "YOUTUBE", "LINKEDIN"];
-
-async function postJson(url: string, body: unknown) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return { ok: res.ok, data: await res.json() };
+async function request(url: string, method: string, body?: unknown) {
+  const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  return { ok: response.ok, data: await response.json().catch(() => ({})) };
 }
 
-export function RedesManager({
-  accounts,
-  posts,
-}: {
-  accounts: Account[];
-  posts: Post[];
-}) {
+export function RedesManager({ accounts, posts, schedules }: { accounts: Account[]; posts: Post[]; schedules: Schedule[] }) {
   const router = useRouter();
-  const [testPlatform, setTestPlatform] = useState("INSTAGRAM");
-  const [testResult, setTestResult] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const usableAccounts = accounts.filter((account) => account.isActive && ["SIMULATION", "READY"].includes(account.connectorState));
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  function accountStatus(account: Account) {
+    if (account.connectorState === "UNSUPPORTED") return "Sin conector";
+    if (account.connectorState === "NOT_CONFIGURED") return "No configurada";
+    if (!account.isActive) return "Inactiva";
+    return account.connectorState === "SIMULATION" ? "Simulación" : "Activa";
+  }
+
+  async function upload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
     if (!file) return;
-    setUploading(true);
-    setUploadMsg(null);
+    setBusy("upload");
     try {
       if (file.type.startsWith("video/")) {
-        // Video: subida directa a Blob (soporta archivos grandes).
         const { upload } = await import("@vercel/blob/client");
-        const blob = await upload(`social/${Date.now()}-${file.name}`, file, {
-          access: "public",
-          handleUploadUrl: "/api/admin/upload/token",
-        });
+        const blob = await upload(`social/${Date.now()}-${file.name}`, file, { access: "public", handleUploadUrl: "/api/admin/upload/token" });
         setMediaUrl(blob.url);
-        setUploadMsg("✓ Video listo");
       } else {
-        // Imagen: subida al servidor (convierte a JPG para Instagram).
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) {
-          setUploadMsg(`✗ ${data.error ?? "no se pudo subir"}`);
-        } else {
-          setMediaUrl(data.url);
-          setUploadMsg("✓ Imagen lista");
-        }
+        const form = new FormData(); form.append("file", file);
+        const response = await fetch("/api/admin/upload", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        setMediaUrl(result.url);
       }
-    } catch (err) {
-      setUploadMsg(`✗ ${(err as Error).message ?? "error al subir"}`);
-    } finally {
-      setUploading(false);
+      setMessage("Archivo preparado.");
+    } catch (error) { setMessage((error as Error).message ?? "No se pudo preparar el archivo."); }
+    setBusy(null);
+  }
+
+  async function registerAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy("account");
+    const result = await request("/api/admin/social/accounts", "POST", { platform: data.get("platform"), displayName: data.get("displayName"), externalId: data.get("externalId") || undefined });
+    setMessage(result.ok ? "Cuenta guardada." : result.data.error); setBusy(null); if (result.ok) { form.reset(); router.refresh(); }
+  }
+
+  async function accountAction(account: Account, action: "toggle" | "edit" | "delete") {
+    if (action === "delete" && !window.confirm(`¿Eliminar o desactivar “${account.displayName}”?`)) return;
+    const displayName = action === "edit" ? window.prompt("Nombre visible", account.displayName) : undefined;
+    if (action === "edit" && !displayName) return;
+    setBusy(account.id);
+    const result = action === "delete"
+      ? await request(`/api/admin/social/accounts/${account.id}`, "DELETE")
+      : await request(`/api/admin/social/accounts/${account.id}`, "PATCH", action === "toggle" ? { isActive: !account.isActive } : { displayName });
+    setMessage(result.ok ? "Cuenta actualizada." : result.data.error); setBusy(null); router.refresh();
+  }
+
+  async function createPost(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy("post");
+    const date = String(data.get("scheduledAt") || "");
+    const result = await request("/api/admin/social/posts", "POST", { accountId: data.get("accountId"), caption: data.get("caption"), mediaUrl: mediaUrl || data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "", scheduledAt: date ? ecuadorLocalDateTimeToIso(date) : "" });
+    setMessage(result.ok ? "Publicación creada." : result.data.error); setBusy(null); if (result.ok) { form.reset(); setMediaUrl(""); router.refresh(); }
+  }
+
+  async function postAction(post: Post, action: string) {
+    let body: Record<string, unknown> = { action };
+    if (action === "update") {
+      const caption = window.prompt("Texto de la publicación", post.caption);
+      if (!caption) return;
+      body = { action, caption, mediaUrl: post.mediaUrl, linkUrl: post.linkUrl };
     }
-  }
-
-  const isVideoUrl = /\.(mp4|mov|m4v|webm)(\?|$)/i.test(mediaUrl);
-
-  async function testConnection() {
-    setBusy("test");
-    setTestResult(null);
-    const { data } = await postJson("/api/admin/social/test", {
-      platform: testPlatform,
-    });
-    setTestResult(
-      data.ok
-        ? `✓ Conectado como ${data.name ?? "cuenta"}`
-        : `✗ ${data.error ?? "fallo"}`,
-    );
-    setBusy(null);
-  }
-
-  async function registerAccount(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy("account");
-    const f = new FormData(e.currentTarget);
-    const { ok } = await postJson("/api/admin/social/accounts", {
-      platform: f.get("platform"),
-      displayName: f.get("displayName"),
-      externalId: f.get("externalId") || undefined,
-    });
-    setBusy(null);
-    if (ok) {
-      (e.target as HTMLFormElement).reset();
-      router.refresh();
+    if (action === "reschedule") {
+      const date = window.prompt("Nueva fecha y hora (AAAA-MM-DDTHH:mm)", post.scheduledAt?.slice(0, 16) ?? "");
+      if (!date) return;
+      body = { action, scheduledAt: ecuadorLocalDateTimeToIso(date) };
     }
+    if (action === "cancel" && !window.confirm("¿Cancelar esta publicación?")) return;
+    setBusy(post.id);
+    const result = action === "publish" ? await request("/api/admin/social/publish", "POST", { postId: post.id }) : await request(`/api/admin/social/posts/${post.id}`, "PATCH", body);
+    setMessage(result.ok ? (result.data.simulated ? "Publicación simulada de forma segura." : "Publicación actualizada.") : result.data.error); setBusy(null); router.refresh();
   }
 
-  async function createPost(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy("post");
-    const f = new FormData(e.currentTarget);
-    const scheduledAtRaw = String(f.get("scheduledAt") ?? "");
-    const { ok, data } = await postJson("/api/admin/social/posts", {
-      accountId: f.get("accountId"),
-      caption: f.get("caption"),
-      mediaUrl: mediaUrl || f.get("mediaUrl") || "",
-      linkUrl: f.get("linkUrl") || "",
-      scheduledAt: scheduledAtRaw
-        ? new Date(scheduledAtRaw).toISOString()
-        : "",
-    });
-    setBusy(null);
-    if (ok) {
-      (e.target as HTMLFormElement).reset();
-      setMediaUrl("");
-      setUploadMsg(null);
-      router.refresh();
-    } else {
-      alert(data.error ?? "Error al crear el post");
-    }
+  async function createSchedule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy("schedule");
+    const result = await request("/api/admin/social/schedules", "POST", { accountId: data.get("accountId"), name: data.get("name"), caption: data.get("caption"), mediaUrl: data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "", weekday: Number(data.get("weekday")), localTime: data.get("localTime") });
+    setMessage(result.ok ? "Recurrencia semanal creada." : result.data.error); setBusy(null); if (result.ok) { form.reset(); router.refresh(); }
   }
 
-  async function publishNow(postId: string) {
-    setBusy(postId);
-    const { data } = await postJson("/api/admin/social/publish", { postId });
-    setBusy(null);
-    if (!data.ok) alert(`No se pudo publicar: ${data.error ?? "error"}`);
-    router.refresh();
-  }
-
-  return (
-    <>
-      {/* Probar conexion */}
-      <div className="panel">
-        <h2>1 · Conectar Meta (Instagram / Facebook)</h2>
-        <p className="muted" style={{ marginTop: -6 }}>
-          Configura las credenciales en el archivo <code>.env</code> y prueba la
-          conexion antes de publicar.
-        </p>
-        <div className="form-row" style={{ maxWidth: 460 }}>
-          <select
-            value={testPlatform}
-            onChange={(e) => setTestPlatform(e.target.value)}
-          >
-            {PLATFORMS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn-sm"
-            onClick={testConnection}
-            disabled={busy === "test"}
-          >
-            {busy === "test" ? "Probando..." : "Probar conexion"}
-          </button>
-        </div>
-        {testResult && <div className="result-line">{testResult}</div>}
-      </div>
-
-      {/* Registrar cuenta */}
-      <div className="panel">
-        <h2>2 · Registrar cuenta</h2>
-        <form onSubmit={registerAccount}>
-          <div className="form-row">
-            <select name="platform" defaultValue="INSTAGRAM">
-              {PLATFORMS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-            <input name="displayName" placeholder="Nombre visible" required />
-            <input name="externalId" placeholder="ID externo (opcional)" />
-          </div>
-          <button className="btn-sm" type="submit" disabled={busy === "account"}>
-            {busy === "account" ? "Guardando..." : "Guardar cuenta"}
-          </button>
-        </form>
-
-        {accounts.length > 0 && (
-          <div className="table-wrap" style={{ marginTop: 16 }}>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Plataforma</th>
-                  <th>Nombre</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((a) => (
-                  <tr key={a.id}>
-                    <td>
-                      <span className="pill">{a.platform}</span>
-                    </td>
-                    <td>{a.displayName}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Crear publicacion */}
-      <div className="panel">
-        <h2>3 · Nueva publicacion</h2>
-        {accounts.length === 0 ? (
-          <p className="muted">Registra una cuenta primero.</p>
-        ) : (
-          <form onSubmit={createPost}>
-            <div className="form-row">
-              <select name="accountId" required>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.platform} · {a.displayName}
-                  </option>
-                ))}
-              </select>
-              <input name="linkUrl" placeholder="URL de enlace (opcional)" />
-              <input
-                name="scheduledAt"
-                type="datetime-local"
-                title="Dejar vacio = borrador"
-              />
-            </div>
-
-            {/* Imagen: subir desde el equipo o pegar una URL */}
-            <div className="form-row" style={{ alignItems: "center" }}>
-              <label className="btn-sm ghost" style={{ cursor: "pointer", textAlign: "center" }}>
-                {uploading ? "Subiendo..." : "📷 Subir imagen o video"}
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  onChange={handleUpload}
-                  disabled={uploading}
-                  style={{ display: "none" }}
-                />
-              </label>
-              <input
-                name="mediaUrl"
-                placeholder="...o pega la URL de la imagen/video"
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-              />
-              {uploadMsg && <span className="result-line">{uploadMsg}</span>}
-            </div>
-            {mediaUrl &&
-              (isVideoUrl ? (
-                <video
-                  src={mediaUrl}
-                  controls
-                  style={{ maxHeight: 140, borderRadius: 8, margin: "4px 0 12px" }}
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={mediaUrl}
-                  alt="vista previa"
-                  style={{ maxHeight: 90, borderRadius: 8, margin: "4px 0 12px" }}
-                />
-              ))}
-            <div className="form-row" style={{ gridTemplateColumns: "1fr" }}>
-              <textarea
-                name="caption"
-                placeholder="Texto de la publicacion..."
-                rows={3}
-                required
-              />
-            </div>
-            <button className="btn-sm" type="submit" disabled={busy === "post"}>
-              {busy === "post" ? "Creando..." : "Crear publicacion"}
-            </button>
-            <span className="muted" style={{ marginLeft: 10 }}>
-              Sin fecha = borrador · con fecha = programado
-            </span>
-          </form>
-        )}
-      </div>
-
-      {/* Lista de posts */}
-      <div className="panel">
-        <h2>Publicaciones</h2>
-        {posts.length === 0 ? (
-          <p className="muted">Sin publicaciones aun.</p>
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Cuenta</th>
-                  <th>Texto</th>
-                  <th>Estado</th>
-                  <th>Programado</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {posts.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.account}</td>
-                    <td style={{ maxWidth: 280 }}>{p.caption}</td>
-                    <td>
-                      <span
-                        className={`pill ${
-                          p.status === "PUBLICADO"
-                            ? "ok"
-                            : p.status === "FALLIDO"
-                              ? "err"
-                              : p.status === "PROGRAMADO"
-                                ? "warn"
-                                : ""
-                        }`}
-                      >
-                        {p.status}
-                      </span>
-                      {p.error && <div className="muted">{p.error}</div>}
-                    </td>
-                    <td>
-                      {p.scheduledAt
-                        ? new Date(p.scheduledAt).toLocaleString("es", {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })
-                        : "—"}
-                    </td>
-                    <td>
-                      {p.status !== "PUBLICADO" && (
-                        <button
-                          className="btn-sm ghost"
-                          onClick={() => publishNow(p.id)}
-                          disabled={busy === p.id}
-                        >
-                          {busy === p.id ? "..." : "Publicar ya"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
+  return <>
+    {message && <div className="panel result-line" role="status">{message}</div>}
+    <section className="panel"><h2>Cuentas sociales</h2><p className="muted">YouTube y LinkedIn se muestran como integraciones no disponibles; no pueden activarse ni publicar.</p><form onSubmit={registerAccount}><div className="form-row"><select name="platform" aria-label="Red social">{platforms.map((platform) => <option key={platform.value} value={platform.value} disabled={platform.disabled}>{platform.label}</option>)}</select><input name="displayName" aria-label="Nombre visible de la cuenta" placeholder="Nombre visible" required /><input name="externalId" aria-label="Identificador externo de la cuenta" placeholder="Identificador externo (opcional)" /><button className="btn-sm" disabled={busy === "account"}>Guardar cuenta</button></div></form>{accounts.length > 0 ? <div className="table-wrap"><table className="data"><thead><tr><th>Red</th><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.id}><td>{presentAdminValue(account.platform)}</td><td>{account.displayName}</td><td><span className={`pill ${account.connectorState === "READY" && account.isActive ? "ok" : account.connectorState === "NOT_CONFIGURED" || account.connectorState === "UNSUPPORTED" ? "warn" : "info"}`}>{accountStatus(account)}</span></td><td><div className="card-actions"><button className="btn-sm ghost" type="button" disabled={busy === account.id} onClick={() => accountAction(account, "edit")}>Editar</button><button className="btn-sm ghost" type="button" disabled={busy === account.id || (!account.isActive && account.connectorState === "UNSUPPORTED")} onClick={() => accountAction(account, "toggle")}>{account.isActive ? "Desactivar" : "Activar"}</button><button className="btn-sm danger" type="button" disabled={busy === account.id} onClick={() => accountAction(account, "delete")}>Eliminar</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="social" title="Sin cuentas conectadas" description="Registra una cuenta para comenzar a organizar contenidos." />}</section>
+    <section className="panel"><h2>Nueva publicación</h2>{usableAccounts.length === 0 ? <p className="muted">Registra y habilita una cuenta con conector disponible primero.</p> : <form onSubmit={createPost}><div className="form-row"><select name="accountId" aria-label="Cuenta para la publicación">{usableAccounts.map((account) => <option value={account.id} key={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="linkUrl" aria-label="Enlace de la publicación" type="url" placeholder="Enlace (opcional)" /><input name="scheduledAt" aria-label="Fecha y hora de publicación" type="datetime-local" title="Zona horaria America/Guayaquil" /></div><div className="form-row"><label className="btn-sm ghost">{busy === "upload" ? "Preparando…" : "Subir imagen o video"}<input type="file" accept="image/*,video/*" hidden onChange={upload} /></label><input name="mediaUrl" aria-label="URL del contenido multimedia" type="url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="URL del contenido (opcional)" /></div><div className="form-row"><textarea name="caption" aria-label="Texto de la publicación" rows={4} placeholder="Texto de la publicación" required /></div><button className="btn-sm" disabled={busy === "post"}>Crear publicación</button><span className="muted"> Sin fecha se guarda como borrador.</span></form>}</section>
+    <section className="panel"><h2>Publicaciones</h2>{posts.length === 0 ? <AdminEmptyState icon="social" title="No hay publicaciones" description="Crea un borrador o programa el primer contenido." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Cuenta</th><th>Texto</th><th>Estado</th><th>Programación</th><th>Acciones</th></tr></thead><tbody>{posts.map((post) => <tr key={post.id}><td>{post.account}</td><td>{post.caption.slice(0, 180)}{post.caption.length > 180 ? "…" : ""}</td><td><span className={`pill ${post.status === "PUBLICADO" ? "ok" : post.status === "FALLIDO" ? "err" : post.status === "PROGRAMADO" ? "warn" : "info"}`}>{presentAdminValue(post.status)}</span>{post.error && <div className="muted">{post.error}</div>}</td><td>{post.scheduledAt ? new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(new Date(post.scheduledAt)) : "Borrador"}</td><td><div className="card-actions">{["BORRADOR","PROGRAMADO","FALLIDO","SIMULADO"].includes(post.status) && <><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "update")}>Editar</button><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "reschedule")}>Reprogramar</button><button className="btn-sm" type="button" disabled={busy === post.id} onClick={() => postAction(post, "publish")}>Publicar</button><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "duplicate")}>Duplicar</button><button className="btn-sm danger" type="button" disabled={busy === post.id} onClick={() => postAction(post, "cancel")}>Cancelar</button></>}</div></td></tr>)}</tbody></table></div>}</section>
+    <section className="panel"><h2>Recurrencia semanal</h2><p className="muted">Las horas se interpretan siempre en America/Guayaquil. Cada ocurrencia tiene una clave única para evitar duplicados.</p>{usableAccounts.length === 0 ? <p className="muted">No hay una cuenta disponible para crear recurrencias.</p> : <form onSubmit={createSchedule}><div className="form-row"><select name="accountId" aria-label="Cuenta para la recurrencia">{usableAccounts.map((account) => <option key={account.id} value={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="name" aria-label="Nombre de la recurrencia" placeholder="Nombre de la recurrencia" required /><select name="weekday" aria-label="Día de la semana">{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select><input name="localTime" aria-label="Hora local de la recurrencia" type="time" required /></div><div className="form-row"><input name="mediaUrl" aria-label="Contenido multimedia recurrente" type="url" placeholder="Contenido multimedia (opcional)" /><input name="linkUrl" aria-label="Enlace recurrente" type="url" placeholder="Enlace (opcional)" /></div><div className="form-row"><textarea name="caption" aria-label="Texto recurrente" rows={3} placeholder="Texto recurrente" required /></div><button className="btn-sm" disabled={busy === "schedule"}>Crear recurrencia</button></form>}{schedules.length > 0 ? <div className="table-wrap"><table className="data"><thead><tr><th>Nombre</th><th>Cuenta</th><th>Día y hora</th><th>Próxima ejecución</th><th>Estado</th></tr></thead><tbody>{schedules.map((schedule) => <tr key={schedule.id}><td>{schedule.name}</td><td>{schedule.account}</td><td>{weekdays[schedule.weekday]} · {schedule.localTime}</td><td>{new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(new Date(schedule.nextRunAt))}</td><td><span className={`pill ${schedule.isActive ? "ok" : ""}`}>{schedule.isActive ? "Activa" : "Inactiva"}</span></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="calendar" title="Sin recurrencias" description="Crea un calendario semanal para automatizar contenidos." />}</section>
+  </>;
 }

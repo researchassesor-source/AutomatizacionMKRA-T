@@ -4,8 +4,7 @@ import type { MessageChannelAdapter, SendInput, SendResult } from "./types";
  * Canal de email.
  *
  * Si hay EMAIL_API_KEY configurada usa el proveedor (aqui, Resend como
- * ejemplo). Si no, cae al modo "log": imprime el correo en consola para que
- * puedas probar toda la secuencia de nurture SIN credenciales todavia.
+ * ejemplo). Si no, informa una simulacion sin imprimir datos personales.
  */
 export class EmailChannel implements MessageChannelAdapter {
   readonly channel = "EMAIL" as const;
@@ -23,10 +22,7 @@ export class EmailChannel implements MessageChannelAdapter {
 
   async send(input: SendInput): Promise<SendResult> {
     if (!this.isConfigured()) {
-      console.log(
-        `[email:log] PARA ${input.to} | ASUNTO: ${input.subject ?? "(sin asunto)"}\n${input.body}\n`,
-      );
-      return { ok: true };
+      return { ok: true, simulated: true };
     }
 
     try {
@@ -45,7 +41,7 @@ export class EmailChannel implements MessageChannelAdapter {
         }),
       });
       if (!res.ok) {
-        return { ok: false, error: `email ${res.status}: ${await res.text()}` };
+        return { ok: false, error: `El proveedor de correo respondió ${res.status}.` };
       }
       return { ok: true };
     } catch (err) {

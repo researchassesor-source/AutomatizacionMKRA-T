@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { requireRole } from "@/lib/auth/authorization";
+import { writeAudit } from "@/lib/audit";
+import { getAdapter } from "@/lib/social/orchestrator";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
   platform: z.enum(["INSTAGRAM", "FACEBOOK", "TIKTOK", "YOUTUBE", "LINKEDIN"]),
-  displayName: z.string().min(1),
-  externalId: z.string().optional(),
+  displayName: z.string().trim().min(1).max(120),
+  externalId: z.string().trim().max(200).optional(),
 });
 
 export async function POST(request: Request) {
+  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  if (auth.error) return auth.error;
   let body: unknown;
   try {
     body = await request.json();
@@ -24,6 +29,9 @@ export async function POST(request: Request) {
       { error: parsed.error.errors[0]?.message ?? "datos invalidos" },
       { status: 422 },
     );
+  }
+  if (!getAdapter(parsed.data.platform)) {
+    return NextResponse.json({ error: "Esta red todavía no tiene un conector disponible." }, { status: 422 });
   }
 
   const account = await prisma.socialAccount.upsert({
@@ -40,6 +48,8 @@ export async function POST(request: Request) {
       externalId: parsed.data.externalId ?? "",
     },
   });
+
+  await writeAudit({ session: auth.session, action: "SOCIAL_ACCOUNT_SAVED", entityType: "SocialAccount", entityId: account.id });
 
   return NextResponse.json({ ok: true, accountId: account.id }, { status: 201 });
 }

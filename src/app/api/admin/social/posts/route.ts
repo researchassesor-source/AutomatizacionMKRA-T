@@ -1,19 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { requireRole } from "@/lib/auth/authorization";
+import { writeAudit } from "@/lib/audit";
+import { isSocialAccountUsable } from "@/lib/social/orchestrator";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
   accountId: z.string().min(1),
-  caption: z.string().min(1, "El texto no puede estar vacio"),
-  mediaUrl: z.string().url().optional().or(z.literal("")),
-  linkUrl: z.string().url().optional().or(z.literal("")),
+  caption: z.string().trim().min(1, "El texto no puede estar vacío").max(10000),
+  mediaUrl: z.string().url().max(1000).optional().or(z.literal("")),
+  linkUrl: z.string().url().max(1000).optional().or(z.literal("")),
   // ISO string; si viene, el post queda PROGRAMADO, si no, BORRADOR
   scheduledAt: z.string().datetime().optional().or(z.literal("")),
 });
 
 export async function POST(request: Request) {
+  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  if (auth.error) return auth.error;
   let body: unknown;
   try {
     body = await request.json();
@@ -36,6 +41,9 @@ export async function POST(request: Request) {
   if (!account) {
     return NextResponse.json({ error: "cuenta no encontrada" }, { status: 404 });
   }
+  if (!account.isActive || !isSocialAccountUsable(account.platform)) {
+    return NextResponse.json({ error: "La cuenta no está disponible para publicar en este entorno." }, { status: 422 });
+  }
 
   const scheduledAt = d.scheduledAt ? new Date(d.scheduledAt) : null;
   const post = await prisma.socialPost.create({
@@ -48,6 +56,8 @@ export async function POST(request: Request) {
       status: scheduledAt ? "PROGRAMADO" : "BORRADOR",
     },
   });
+
+  await writeAudit({ session: auth.session, action: "SOCIAL_POST_CREATED", entityType: "SocialPost", entityId: post.id });
 
   return NextResponse.json({ ok: true, postId: post.id }, { status: 201 });
 }

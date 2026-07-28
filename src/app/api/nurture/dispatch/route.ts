@@ -14,8 +14,8 @@ async function run() {
   try {
     const summary = await processScheduledMessages();
     return NextResponse.json(summary);
-  } catch (err) {
-    console.error("[nurture/dispatch] error", err);
+  } catch {
+    console.error("[nurture/dispatch] error");
     return NextResponse.json({ error: "fallo del dispatcher" }, { status: 500 });
   }
 }
@@ -27,6 +27,9 @@ export async function GET(request: Request) {
   return run();
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!checkCronAuth(request)) {
+    return NextResponse.json({ error: "no autorizado" }, { status: 401 });
+  }
   return run();
 }

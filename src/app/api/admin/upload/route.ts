@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import sharp from "sharp";
+import { requireRole } from "@/lib/auth/authorization";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,6 +10,8 @@ export const runtime = "nodejs";
 // Requiere el almacenamiento Blob conectado en Vercel (variable
 // BLOB_READ_WRITE_TOKEN, que Vercel agrega automaticamente).
 export async function POST(request: Request) {
+  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  if (auth.error) return auth.error;
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
       { error: "Almacenamiento de imagenes no configurado (conecta Vercel Blob)." },
@@ -54,8 +57,8 @@ export async function POST(request: Request) {
       contentType: "image/jpeg",
     });
     return NextResponse.json({ url: blob.url });
-  } catch (err) {
-    console.error("[admin/upload] error", err);
+  } catch {
+    console.error("[admin/upload] No se pudo procesar una imagen autorizada.");
     return NextResponse.json({ error: "no se pudo procesar la imagen" }, { status: 500 });
   }
 }

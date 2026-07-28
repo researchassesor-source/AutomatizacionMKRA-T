@@ -3,7 +3,7 @@ import type { MessageChannelAdapter, SendInput, SendResult } from "./types";
 /**
  * Canal de WhatsApp via WhatsApp Cloud API (Meta).
  *
- * Sin credenciales cae al modo "log" para poder probar la secuencia.
+ * Sin credenciales responde en modo de simulacion sin exponer el mensaje.
  *
  * Nota importante: WhatsApp solo permite iniciar conversaciones con
  * "plantillas" (templates) aprobadas. Este adaptador envia texto simple, que
@@ -26,8 +26,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
 
   async send(input: SendInput): Promise<SendResult> {
     if (!this.isConfigured()) {
-      console.log(`[whatsapp:log] PARA ${input.to}\n${input.body}\n`);
-      return { ok: true };
+      return { ok: true, simulated: true };
     }
 
     try {
@@ -46,7 +45,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
         }),
       });
       if (!res.ok) {
-        return { ok: false, error: `whatsapp ${res.status}: ${await res.text()}` };
+        return { ok: false, error: `El proveedor de WhatsApp respondió ${res.status}.` };
       }
       return { ok: true };
     } catch (err) {

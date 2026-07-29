@@ -15,7 +15,7 @@ export function WhatsAppButton() {
       className="wa-float"
       href={`https://wa.me/${safeNumber}?text=${encodeURIComponent(MESSAGE)}`}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       aria-label="Escríbenos por WhatsApp"
     >
       <svg viewBox="0 0 32 32" width="28" height="28" fill="currentColor" aria-hidden="true">

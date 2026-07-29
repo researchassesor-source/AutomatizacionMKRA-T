@@ -572,7 +572,8 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .sales-toolbar-panel { display: flex; align-items: center; gap: 10px; }
 .segmented-tabs { margin: 0 0 18px; padding-bottom: 2px; overflow-x: auto; }
 .center-narrow { width: min(620px, calc(100% - 40px)); margin: 72px auto; text-align: center; }
-.wa-float { position: fixed; right: 22px; bottom: 22px; z-index: 30; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: #16a34a; color: #fff; box-shadow: 0 12px 30px rgba(22,163,74,.3); }
+.wa-float { position: fixed; right: 22px; bottom: 22px; z-index: 30; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: #16a34a; color: #fff; box-shadow: 0 12px 30px rgba(22,163,74,.3); transition: transform .15s ease, box-shadow .15s ease; }
+.wa-float:hover { transform: scale(1.08); box-shadow: 0 15px 34px rgba(22,163,74,.38); }
 
 @media (max-width: 1199px) {
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

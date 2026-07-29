@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 const PREVIEW_FLAG = "PREVIEW_DATABASE_MIGRATIONS_ENABLED";
 const POOLED_URL = "POSTGRES_PRISMA_URL";
 const DIRECT_URL = "POSTGRES_URL_NON_POOLING";
+const PREPARE_SCRIPT = fileURLToPath(new URL("./prepare-preview-migrations.mjs", import.meta.url));
 const VERIFY_SCRIPT = fileURLToPath(new URL("./verify-database-schema.mjs", import.meta.url));
 const require = createRequire(import.meta.url);
 const PRISMA_CLI = require.resolve("prisma/build/index.js");
@@ -91,6 +92,7 @@ export function runVercelBuild({
     }
 
     prisma("Validando el esquema Prisma", ["validate"]);
+    run("Preparando el historial de migraciones del Preview", process.execPath, [PREPARE_SCRIPT]);
     prisma("Aplicando migraciones del Preview aislado", ["migrate", "deploy"]);
     prisma("Comprobando el estado de migraciones", ["migrate", "status"]);
     prisma("Generando Prisma Client", ["generate"]);

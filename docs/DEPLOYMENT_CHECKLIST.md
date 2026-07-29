@@ -8,7 +8,8 @@
 - [ ] `POSTGRES_PRISMA_URL` y `POSTGRES_URL_NON_POOLING` apuntan a la misma rama aislada, con conexión pooled y directa respectivamente.
 - [ ] `PREVIEW_DATABASE_MIGRATIONS_ENABLED=true` existe solo en Preview.
 - [ ] `FINANCE_MODE=simulation`, `SOCIAL_MODE=simulation` y `MESSAGING_MODE=simulation`.
-- [ ] El log de `npm run vercel-build` aprueba validate, migrate deploy, migrate status, generate, schema-check y next build; nunca `db push` ni seed.
+- [ ] El log de `npm run vercel-build` aprueba validate, preview-baseline, migrate deploy, migrate status, generate, schema-check y next build; nunca `db push` ni seed.
+- [ ] Si aparece P3005, el preparador reconoce exactamente el baseline histórico antes de ejecutar resolve.
 - [ ] Usuario ADMIN ficticio creado con `CRM_ADMIN_PASSWORD` solo en la sesión del comando.
 - [ ] Matriz funcional, responsive, accesibilidad, consola y red aprobadas.
 - [ ] Datos ficticios retirados y auditoría revisada sin secretos.
@@ -28,6 +29,8 @@
 
 - [ ] Vercel usa `buildCommand: npm run vercel-build` desde `vercel.json`; no duplicar comandos en Project Settings.
 - [ ] Confirmar que el build detectó `VERCEL_ENV=preview` antes de migrar.
+- [ ] Confirmar que solo `20260728000000_baseline_b1ca4fe` puede marcarse como aplicada automáticamente.
+- [ ] Confirmar que `20260728010000_crm_release_candidate` fue ejecutada realmente por `migrate deploy`.
 - [ ] Confirmar que la comprobación de esquema encontró `admin_users`, `courses.category`, contactos, inscripciones, seguimientos y auditoría.
 - [ ] Desplegar el commit aprobado sin ejecutar semillas.
 - [ ] Probar login, permisos, contactos, dos inscripciones por contacto, agenda y auditoría.

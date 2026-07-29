@@ -7,15 +7,32 @@ Cada deployment Preview obtiene una rama de Neon independiente mediante Preview 
 1. exige `VERCEL_ENV=preview` y `PREVIEW_DATABASE_MIGRATIONS_ENABLED=true`;
 2. valida la presencia de `POSTGRES_PRISMA_URL` y `POSTGRES_URL_NON_POOLING` sin imprimirlas;
 3. ejecuta `prisma validate`;
-4. aplica únicamente migraciones versionadas con `prisma migrate deploy`;
-5. exige que `prisma migrate status` apruebe;
-6. genera Prisma Client;
-7. verifica en modo de solo lectura las tablas críticas, `courses.category` y las migraciones aplicadas;
-8. ejecuta `next build`.
+4. ejecuta `prepare-preview-migrations.mjs`, que inspecciona tablas, columnas e historial Prisma en modo de solo lectura;
+5. si reconoce exactamente el esquema histórico sin historial, marca únicamente `20260728000000_baseline_b1ca4fe` como aplicada;
+6. aplica migraciones pendientes con `prisma migrate deploy`;
+7. exige que `prisma migrate status` apruebe;
+8. genera Prisma Client;
+9. verifica en modo de solo lectura las tablas críticas, `courses.category` y ambas migraciones aplicadas;
+10. ejecuta `next build`.
 
 Cualquier error detiene el deployment. El flujo no contiene `seed`, `db push`, `migrate dev` ni `migrate reset`.
 
 Producción sigue otro camino: valida Prisma, genera el cliente y compila, pero no ejecuta migraciones automáticas. Local conserva el build normal sin migraciones inesperadas. Un valor desconocido de `VERCEL_ENV` se rechaza.
+
+## Baseline de ramas copiadas
+
+Neon puede crear un Preview copiando una rama que ya contiene el esquema histórico, pero sin una fila compatible en `_prisma_migrations`. Prisma responde P3005 porque la base no está vacía y no puede ejecutar nuevamente el SQL del baseline.
+
+El preparador admite únicamente estos estados:
+
+1. **Base vacía:** no ejecuta `migrate resolve`; `migrate deploy` aplica baseline e incremental.
+2. **Baseline histórico exacto sin historial:** comprueba las seis tablas históricas y todas sus columnas, rechaza cualquier estructura incremental o desconocida y registra únicamente `20260728000000_baseline_b1ca4fe`.
+3. **Baseline ya registrado:** no repite resolve; deja que deploy aplique el incremental.
+4. **Baseline e incremental registrados:** no resuelve nada; deploy es un no-op y `migrate status` confirma el estado.
+5. **Esquema parcial, ambiguo o con historial desconocido:** detiene el build antes de resolve y deploy.
+6. **Producción:** el preparador no se ejecuta y además rechaza una invocación directa.
+
+La migración `20260728010000_crm_release_candidate` nunca se marca como aplicada automáticamente. Debe ejecutarse realmente mediante `prisma migrate deploy`. `migrate resolve` solo es seguro cuando la estructura coincide exactamente con el esquema de `b1ca4fe`, no existen tablas o columnas incrementales y el historial no contiene entradas inesperadas.
 
 ## Variables de Preview
 
@@ -64,7 +81,7 @@ El comando es idempotente y nunca forma parte del build. La contraseña no debe 
 ## Validación de un Preview
 
 1. Confirmar rama y commit del deployment.
-2. Revisar logs y localizar, en orden, validate, migrate deploy, migrate status, generate, schema-check y next build.
+2. Revisar logs y localizar, en orden, validate, preview-baseline, migrate deploy, migrate status, generate, schema-check y next build.
 3. Abrir `/` y `/admin/login`.
 4. Confirmar protección de `/admin` sin sesión.
 5. Probar dashboard, Contactos, Cursos, Seguimientos, Ventas, Mensajes, Redes, Finance, Usuarios y Auditoría sin enviar ni publicar contenido.

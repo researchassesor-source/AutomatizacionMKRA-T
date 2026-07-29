@@ -41,13 +41,14 @@ describe("vercel-build", () => {
   it("ejecuta el flujo completo y ordenado en Preview", () => {
     const test = harness(previewEnv);
     test.run();
-    expect(test.calls).toHaveLength(6);
+    expect(test.calls).toHaveLength(7);
     expect(test.calls[0].slice(-1)).toEqual(["validate"]);
-    expect(test.calls[1].slice(-2)).toEqual(["migrate", "deploy"]);
-    expect(test.calls[2].slice(-2)).toEqual(["migrate", "status"]);
-    expect(test.calls[3].slice(-1)).toEqual(["generate"]);
-    expect(test.calls[4][1]).toMatch(/verify-database-schema\.mjs$/);
-    expect(test.calls[5].slice(-1)).toEqual(["build"]);
+    expect(test.calls[1][1]).toMatch(/prepare-preview-migrations\.mjs$/);
+    expect(test.calls[2].slice(-2)).toEqual(["migrate", "deploy"]);
+    expect(test.calls[3].slice(-2)).toEqual(["migrate", "status"]);
+    expect(test.calls[4].slice(-1)).toEqual(["generate"]);
+    expect(test.calls[5][1]).toMatch(/verify-database-schema\.mjs$/);
+    expect(test.calls[6].slice(-1)).toEqual(["build"]);
   });
 
   it("bloquea Preview sin la bandera explícita antes de ejecutar comandos", () => {

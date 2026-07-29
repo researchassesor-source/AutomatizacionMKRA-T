@@ -1,173 +1,70 @@
-# MKRA-T · Motor de Automatización de RA-Training
+# R.A. Training CRM
 
-Automatización de marketing y ventas para **[ra-training.com](https://ra-training.com)**: una empresa de capacitación que ofrece **cursos gratuitos de enganche** para hacer crecer su base de contactos y, desde ahí, vender su catálogo de cursos.
+Sistema de Gestión de Relaciones con Clientes para captación, cursos, inscripciones, seguimiento comercial, mensajes, pipeline, redes sociales y coordinación controlada con Moodle y R.A. Training Finance.
 
-> **Enfoque híbrido:** este proyecto es el **motor orquestador** propio que integra herramientas existentes por API (redes sociales, email, WhatsApp). No reinventamos un CRM completo desde cero; construimos la lógica de negocio que nos da ventaja y conectamos lo demás.
+## Responsabilidades
 
----
+- `ra-training.com`: catálogo e información comercial oficial.
+- CRM: contactos, consentimiento, cursos de interés, inscripciones, agenda, mensajes, pipeline, campañas, redes y auditoría.
+- Moodle: aula, contenido, avance y finalización real.
+- R.A. Training Finance: fuente única de verdad para certificados, emisión, QR, anulación y verificación.
 
-## ¿Qué hace hoy?
+El CRM no emite certificados ni contiene una acción para hacerlo.
 
-**Fase 1 — Captación de leads**
-- **Landing pages de cursos gratuitos** con formulario de inscripción (`/cursos/[slug]`).
-- **Captura de leads** en el CRM propio (deduplicación por email, tracking de UTM).
-- **Base del CRM**: contactos, etapas del embudo, bitácora de eventos.
-- **Orquestador de publicación en redes**: cola de publicaciones + adaptadores por red social (Meta/Instagram/Facebook listo; TikTok, YouTube y LinkedIn preparados para añadir) + verificación de conexión.
+## Desarrollo local
 
-**Fase 2 — Nurture (email / WhatsApp)**
-- **Secuencia de bienvenida** que se encola automáticamente al inscribirse un lead (idempotente): email de acceso inmediato, recordatorio a las 24 h y oferta del catálogo a las 72 h.
-- **Canales con adaptadores**: email (Resend como ejemplo) y WhatsApp Cloud API. Sin credenciales funcionan en **modo log** para probar toda la secuencia.
-- **Dispatcher** que envía los mensajes vencidos (pensado para un cron).
-
-**Fase 3 — Curso + handoff a `ra-training-finance`**
-- **Aula virtual** (`/aula/[slug]`) con las lecciones del curso y botón de finalización.
-- **Handoff**: al completar el curso, MKRA-T **crea una inscripción en `ra-training-finance`** (la fuente de verdad de certificados y avales) vía su API, guarda la referencia (`financeInscripcionId`) en el lead y encola el aviso con el enlace de verificación.
-- **La emisión y verificación del certificado (y el aval del Ministerio de Trabajo) viven en `ra-training-finance`**, no aquí. `/verificar` redirige a ese sistema. MKRA-T no duplica esa lógica: única fuente de verdad.
-
-**Fase 4 — Scoring de ventas y pipeline**
-- **Scoring** automático de cada lead según su actividad (completar un curso vale mucho); recalculado al captar y al completar un curso.
-- Los leads que cruzan el umbral (≥ 50, típicamente los que completaron un curso gratuito) se promueven a **OPORTUNIDAD**.
-- **Pipeline de ventas** (`/admin/ventas`): oportunidades ordenadas por puntaje con desglose transparente y acciones (marcar cliente / perdido / reabrir), más botón de recalcular.
-
-**Panel de administración** (`/admin`, protegido con contraseña)
-- Resumen con métricas, **leads**, **nurture**, **ventas** (pipeline), **certificados** (handoffs) y **redes**.
-
-## Roadmap
-
-| Fase | Módulo | Estado |
-|------|--------|--------|
-| 1 | Captación: landing + captura de leads + publicación en redes | ✅ |
-| 2 | Nurture: secuencias de email/WhatsApp de bienvenida | ✅ |
-| 3 | Curso + handoff a ra-training-finance (certificado + aval) | ✅ |
-| 4 | Ventas: scoring de leads y pipeline hacia catálogo de pago | ✅ |
-| — | Panel de administración | ✅ |
-
----
-
-## Stack
-
-- **Next.js 15** (App Router) + **TypeScript** — landing pages y backend/API en un solo proyecto.
-- **PostgreSQL** + **Prisma** — base de datos del CRM.
-- **Zod** — validación de entradas.
-- APIs oficiales de las plataformas (Meta Graph API, WhatsApp Cloud API, etc.).
-
-## Arquitectura y despliegue
-
-- [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) — diagrama del embudo y decisiones de diseño.
-- [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md) — guía paso a paso para producción (Vercel + Postgres + Meta + email + finance + cron).
-
-```
-src/
-├── middleware.ts                # Protege /admin y /api/admin
-├── app/
-│   ├── page.tsx                 # Home con listado de cursos
-│   ├── cursos/[slug]/           # Landing de curso + formulario (LeadForm)
-│   ├── aula/[slug]/             # Aula virtual + finalización (handoff a finance)
-│   ├── verificar/               # Redirige a la verificación de ra-training-finance
-│   ├── gracias/                 # Página de confirmación
-│   ├── admin/                   # Panel: resumen, leads, nurture, ventas, certificados, redes
-│   └── api/
-│       ├── leads/               # POST captura de leads (dispara nurture)
-│       ├── courses/complete/    # POST completar curso → emite certificado
-│       ├── nurture/dispatch/    # POST cron: envía mensajes vencidos
-│       ├── social/publish/      # POST cron: publica posts programados
-│       └── admin/               # API del panel (login, social, nurture)
-├── lib/
-│   ├── db.ts                    # Cliente Prisma
-│   ├── admin-auth.ts            # Autenticación del panel
-│   ├── leads.ts                 # Lógica de captura de leads
-│   ├── scoring.ts               # Scoring de ventas y promoción a oportunidad
-│   ├── finance/                 # Cliente de ra-training-finance (handoff + verificación)
-│   ├── nurture/                 # Motor de secuencias + canales (email/WhatsApp)
-│   └── social/                  # Orquestador + adaptadores por red social
-└── data/courses.ts              # Catálogo semilla de cursos (con lecciones)
-```
-
-### Panel de administración
-
-Define `ADMIN_PASSWORD` en `.env` para habilitarlo (sin ella queda deshabilitado)
-y entra en `http://localhost:3000/admin`.
-
-### Nurture (cron)
-
-Igual que la publicación en redes, programa una llamada periódica:
+Requisitos: Node.js 20 o superior y PostgreSQL.
 
 ```bash
-curl -X POST https://TU-DOMINIO/api/nurture/dispatch
+npm ci
+npx prisma validate
+npm run db:migrate
+npm run db:seed
+npm run dev
 ```
 
-### Integración con `ra-training-finance`
+Panel: `http://localhost:3000/admin`.
 
-`ra-training-finance` es la **fuente de verdad** de certificados y del aval del
-Ministerio de Trabajo. MKRA-T se integra así:
-
-- **Handoff**: al completar un curso (`/api/courses/complete`), MKRA-T se
-  autentica con un usuario de servicio (rol `vendedor`) y crea una **inscripción**
-  (`addInscripcion`) en finance. Guarda el `INS_...` en el lead.
-- **Verificación**: `/verificar/*` redirige a `FINANCE_APP_URL/verificar/...`.
-- **Emisión del certificado**: por defecto **manual** (finance lo emite por su
-  flujo normal). Pon `FINANCE_AUTO_EMIT=true` para que MKRA-T lo emita solo al
-  completar el curso (`updateInscripcion` → `estadoCertificado: emitido`),
-  recomendado sólo para cursos gratuitos de enganche. Si la emisión automática
-  falla, el handoff no se bloquea y el certificado queda pendiente (manual).
-- Configúralo con las variables `FINANCE_*` de `.env`. Sin ellas, el handoff
-  responde `503` (no toca finance).
-
-> ⚠️ `addInscripcion` **crea también un ingreso** en la contabilidad de finance.
-> Por eso el handoff se dispara sólo al **completar** el curso (no en cada
-> captura), con `monto: 0` y una nota de origen.
-
----
-
-## Puesta en marcha (local)
-
-Requisitos: Node 20+, Docker (para Postgres).
+Para crear el primer usuario local se define temporalmente `CRM_ADMIN_PASSWORD` en la sesión de terminal y se ejecuta:
 
 ```bash
-# 1. Dependencias
-npm install
-
-# 2. Variables de entorno
-cp .env.example .env
-
-# 3. Base de datos
-docker compose up -d db
-npm run db:push        # crea las tablas
-npm run db:seed        # carga los cursos de ejemplo
-
-# 4. Arrancar
-npm run dev            # http://localhost:3000
+npm run admin:create -- --email=admin-local@example.test --name="Administrador local"
 ```
 
-## Publicación en redes (cron)
+La contraseña no se pasa como argumento, no se almacena en semillas y se guarda con `scrypt`.
 
-El orquestador publica los posts programados cuya hora ya llegó. Programa una
-llamada periódica (cada 5–15 min) al endpoint:
+## Validación
 
 ```bash
-curl -X POST https://TU-DOMINIO/api/social/publish
+npx prisma validate
+npx prisma generate
+npm run typecheck
+npm test
+npm run build
+git diff --check
 ```
 
-Publicar un post concreto de inmediato:
+## Seguridad operativa
 
-```bash
-curl -X POST https://TU-DOMINIO/api/social/publish \
-  -H "Content-Type: application/json" \
-  -d '{"postId":"<id>"}'
-```
+- Las sesiones administrativas son firmadas, `httpOnly`, `sameSite=lax` y vencen a las ocho horas.
+- Los roles son `ADMIN`, `MARKETING`, `VENTAS` y `LECTURA`.
+- Los procesos programados requieren secreto en Producción.
+- Finance y redes permanecen en simulación en desarrollo local.
+- El webhook de Moodle permanece deshabilitado mientras no tenga secreto.
+- No se registran contraseñas, hashes, tokens ni cuerpos completos de datos personales en auditoría.
+- El acceso compartido anterior se conserva solo como compatibilidad temporal.
 
-> En producción protege este endpoint con un token de autorización.
+## Documentación
 
----
-
-## ⚠️ Notas importantes de negocio
-
-- **Certificado avalado por el Ministerio de Trabajo:** el software genera y
-  verifica certificados, pero el **aval oficial debe estar gestionado
-  legalmente** antes de anunciarlo. Por eso el campo `hasCertificate` viene en
-  `false` por defecto en los cursos de ejemplo.
-- **Automatización de redes:** usa siempre las **APIs oficiales**. Automatizar
-  por vías no oficiales (sobre todo Instagram/WhatsApp) puede provocar el bloqueo
-  de las cuentas.
-- **Datos personales:** el formulario exige consentimiento explícito. Cumple la
-  ley de protección de datos aplicable a tu país.
+- [Arquitectura](docs/ARQUITECTURA.md)
+- [Modelo de datos](docs/MODELO_DE_DATOS_CRM.md)
+- [Integración de cursos](docs/INTEGRACION_CURSOS.md)
+- [Integración Moodle](docs/INTEGRACION_MOODLE.md)
+- [Integración Finance](docs/INTEGRACION_FINANCE.md)
+- [Seguridad](docs/SEGURIDAD_CRM.md)
+- [Migración a Producción](docs/MIGRACION_PRODUCCION.md)
+- [Pruebas manuales](docs/PRUEBAS_MANUALES_CRM.md)
+- [Candidato de release](docs/RELEASE_CANDIDATE.md)
+- [Checklist de despliegue](docs/DEPLOYMENT_CHECKLIST.md)
+- [Checklist de variables](docs/PRODUCTION_ENV_CHECKLIST.md)
+- [Rollback](docs/ROLLBACK.md)

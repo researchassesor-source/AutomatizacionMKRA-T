@@ -20,13 +20,16 @@ export async function GET(request: Request) {
   try {
     const summary = await processScheduledPosts();
     return NextResponse.json(summary);
-  } catch (err) {
-    console.error("[social/publish] cron error", err);
+  } catch {
+    console.error("[social/publish] cron error");
     return NextResponse.json({ error: "fallo del orquestador" }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  if (!checkCronAuth(request)) {
+    return NextResponse.json({ error: "no autorizado" }, { status: 401 });
+  }
   let postId: string | undefined;
   try {
     const body = await request.json();
@@ -42,8 +45,8 @@ export async function POST(request: Request) {
     }
     const summary = await processScheduledPosts();
     return NextResponse.json(summary);
-  } catch (err) {
-    console.error("[social/publish] error", err);
+  } catch {
+    console.error("[social/publish] error");
     return NextResponse.json({ error: "fallo del orquestador" }, { status: 500 });
   }
 }

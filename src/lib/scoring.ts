@@ -29,7 +29,7 @@ export function computeScore(
   if (lead.phone) add("Dejo WhatsApp", SCORE_WEIGHTS.whatsapp);
 
   const completions = events.filter(
-    (e) => e.type === "finance_handoff" || e.type === "certificate_issued",
+    (e) => e.type === "course_completed",
   ).length;
   if (completions > 0) add("Completo un curso", SCORE_WEIGHTS.cursoCompletado);
   if (completions > 1) {

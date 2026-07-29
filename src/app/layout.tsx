@@ -1,40 +1,24 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { WhatsAppButton } from "./WhatsAppButton";
+import { RouteChrome } from "@/components/RouteChrome";
 
 export const metadata: Metadata = {
-  title: "RA-Training | Capacitate gratis y certifica tu futuro",
-  description:
-    "Cursos gratuitos de enganche para dar tu primer paso profesional. Capacitacion online, practica y sin costo.",
+  title: { default: "R.A. Training CRM", template: "%s | R.A. Training CRM" },
+  description: "Sistema de Gestión de Relaciones con Clientes de R.A. Training.",
+  icons: {
+    icon: [
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
+    ],
+  },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" data-scroll-behavior="smooth">
       <body>
-        <header className="site-header">
-          <div className="container">
-            <a className="brand" href="/">
-              RA<span>-Training</span>
-            </a>
-            <nav>
-              <a href="/#cursos" style={{ textDecoration: "none", fontWeight: 600 }}>
-                Cursos
-              </a>
-            </nav>
-          </div>
-        </header>
-        {children}
-        <footer className="footer">
-          <div className="container">
-            RA-Training · ra-training.com — Capacitacion profesional online.
-          </div>
-        </footer>
-        <WhatsAppButton />
+        <RouteChrome>{children}</RouteChrome>
       </body>
     </html>
   );

@@ -1,0 +1,77 @@
+import { z } from "zod";
+import { COURSE_CATALOG_URL } from "@/data/courses";
+
+export function isTrustedOfficialCourseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ["ra-training.com", "www.ra-training.com"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function isTrustedMoodleUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "moodle.ra-training.com";
+  } catch {
+    return false;
+  }
+}
+
+export const courseInputSchema = z.object({
+  slug: z.string().trim().min(3).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "El identificador solo admite letras minúsculas, números y guiones."),
+  title: z.string().trim().min(3).max(180),
+  subtitle: z.string().trim().max(220).optional().or(z.literal("")),
+  description: z.string().trim().max(3000).optional().or(z.literal("")),
+  category: z.string().trim().max(100).optional().or(z.literal("")),
+  officialCourseUrl: z
+    .string()
+    .trim()
+    .default(COURSE_CATALOG_URL)
+    .refine(isTrustedOfficialCourseUrl, "La URL oficial debe pertenecer a ra-training.com."),
+  moodleCourseUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || isTrustedMoodleUrl(value), "La URL de Moodle no es válida."),
+  imageUrl: z.string().trim().url().max(1000).optional().or(z.literal("")),
+  price: z.union([z.number().nonnegative().max(100000), z.string().trim()]).optional().transform((value, context) => {
+    if (value === undefined || value === "") return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0 || number > 100000) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "El precio no es válido." });
+      return z.NEVER;
+    }
+    return number;
+  }),
+  duration: z.string().trim().max(80).optional().or(z.literal("")),
+  modality: z.string().trim().max(80).optional().or(z.literal("")),
+  startsAt: z.union([z.literal(""), z.string().datetime()]).optional(),
+  endsAt: z.union([z.literal(""), z.string().datetime()]).optional(),
+  isFree: z.boolean().default(false),
+  isPublished: z.boolean().default(false),
+  isLeadMagnet: z.boolean().default(false),
+  hasCertificate: z.boolean().default(false),
+  displayOrder: z.number().int().min(0).max(10000).default(0),
+}).superRefine((data, context) => {
+  if (data.startsAt && data.endsAt && new Date(data.endsAt) < new Date(data.startsAt)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["endsAt"], message: "La fecha de cierre no puede ser anterior a la fecha de inicio." });
+  }
+});
+
+export function courseData(input: z.infer<typeof courseInputSchema>) {
+  return {
+    ...input,
+    subtitle: input.subtitle || null,
+    description: input.description || null,
+    category: input.category || null,
+    moodleCourseUrl: input.moodleCourseUrl || null,
+    imageUrl: input.imageUrl || null,
+    duration: input.duration || null,
+    modality: input.modality || null,
+    startsAt: input.startsAt ? new Date(input.startsAt) : null,
+    endsAt: input.endsAt ? new Date(input.endsAt) : null,
+  };
+}

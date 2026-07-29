@@ -45,8 +45,10 @@ export class MetaAdapter implements SocialAdapter {
       this.platform === "INSTAGRAM" ? this.config.igUserId : this.config.pageId;
     const fields = this.platform === "INSTAGRAM" ? "username" : "name";
     try {
-      const url = `${GRAPH}/${id}?fields=${fields}&access_token=${this.config.accessToken}`;
-      const res = await fetch(url);
+      const url = `${GRAPH}/${id}?fields=${fields}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+      });
       const data = (await res.json()) as {
         name?: string;
         username?: string;
@@ -130,8 +132,8 @@ export class MetaAdapter implements SocialAdapter {
     maxIntentos: number,
   ): Promise<{ ok: boolean; error?: string }> {
     for (let i = 0; i < maxIntentos; i++) {
-      const url = `${GRAPH}/${containerId}?fields=status_code,status&access_token=${token}`;
-      const data = (await (await fetch(url)).json()) as {
+      const url = `${GRAPH}/${containerId}?fields=status_code,status`;
+      const data = (await (await fetch(url, { headers: { Authorization: `Bearer ${token}` } })).json()) as {
         status_code?: string;
         status?: string;
       };
@@ -194,8 +196,13 @@ export class MetaAdapter implements SocialAdapter {
   }
 
   private async graph(path: string, params: Record<string, string>) {
-    const body = new URLSearchParams(params);
-    const res = await fetch(`${GRAPH}/${path}`, { method: "POST", body });
+    const { access_token: accessToken, ...bodyParams } = params;
+    const body = new URLSearchParams(bodyParams);
+    const res = await fetch(`${GRAPH}/${path}`, {
+      method: "POST",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body,
+    });
     return (await res.json()) as {
       id?: string;
       post_id?: string;

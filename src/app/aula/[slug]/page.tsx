@@ -1,49 +1,21 @@
-import { notFound } from "next/navigation";
-import type { Metadata } from "next";
-import { getSeedCourse, seedCourses } from "@/data/courses";
-import { CompleteWidget } from "./CompleteWidget";
+import { notFound, redirect } from "next/navigation";
+import { prisma } from "@/lib/db";
 
-export function generateStaticParams() {
-  return seedCourses.map((c) => ({ slug: c.slug }));
-}
+export const dynamic = "force-dynamic";
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}): Promise<Metadata> {
+export default async function AulaRedirect({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const course = getSeedCourse(slug);
-  return { title: course ? `Aula · ${course.title}` : "Aula" };
-}
-
-export default async function AulaPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = await params;
-  const course = getSeedCourse(slug);
+  const course = await prisma.course.findFirst({ where: { slug, isPublished: true } });
   if (!course) notFound();
-
+  if (course.moodleCourseUrl) redirect(course.moodleCourseUrl);
   return (
-    <main className="container" style={{ paddingTop: 32, paddingBottom: 60 }}>
-      <span className="badge">Aula virtual</span>
-      <h1 style={{ marginTop: 8 }}>{course.title}</h1>
-      <p className="muted">Avanza por las lecciones y al terminar obten tu certificado.</p>
-
-      <div style={{ marginTop: 24 }}>
-        {course.lessons.map((lesson, i) => (
-          <div className="panel" key={i}>
-            <h2 style={{ marginBottom: 8 }}>
-              Leccion {i + 1}: {lesson.title}
-            </h2>
-            <p style={{ margin: 0 }}>{lesson.content}</p>
-          </div>
-        ))}
+    <main className="container center-narrow">
+      <div className="card">
+        <span className="eyebrow">Campus virtual</span>
+        <h1>Acceso pendiente de configuración</h1>
+        <p>El enlace del campus para “{course.title}” todavía no está disponible en el CRM.</p>
+        <a className="btn btn-inline" href={course.officialCourseUrl}>Ver información oficial</a>
       </div>
-
-      <CompleteWidget courseSlug={course.slug} />
     </main>
   );
 }

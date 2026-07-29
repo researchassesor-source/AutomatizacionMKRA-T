@@ -16,10 +16,9 @@ export default async function VerificarRedirect({
     return (
       <main className="verify-box">
         <div className="verify-card">
-          <h1 style={{ marginTop: 0 }}>Verificacion no disponible</h1>
+          <h1 style={{ marginTop: 0 }}>Verificación no disponible</h1>
           <p className="muted">
-            Configura <code>FINANCE_APP_URL</code> para enlazar con el sistema de
-            verificacion de RA-Training.
+            La consulta corresponde a R.A. Training Finance y no está disponible temporalmente desde este entorno.
           </p>
         </div>
       </main>

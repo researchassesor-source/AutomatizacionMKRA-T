@@ -13,6 +13,7 @@ export interface SendInput {
 export interface SendResult {
   ok: boolean;
   error?: string;
+  simulated?: boolean;
 }
 
 export interface MessageChannelAdapter {

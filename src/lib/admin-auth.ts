@@ -1,33 +1,25 @@
-// Autenticacion simple del panel de administracion.
-// El acceso se habilita definiendo ADMIN_PASSWORD en el entorno. Si no esta
-// definida, el panel queda deshabilitado (seguro por defecto).
-//
-// La cookie de sesion guarda un hash del password (no el password en claro).
-// Funciona tanto en el runtime de Node como en el edge (middleware): usa solo
-// Web Crypto y evita Buffer.
+// Compatibilidad temporal con instalaciones locales que todavía usan una
+// contraseña compartida. Las sesiones nuevas viven en lib/auth/session.
+import { timingSafeEqual } from "node:crypto";
 
-export const ADMIN_COOKIE = "mkra_admin";
+export { ADMIN_COOKIE } from "@/lib/auth/session";
 
-export function isAdminEnabled(): boolean {
+export function isLegacyAdminEnabled(): boolean {
+  const configured = process.env.ADMIN_LEGACY_LOGIN_ENABLED?.trim().toLowerCase();
+  if (configured && !["1", "true", "yes", "on", "si", "sí"].includes(configured)) {
+    return false;
+  }
   return Boolean(process.env.ADMIN_PASSWORD);
 }
 
-function toHex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+export function checkLegacyPassword(candidate: string): boolean {
+  const expected = process.env.ADMIN_PASSWORD;
+  if (!expected) return false;
+  const left = Buffer.from(candidate);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
-/** Token de sesion derivado del password. null si el panel esta deshabilitado. */
-export async function sessionToken(): Promise<string | null> {
-  const pw = process.env.ADMIN_PASSWORD;
-  if (!pw) return null;
-  const data = new TextEncoder().encode(`mkra:v1:${pw}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return toHex(digest);
-}
-
-export function checkPassword(candidate: string): boolean {
-  const pw = process.env.ADMIN_PASSWORD;
-  return Boolean(pw) && candidate === pw;
+export function canUseLegacyAdminLogin(email: string, candidate: string): boolean {
+  return email.trim() === "" && isLegacyAdminEnabled() && checkLegacyPassword(candidate);
 }

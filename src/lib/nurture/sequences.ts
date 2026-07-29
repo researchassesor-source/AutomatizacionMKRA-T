@@ -2,7 +2,7 @@ import type { MessageChannel } from "@prisma/client";
 
 // Definicion de una secuencia de nurture como datos.
 // Cada paso se programa con un desfase (delayHours) respecto a la inscripcion.
-// El cuerpo admite variables {{nombre}}, {{curso}}, {{appUrl}}.
+// El cuerpo admite unicamente las variables declaradas por el motor.
 
 export type SequenceStep = {
   key: string;
@@ -33,7 +33,7 @@ export const welcomeSequence: Sequence = {
         "Gracias por inscribirte en \"{{curso}}\". Ya tienes tu cupo reservado.",
         "Entra cuando quieras y avanza a tu ritmo:",
         "",
-        "{{appUrl}}",
+        "{{courseUrl}}",
         "",
         "Cualquier duda, responde a este correo. ¡Exitos!",
         "El equipo de RA-Training",
@@ -50,7 +50,7 @@ export const welcomeSequence: Sequence = {
         "Vimos que te inscribiste en \"{{curso}}\". Dedicarle 20 minutos hoy",
         "es suficiente para tomar impulso. ¡Tu yo del futuro te lo agradecera!",
         "",
-        "Continua aqui: {{appUrl}}",
+        "Continúa aquí: {{courseUrl}}",
         "",
         "El equipo de RA-Training",
       ].join("\n"),
@@ -67,7 +67,7 @@ export const welcomeSequence: Sequence = {
         "para llevar tu perfil al siguiente nivel. Te contamos las opciones",
         "sin compromiso.",
         "",
-        "Conoce el catalogo: {{appUrl}}",
+        "Conoce el curso: {{courseUrl}}",
         "",
         "El equipo de RA-Training",
       ].join("\n"),

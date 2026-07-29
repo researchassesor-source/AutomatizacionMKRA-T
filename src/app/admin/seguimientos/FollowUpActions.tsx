@@ -9,13 +9,14 @@ export function FollowUpActions({ id, status }: { id: string; status: string }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function update(next: string) {
+    if (!window.confirm(next === "COMPLETADO" ? "¿Marcar este seguimiento como completado?" : "¿Cancelar este seguimiento?")) return;
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(`/api/admin/followups/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify({ status: next, confirm: true }),
       });
       if (!response.ok) throw new Error("No se pudo actualizar el seguimiento.");
       router.refresh();
@@ -28,13 +29,14 @@ export function FollowUpActions({ id, status }: { id: string; status: string }) 
   async function reschedule() {
     const localDate = window.prompt("Nueva fecha y hora en Ecuador (AAAA-MM-DDTHH:mm)");
     if (!localDate || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(localDate)) return;
+    if (!window.confirm("¿Confirmas la nueva fecha y hora del seguimiento?")) return;
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(`/api/admin/followups/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "PENDIENTE", dueAt: ecuadorLocalDateTimeToIso(localDate) }),
+        body: JSON.stringify({ status: "PENDIENTE", dueAt: ecuadorLocalDateTimeToIso(localDate), confirm: true }),
       });
       if (!response.ok) throw new Error("No se pudo reprogramar el seguimiento.");
       router.refresh();

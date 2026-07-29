@@ -8,6 +8,6 @@ export async function currentAdminSession() {
   const store = await cookies();
   const session = await verifySessionToken(store.get(ADMIN_COOKIE)?.value);
   const activeSession = await resolveActiveAdminSession(session);
-  if (!activeSession) redirect("/admin/login");
+  if (!activeSession) redirect("/admin/login?reason=session");
   return activeSession;
 }

@@ -13,7 +13,13 @@ const schema = z.object({
   category: z.string().trim().max(80).optional().or(z.literal("")),
   isActive: z.boolean().default(true),
 }).superRefine((data, context) => {
-  for (const match of data.body.matchAll(/\{\{(\w+)\}\}/g)) {
+  if (data.channel === "EMAIL" && !data.subject) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["subject"], message: "El asunto es obligatorio para correo." });
+  }
+  if (data.channel === "WHATSAPP" && data.subject) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["subject"], message: "WhatsApp no utiliza asunto." });
+  }
+  for (const match of `${data.subject ?? ""} ${data.body}`.matchAll(/\{\{(\w+)\}\}/g)) {
     if (!TEMPLATE_VARIABLES.includes(match[1] as (typeof TEMPLATE_VARIABLES)[number])) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `Variable no permitida: {{${match[1]}}}` });
     }

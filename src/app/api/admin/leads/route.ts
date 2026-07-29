@@ -25,6 +25,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "El responsable seleccionado no está disponible." }, { status: 422 });
   }
 
+  const duplicate = await prisma.lead.findFirst({
+    where: {
+      OR: [
+        { phone: input.phone },
+        ...(input.email ? [{ email: input.email }] : []),
+      ],
+    },
+    select: { id: true },
+  });
+  if (duplicate) {
+    return NextResponse.json(
+      { error: "Ya existe un contacto con ese WhatsApp o correo.", existingContactId: duplicate.id },
+      { status: 409 },
+    );
+  }
+
   const now = new Date();
   const result = await prisma.$transaction(async (tx) => {
     const lead = await tx.lead.create({

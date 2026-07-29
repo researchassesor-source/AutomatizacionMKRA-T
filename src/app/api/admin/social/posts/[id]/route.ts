@@ -11,6 +11,7 @@ const schema = z.object({
   mediaUrl: z.string().url().nullable().optional(),
   linkUrl: z.string().url().nullable().optional(),
   scheduledAt: z.string().datetime().nullable().optional(),
+  confirm: z.boolean().optional(),
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,6 +24,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!post) return NextResponse.json({ error: "No se encontró la publicación." }, { status: 404 });
 
   if (parsed.data.action === "cancel") {
+    if (parsed.data.confirm !== true) {
+      return NextResponse.json({ error: "Debes confirmar explícitamente la cancelación." }, { status: 422 });
+    }
     if (!["BORRADOR", "PROGRAMADO", "FALLIDO", "SIMULADO"].includes(post.status)) {
       return NextResponse.json({ error: "La publicación ya no puede cancelarse." }, { status: 409 });
     }
@@ -41,6 +45,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await writeAudit({ session: auth.session, action: "SOCIAL_POST_DUPLICATED", entityType: "SocialPost", entityId: duplicate.id });
     return NextResponse.json({ ok: true, postId: duplicate.id });
   } else if (parsed.data.action === "retry") {
+    if (parsed.data.confirm !== true) {
+      return NextResponse.json({ error: "Debes confirmar explícitamente el reintento." }, { status: 422 });
+    }
     if (!["FALLIDO", "SIMULADO"].includes(post.status)) {
       return NextResponse.json({ error: "La publicación no admite reintento." }, { status: 409 });
     }

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { Prisma, type Course, type Enrollment, type Lead } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { enqueueSequence } from "@/lib/nurture/engine";
 import { rescoreLead } from "@/lib/scoring";
 import { writeAudit } from "@/lib/audit";
 
@@ -79,7 +78,10 @@ const optionalPageUrl = z
 export const leadInputSchema = z.object({
   firstName: personName,
   lastName: personName,
-  email: z.string().trim().email("El correo electrónico no es válido.").max(254).transform(normalizeEmail),
+  email: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : "",
+    z.union([z.literal(""), z.string().email("El correo electrónico no es válido.").max(254)]),
+  ).transform(normalizeEmail),
   phone: z.string().trim().min(1, "WhatsApp es obligatorio.").max(30).transform((value, context) => {
     try {
       return normalizeEcuadorPhone(value);
@@ -135,7 +137,17 @@ export async function captureLead(input: LeadInput) {
   for (let attempt = 0; attempt < 3 && !result; attempt++) {
     try {
       result = await prisma.$transaction(async (tx) => {
-        const existing = await tx.lead.findFirst({ where: { email: input.email } });
+        const identityMatches = await tx.lead.findMany({
+          where: {
+            OR: [
+              { phone: input.phone },
+              ...(input.email ? [{ email: input.email }] : []),
+            ],
+          },
+          take: 2,
+        });
+        if (identityMatches.length > 1) throw new Error("CONTACT_IDENTITY_CONFLICT");
+        const existing = identityMatches[0];
         const lead = existing
           ? await tx.lead.update({
               where: { id: existing.id },
@@ -143,6 +155,7 @@ export async function captureLead(input: LeadInput) {
                 firstName: input.firstName,
                 lastName: input.lastName,
                 fullName,
+                email: input.email || existing.email,
                 phone: input.phone,
                 consent: true,
                 consentAt: now,
@@ -154,7 +167,7 @@ export async function captureLead(input: LeadInput) {
                 utmCampaign: input.utmCampaign || existing.utmCampaign,
                 landingUrl: input.landingUrl || existing.landingUrl,
                 referrer: input.referrer || existing.referrer,
-                stage: existing.stage === "NUEVO" ? "INSCRITO" : existing.stage,
+                stage: existing.stage,
                 courseId: existing.courseId || course.id,
               },
             })
@@ -165,7 +178,7 @@ export async function captureLead(input: LeadInput) {
                 fullName,
                 email: input.email,
                 phone: input.phone,
-                stage: "INSCRITO",
+                stage: "NUEVO",
                 consent: true,
                 consentAt: now,
                 consentPolicyVersion: "2026-07",
@@ -183,7 +196,7 @@ export async function captureLead(input: LeadInput) {
         const enrollment = await tx.enrollment.upsert({
           where: { leadId_courseId: { leadId: lead.id, courseId: course.id } },
           update: {
-            status: "INSCRITO",
+            status: "INTERESADO",
             source: input.utmSource || "landing",
             utmSource: input.utmSource,
             utmMedium: input.utmMedium,
@@ -193,7 +206,7 @@ export async function captureLead(input: LeadInput) {
           create: {
             leadId: lead.id,
             courseId: course.id,
-            status: "INSCRITO",
+            status: "INTERESADO",
             source: input.utmSource || "landing",
             utmSource: input.utmSource,
             utmMedium: input.utmMedium,
@@ -237,7 +250,6 @@ export async function captureLead(input: LeadInput) {
   if (!result) throw new Error("LEAD_CAPTURE_FAILED");
 
   try {
-    await enqueueSequence(result.lead.id, result.enrollment.id);
     await rescoreLead(result.lead.id);
   } catch {
     console.error("[leads] No se pudo preparar el seguimiento.");

@@ -12,6 +12,12 @@ export function ecuadorLocalDateTimeToIso(value: string): string {
   return date.toISOString();
 }
 
+export function isoToEcuadorLocalInput(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - 5 * 60 * 60 * 1000).toISOString().slice(0, 16);
+}
+
 export function ecuadorDayBounds(reference = new Date()): { start: Date; end: Date } {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: ECUADOR_TIME_ZONE,

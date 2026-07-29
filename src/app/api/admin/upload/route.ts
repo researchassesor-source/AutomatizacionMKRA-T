@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import sharp from "sharp";
 import { requireRole } from "@/lib/auth/authorization";
+import { isPreviewDeployment } from "@/lib/runtime-environment";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,6 +13,12 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
   if (auth.error) return auth.error;
+  if (isPreviewDeployment()) {
+    return NextResponse.json(
+      { error: "Las cargas a almacenamiento externo están bloqueadas en Preview." },
+      { status: 409 },
+    );
+  }
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
       { error: "Almacenamiento de imagenes no configurado (conecta Vercel Blob)." },

@@ -21,4 +21,7 @@ describe("cursos administrables", () => {
     expect(isTrustedMoodleUrl("https://moodle.example.com/course/1")).toBe(false);
   });
   it("permite desactivar la publicación", () => expect(courseInputSchema.parse({ ...course, isPublished: false }).isPublished).toBe(false));
+  it("rechaza un cierre anterior al inicio", () => {
+    expect(courseInputSchema.safeParse({ ...course, startsAt: "2026-08-02T14:00:00.000Z", endsAt: "2026-08-01T14:00:00.000Z" }).success).toBe(false);
+  });
 });

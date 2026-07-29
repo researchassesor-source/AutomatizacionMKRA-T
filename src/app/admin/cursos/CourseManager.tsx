@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../AdminEmptyState";
+import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
 
 export type CourseRow = {
   id: string;
@@ -16,6 +17,9 @@ export type CourseRow = {
   imageUrl: string | null;
   price: number | null;
   duration: string | null;
+  modality: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
   isFree: boolean;
   isPublished: boolean;
   isLeadMagnet: boolean;
@@ -34,6 +38,9 @@ const emptyCourse: Omit<CourseRow, "id"> = {
   imageUrl: "",
   price: null,
   duration: "",
+  modality: "Virtual",
+  startsAt: null,
+  endsAt: null,
   isFree: false,
   isPublished: false,
   isLeadMagnet: false,
@@ -88,6 +95,9 @@ export function CourseManager({
       imageUrl: data.get("imageUrl"),
       price: data.get("price"),
       duration: data.get("duration"),
+      modality: data.get("modality"),
+      startsAt: data.get("startsAt") ? ecuadorLocalDateTimeToIso(String(data.get("startsAt"))) : "",
+      endsAt: data.get("endsAt") ? ecuadorLocalDateTimeToIso(String(data.get("endsAt"))) : "",
       displayOrder: Number(data.get("displayOrder") || 0),
       isFree: data.get("isFree") === "on",
       isPublished: data.get("isPublished") === "on",
@@ -130,11 +140,15 @@ export function CourseManager({
           imageUrl: course.imageUrl ?? "",
           price: course.price ?? "",
           duration: course.duration ?? "",
+          modality: course.modality ?? "",
+          startsAt: course.startsAt ?? "",
+          endsAt: course.endsAt ?? "",
           displayOrder: course.displayOrder,
           isFree: course.isFree,
           isPublished: nextPublished,
           isLeadMagnet: course.isLeadMagnet,
           hasCertificate: course.hasCertificate,
+          confirm: !nextPublished,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -158,8 +172,13 @@ export function CourseManager({
             <input name="slug" aria-label="Identificador del curso" defaultValue={current.slug} placeholder="identificador-del-curso" required />
             <input name="category" aria-label="Categoría" defaultValue={current.category ?? ""} placeholder="Categoría" />
             <input name="duration" aria-label="Duración" defaultValue={current.duration ?? ""} placeholder="Duración" />
+            <input name="modality" aria-label="Modalidad" defaultValue={current.modality ?? ""} placeholder="Modalidad" />
             <input name="price" aria-label="Precio" type="number" min="0" step="0.01" defaultValue={current.price ?? ""} placeholder="Precio" />
             <input name="displayOrder" aria-label="Orden de presentación" type="number" min="0" defaultValue={current.displayOrder} placeholder="Orden" />
+          </div>
+          <div className="form-row">
+            <label className="field"><span>Inicio <small>(opcional)</small></span><input name="startsAt" aria-label="Fecha y hora de inicio" type="datetime-local" defaultValue={current.startsAt ? isoToEcuadorLocalInput(current.startsAt) : ""} /></label>
+            <label className="field"><span>Cierre <small>(opcional)</small></span><input name="endsAt" aria-label="Fecha y hora de cierre" type="datetime-local" defaultValue={current.endsAt ? isoToEcuadorLocalInput(current.endsAt) : ""} /></label>
           </div>
           <div className="form-row">
             <input name="subtitle" aria-label="Subtítulo" defaultValue={current.subtitle ?? ""} placeholder="Subtítulo" />
@@ -189,12 +208,12 @@ export function CourseManager({
         {courses.length === 0 ? <AdminEmptyState icon="courses" title="No hay cursos con estos filtros" description="Ajusta los criterios o crea un nuevo curso si tienes permisos." /> : (
           <div className="table-wrap">
             <table className="data course-admin-table">
-              <thead><tr><th>Curso</th><th>Categoría</th><th>Duración</th><th>Precio</th><th>Estado</th><th>Página</th><th>Acciones</th></tr></thead>
+              <thead><tr><th>Curso</th><th>Categoría</th><th>Modalidad / duración</th><th>Precio</th><th>Estado</th><th>Página</th><th>Acciones</th></tr></thead>
               <tbody>{courses.map((course) => (
                 <tr key={course.id}>
                   <td><strong>{course.title}</strong><div className="muted">{course.slug}</div></td>
                   <td>{course.category?.trim() || "Sin categoría"}</td>
-                  <td>{course.duration ?? "—"}</td>
+                  <td>{course.modality ?? "—"}<div className="muted">{course.duration ?? "Duración sin definir"}</div></td>
                   <td>{course.isFree ? "Gratuito" : course.price === null ? "—" : `$${course.price}`}</td>
                   <td><span className={`pill ${course.isPublished ? "ok" : ""}`}>{course.isPublished ? "Activo" : "Inactivo"}</span></td>
                   <td><a href={course.officialCourseUrl} target="_blank" rel="noreferrer">Ver página ↗</a></td>

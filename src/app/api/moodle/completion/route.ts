@@ -1,26 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { completeEnrollment } from "@/lib/finance/handoff";
-import { PayloadTooLargeError, readJsonBody } from "@/lib/http";
-import { moodleCompletionSchema } from "@/lib/moodle";
-
-function authorized(request: Request): boolean {
-  const secret = process.env.MOODLE_WEBHOOK_SECRET;
-  if (!secret) return false;
-  const supplied = request.headers.get("x-moodle-webhook-secret");
-  if (!supplied || supplied.length !== secret.length) return false;
-  let mismatch = 0;
-  for (let index = 0; index < secret.length; index++) {
-    mismatch |= supplied.charCodeAt(index) ^ secret.charCodeAt(index);
-  }
-  return mismatch === 0;
-}
+import { PayloadTooLargeError, readTextBody } from "@/lib/http";
+import { moodleCompletionSchema, verifyMoodleWebhookSignature } from "@/lib/moodle";
 
 export async function POST(request: Request) {
-  if (!authorized(request)) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  const secret = process.env.MOODLE_WEBHOOK_SECRET;
+  const signature = request.headers.get("x-moodle-signature");
+  if (!secret || !signature) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   let body: unknown;
   try {
-    body = await readJsonBody(request, 16_384);
+    const rawBody = await readTextBody(request, 16_384);
+    if (!verifyMoodleWebhookSignature(rawBody, signature, secret)) {
+      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+    }
+    body = JSON.parse(rawBody);
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {
       return NextResponse.json({ error: "La solicitud es demasiado grande." }, { status: 413 });

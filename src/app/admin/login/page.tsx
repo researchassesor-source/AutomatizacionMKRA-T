@@ -1,16 +1,21 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const [sessionNotice, setSessionNotice] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setSessionNotice(new URLSearchParams(window.location.search).get("reason") === "session");
+  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -110,6 +115,12 @@ export default function AdminLoginPage() {
             {error && (
               <p className="login-error" id="login-error" role="alert">
                 {error}
+              </p>
+            )}
+
+            {!error && sessionNotice && (
+              <p className="login-error" role="status">
+                Tu sesión no está disponible o venció. Inicia sesión nuevamente.
               </p>
             )}
 

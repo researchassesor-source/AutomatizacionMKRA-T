@@ -47,11 +47,18 @@ export const courseInputSchema = z.object({
     return number;
   }),
   duration: z.string().trim().max(80).optional().or(z.literal("")),
+  modality: z.string().trim().max(80).optional().or(z.literal("")),
+  startsAt: z.union([z.literal(""), z.string().datetime()]).optional(),
+  endsAt: z.union([z.literal(""), z.string().datetime()]).optional(),
   isFree: z.boolean().default(false),
   isPublished: z.boolean().default(false),
   isLeadMagnet: z.boolean().default(false),
   hasCertificate: z.boolean().default(false),
   displayOrder: z.number().int().min(0).max(10000).default(0),
+}).superRefine((data, context) => {
+  if (data.startsAt && data.endsAt && new Date(data.endsAt) < new Date(data.startsAt)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["endsAt"], message: "La fecha de cierre no puede ser anterior a la fecha de inicio." });
+  }
 });
 
 export function courseData(input: z.infer<typeof courseInputSchema>) {
@@ -63,5 +70,8 @@ export function courseData(input: z.infer<typeof courseInputSchema>) {
     moodleCourseUrl: input.moodleCourseUrl || null,
     imageUrl: input.imageUrl || null,
     duration: input.duration || null,
+    modality: input.modality || null,
+    startsAt: input.startsAt ? new Date(input.startsAt) : null,
+    endsAt: input.endsAt ? new Date(input.endsAt) : null,
   };
 }

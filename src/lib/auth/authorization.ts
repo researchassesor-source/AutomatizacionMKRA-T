@@ -32,6 +32,19 @@ export async function sessionFromRequest(request: Request): Promise<AdminSession
   return resolveActiveAdminSession(session);
 }
 
+export function isSameOriginAdminRequest(request: Request): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) return true;
+  if (request.headers.get("sec-fetch-site") === "cross-site") return false;
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    const expectedHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? new URL(request.url).host;
+    return new URL(origin).host === expectedHost;
+  } catch {
+    return false;
+  }
+}
+
 export async function requireRole(
   request: Request,
   allowed: readonly SessionRole[],
@@ -41,6 +54,12 @@ export async function requireRole(
     return {
       session: null,
       error: Response.json({ error: "No autorizado." }, { status: 401 }),
+    };
+  }
+  if (!isSameOriginAdminRequest(request)) {
+    return {
+      session,
+      error: Response.json({ error: "Origen de solicitud no permitido." }, { status: 403 }),
     };
   }
   if (!allowed.includes(session.role)) {

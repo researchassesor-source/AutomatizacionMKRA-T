@@ -53,7 +53,7 @@ function OperationalPanel({
 }
 
 export default async function AdminDashboard() {
-  await currentAdminSession();
+  const session = await currentAdminSession();
   const now = new Date();
   const [contacts, opportunities, clients, enrollments, messages, posts, overdue, activeCourses] = await Promise.all([
     prisma.lead.count({ where: { isArchived: false } }),
@@ -66,16 +66,24 @@ export default async function AdminDashboard() {
     prisma.course.count({ where: { isPublished: true } }),
   ]);
 
-  const stats: SummaryItem[] = [
-    { number: contacts, label: "Contactos activos", href: "/admin/leads", icon: "contacts" },
-    { number: enrollments, label: "Inscripciones", href: "/admin/leads", icon: "courses" },
-    { number: opportunities, label: "Oportunidades", href: "/admin/ventas", icon: "activity" },
-    { number: clients, label: "Clientes", href: "/admin/ventas", icon: "sales" },
-    { number: overdue, label: "Seguimientos vencidos", href: "/admin/seguimientos?view=overdue", icon: "alert" },
-    { number: messages, label: "Mensajes pendientes", href: "/admin/mensajes", icon: "messages" },
-    { number: posts, label: "Publicaciones programadas", href: "/admin/redes", icon: "social" },
-    { number: activeCourses, label: "Cursos activos", href: "/admin/cursos", icon: "courses" },
+  const accessByRole: Record<string, string[]> = {
+    ADMIN: ["leads", "followups", "sales", "courses", "finance", "messages", "social"],
+    MARKETING: ["leads", "courses", "messages", "social"],
+    VENTAS: ["leads", "followups", "sales", "courses", "finance", "messages"],
+    LECTURA: ["leads", "courses", "finance"],
+  };
+  const canAccess = (module: string) => accessByRole[session.role]?.includes(module) ?? false;
+  const allStats: Array<SummaryItem & { module: string }> = [
+    { number: contacts, label: "Contactos activos", href: "/admin/leads", icon: "contacts", module: "leads" },
+    { number: enrollments, label: "Inscripciones", href: "/admin/leads", icon: "courses", module: "leads" },
+    { number: opportunities, label: "Oportunidades", href: "/admin/ventas", icon: "activity", module: "sales" },
+    { number: clients, label: "Clientes", href: "/admin/ventas", icon: "sales", module: "sales" },
+    { number: overdue, label: "Seguimientos vencidos", href: "/admin/seguimientos?view=overdue", icon: "alert", module: "followups" },
+    { number: messages, label: "Mensajes pendientes", href: "/admin/mensajes", icon: "messages", module: "messages" },
+    { number: posts, label: "Publicaciones programadas", href: "/admin/redes", icon: "social", module: "social" },
+    { number: activeCourses, label: "Cursos activos", href: "/admin/cursos", icon: "courses", module: "courses" },
   ];
+  const stats = allStats.filter((item) => canAccess(item.module));
 
   return (
     <main className="container admin-shell">
@@ -101,10 +109,11 @@ export default async function AdminDashboard() {
 
       <div className="admin-notice">
         <AdminIcon name="secure" size={18} />
-        <span>Las acciones sensibles conservan sus controles y registros de auditoría.</span>
+        <span>Las acciones sensibles conservan sus controles y registros de auditoría. Actualizado {new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Guayaquil" }).format(now)}.</span>
       </div>
 
       <div className="grid dashboard-grid">
+        {canAccess("followups") || canAccess("sales") ?
         <OperationalPanel
           title="Prioridades comerciales"
           description="Señales que requieren atención del equipo."
@@ -112,10 +121,11 @@ export default async function AdminDashboard() {
           href="/admin/seguimientos?view=overdue"
           action="Revisar"
           items={[
-            { number: overdue, label: "Seguimientos vencidos", href: "/admin/seguimientos?view=overdue", icon: "followups", tone: overdue ? "err" : "ok" },
-            { number: opportunities, label: "Oportunidades abiertas", href: "/admin/ventas", icon: "activity", tone: "info" },
+            ...(canAccess("followups") ? [{ number: overdue, label: "Seguimientos vencidos", href: "/admin/seguimientos?view=overdue", icon: "followups" as const, tone: overdue ? "err" as const : "ok" as const }] : []),
+            ...(canAccess("sales") ? [{ number: opportunities, label: "Oportunidades abiertas", href: "/admin/ventas", icon: "activity" as const, tone: "info" as const }] : []),
           ]}
-        />
+        /> : null}
+        {canAccess("sales") ?
         <OperationalPanel
           title="Pipeline comercial"
           description="Panorama de relaciones activas y cierres."
@@ -126,7 +136,8 @@ export default async function AdminDashboard() {
             { number: contacts, label: "Contactos activos", href: "/admin/leads", icon: "contacts", tone: "info" },
             { number: clients, label: "Clientes confirmados", href: "/admin/ventas", icon: "sales", tone: "ok" },
           ]}
-        />
+        /> : null}
+        {canAccess("courses") ?
         <OperationalPanel
           title="Actividad académica"
           description="Oferta publicada y participación registrada."
@@ -137,7 +148,8 @@ export default async function AdminDashboard() {
             { number: activeCourses, label: "Cursos activos", href: "/admin/cursos", icon: "courses", tone: "ok" },
             { number: enrollments, label: "Inscripciones", href: "/admin/leads", icon: "contacts", tone: "info" },
           ]}
-        />
+        /> : null}
+        {canAccess("messages") || canAccess("social") ?
         <OperationalPanel
           title="Automatización"
           description="Tareas programadas de comunicación y contenido."
@@ -145,10 +157,10 @@ export default async function AdminDashboard() {
           href="/admin/mensajes"
           action="Gestionar"
           items={[
-            { number: messages, label: "Mensajes pendientes", href: "/admin/mensajes", icon: "messages", tone: messages ? "warn" : "ok" },
-            { number: posts, label: "Publicaciones programadas", href: "/admin/redes", icon: "social", tone: posts ? "warn" : "ok" },
+            ...(canAccess("messages") ? [{ number: messages, label: "Mensajes pendientes", href: "/admin/mensajes", icon: "messages" as const, tone: messages ? "warn" as const : "ok" as const }] : []),
+            ...(canAccess("social") ? [{ number: posts, label: "Publicaciones programadas", href: "/admin/redes", icon: "social" as const, tone: posts ? "warn" as const : "ok" as const }] : []),
           ]}
-        />
+        /> : null}
       </div>
     </main>
   );

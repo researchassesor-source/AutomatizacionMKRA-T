@@ -4,7 +4,7 @@ import { isMessagingSimulation, renderMessageTemplate } from "./nurture/engine";
 import { isFinanceSimulation } from "./finance/client";
 import { nextGuayaquilOccurrence, socialConnectionState } from "./social/orchestrator";
 import { POST as legacyComplete } from "@/app/api/courses/complete/route";
-import { moodleCompletionSchema } from "./moodle";
+import { moodleCompletionSchema, signMoodleWebhookBody, verifyMoodleWebhookSignature } from "./moodle";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -66,6 +66,14 @@ describe("integraciones seguras", () => {
     };
     expect(moodleCompletionSchema.safeParse(base).success).toBe(false);
     expect(moodleCompletionSchema.safeParse({ ...base, enrollmentId: "enrollment-ficticio" }).success).toBe(true);
+  });
+  it("Moodle valida la firma HMAC del cuerpo exacto", () => {
+    const body = JSON.stringify({ eventId: "evento-ficticio-123", enrollmentId: "inscripcion-ficticia" });
+    const signature = signMoodleWebhookBody(body, "secreto-de-prueba");
+    expect(verifyMoodleWebhookSignature(body, signature, "secreto-de-prueba")).toBe(true);
+    expect(verifyMoodleWebhookSignature(`${body} `, signature, "secreto-de-prueba")).toBe(false);
+    expect(verifyMoodleWebhookSignature(body, signature, "otro-secreto")).toBe(false);
+    expect(verifyMoodleWebhookSignature(body, null, "secreto-de-prueba")).toBe(false);
   });
   it("el esquema protege las claves idempotentes relevantes", () => {
     const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");

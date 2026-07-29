@@ -8,13 +8,14 @@ import { writeAudit } from "@/lib/audit";
 const updateSchema = z.object({
   firstName: z.string().trim().min(2).max(80).optional(),
   lastName: z.string().trim().min(2).max(80).optional(),
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()).optional(),
+  email: z.union([z.literal(""), z.string().trim().email().max(254)]).transform((value) => value.toLowerCase()).optional(),
   phone: z.string().trim().max(30).optional(),
   stage: z.enum(["NUEVO", "INSCRITO", "EN_CURSO", "CERTIFICADO", "OPORTUNIDAD", "CLIENTE", "PERDIDO"]).optional(),
   assignedToId: z.string().nullable().optional(),
   isArchived: z.boolean().optional(),
   lostReason: z.string().trim().max(500).nullable().optional(),
   nextActionAt: z.string().datetime().nullable().optional(),
+  confirm: z.boolean().optional(),
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -25,6 +26,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const current = await prisma.lead.findUnique({ where: { id } });
   if (!current) return NextResponse.json({ error: "No se encontró el contacto." }, { status: 404 });
+  const changesSensitiveStage = parsed.data.stage !== undefined
+    && parsed.data.stage !== current.stage
+    && ["CLIENTE", "PERDIDO"].includes(parsed.data.stage);
+  const changesArchive = parsed.data.isArchived !== undefined && parsed.data.isArchived !== current.isArchived;
+  if ((changesSensitiveStage || changesArchive) && parsed.data.confirm !== true) {
+    return NextResponse.json({ error: "Debes confirmar explícitamente esta acción." }, { status: 422 });
+  }
+  if (parsed.data.stage === "PERDIDO" && !parsed.data.lostReason) {
+    return NextResponse.json({ error: "Indica el motivo de pérdida." }, { status: 422 });
+  }
 
   let phone = parsed.data.phone;
   if (phone !== undefined) {
@@ -34,6 +45,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       return NextResponse.json({ error: (error as Error).message }, { status: 422 });
     }
   }
+  const identityConflict = await prisma.lead.findFirst({
+    where: {
+      id: { not: id },
+      OR: [
+        ...(phone ? [{ phone }] : []),
+        ...(parsed.data.email ? [{ email: parsed.data.email }] : []),
+      ],
+    },
+    select: { id: true },
+  });
+  if (identityConflict) {
+    return NextResponse.json({ error: "Ya existe otro contacto con ese WhatsApp o correo." }, { status: 409 });
+  }
   const firstName = parsed.data.firstName ?? current.firstName;
   const lastName = parsed.data.lastName ?? current.lastName;
   const fullName = firstName && lastName ? `${firstName} ${lastName}` : current.fullName;
@@ -41,7 +65,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const updated = await prisma.lead.update({
     where: { id },
     data: {
-      ...parsed.data,
+      firstName: parsed.data.firstName,
+      lastName: parsed.data.lastName,
+      email: parsed.data.email,
+      stage: parsed.data.stage,
+      assignedToId: parsed.data.assignedToId,
+      isArchived: parsed.data.isArchived,
+      lostReason: parsed.data.stage && parsed.data.stage !== "PERDIDO" ? null : parsed.data.lostReason,
       phone,
       fullName,
       archivedAt: parsed.data.isArchived === true ? new Date() : parsed.data.isArchived === false ? null : undefined,
@@ -72,24 +102,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (body?.confirmName !== lead.fullName) {
     return NextResponse.json({ error: "La confirmación no coincide con el nombre del contacto." }, { status: 422 });
   }
-  const [enrollments, messages, followUps] = await Promise.all([
-    prisma.enrollment.count({ where: { leadId: id } }),
-    prisma.outboundMessage.count({ where: { leadId: id } }),
-    prisma.followUp.count({ where: { leadId: id } }),
-  ]);
-  if (enrollments > 0 || messages > 0 || followUps > 0) {
-    return NextResponse.json(
-      { error: "El contacto conserva historial operativo. Archívalo en lugar de eliminarlo." },
-      { status: 409 },
-    );
-  }
+  await prisma.lead.update({
+    where: { id },
+    data: { isArchived: true, archivedAt: lead.archivedAt ?? new Date() },
+  });
   await writeAudit({
     session: auth.session,
-    action: "LEAD_DELETED",
+    action: "LEAD_ARCHIVED",
     entityType: "Lead",
     entityId: id,
-    metadata: { confirmed: true },
+    metadata: { confirmed: true, requestedOperation: "DELETE", preservedHistory: true },
   });
-  await prisma.lead.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, archived: true, preservedHistory: true });
 }

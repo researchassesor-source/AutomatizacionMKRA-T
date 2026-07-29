@@ -1,5 +1,6 @@
 import { PrismaClient, type AdminRole } from "@prisma/client";
 import { hashPassword } from "../src/lib/auth/password";
+import { signMoodleWebhookBody } from "../src/lib/moodle";
 
 const prisma = new PrismaClient();
 const baseUrl = "http://localhost:3000";
@@ -167,17 +168,17 @@ async function main() {
 
   const firstEnrollment = await expectStatus("/api/admin/enrollments", 201, {
     method: "POST",
-    body: JSON.stringify({ leadId: manualLeadId, courseId, status: "INSCRITO" }),
+    body: JSON.stringify({ leadId: manualLeadId, courseId, status: "INSCRITO", confirm: true }),
   }, adminCookie);
   const enrollmentOneId = String(firstEnrollment.data?.enrollmentId ?? "");
   entityIds.push(enrollmentOneId);
   await expectStatus("/api/admin/enrollments", 409, {
     method: "POST",
-    body: JSON.stringify({ leadId: manualLeadId, courseId, status: "INSCRITO" }),
+    body: JSON.stringify({ leadId: manualLeadId, courseId, status: "INSCRITO", confirm: true }),
   }, adminCookie);
   const secondEnrollment = await expectStatus("/api/admin/enrollments", 201, {
     method: "POST",
-    body: JSON.stringify({ leadId: manualLeadId, courseId: existingCourses[0].id, status: "INSCRITO" }),
+    body: JSON.stringify({ leadId: manualLeadId, courseId: existingCourses[0].id, status: "INSCRITO", confirm: true }),
   }, adminCookie);
   const enrollmentTwoId = String(secondEnrollment.data?.enrollmentId ?? "");
   entityIds.push(enrollmentTwoId);
@@ -199,17 +200,17 @@ async function main() {
   entityIds.push(followId);
   await expectStatus(`/api/admin/followups/${followId}`, 200, {
     method: "PATCH",
-    body: JSON.stringify({ status: "COMPLETADO" }),
+    body: JSON.stringify({ status: "COMPLETADO", confirm: true }),
   }, adminCookie);
   await expectStatus("/api/admin/leads/stage", 200, {
     method: "POST",
     body: JSON.stringify({ leadId: manualLeadId, stage: "OPORTUNIDAD" }),
   }, adminCookie);
-  await expectStatus(`/api/admin/leads/${manualLeadId}`, 200, { method: "PATCH", body: JSON.stringify({ isArchived: true }) }, adminCookie);
-  await expectStatus(`/api/admin/leads/${manualLeadId}`, 200, { method: "PATCH", body: JSON.stringify({ isArchived: false }) }, adminCookie);
-  await expectStatus(`/api/admin/leads/${manualLeadId}`, 409, {
+  await expectStatus(`/api/admin/leads/${manualLeadId}`, 200, { method: "PATCH", body: JSON.stringify({ isArchived: true, confirm: true }) }, adminCookie);
+  await expectStatus(`/api/admin/leads/${manualLeadId}`, 200, { method: "PATCH", body: JSON.stringify({ isArchived: false, confirm: true }) }, adminCookie);
+  await expectStatus(`/api/admin/leads/${manualLeadId}`, 422, {
     method: "DELETE",
-    body: JSON.stringify({ confirmName: "Contacto Ficticio" }),
+    body: JSON.stringify({ confirmName: "Nombre Incorrecto" }),
   }, adminCookie);
   checks.push("contacts-enrollments-notes-followups-archive");
 
@@ -244,20 +245,23 @@ async function main() {
     body: JSON.stringify({ eventId: `moodle-${suffix}`, enrollmentId: enrollmentOneId, email: manualEmail, courseSlug: coursePayload.slug }),
   });
   const moodleBody = { eventId: `moodle-${suffix}`, enrollmentId: enrollmentOneId, email: manualEmail, courseSlug: coursePayload.slug, moodleEnrollmentId: `moodle-local-${suffix}` };
+  const moodleSecret = process.env.MOODLE_WEBHOOK_SECRET;
+  assert(moodleSecret, "La prueba local requiere MOODLE_WEBHOOK_SECRET.");
+  const moodleRawBody = JSON.stringify(moodleBody);
   await expectStatus("/api/moodle/completion", 200, {
     method: "POST",
-    headers: { "x-moodle-webhook-secret": "local-release-smoke-only" },
-    body: JSON.stringify(moodleBody),
+    headers: { "x-moodle-signature": signMoodleWebhookBody(moodleRawBody, moodleSecret) },
+    body: moodleRawBody,
   });
   const duplicateMoodle = await expectStatus("/api/moodle/completion", 200, {
     method: "POST",
-    headers: { "x-moodle-webhook-secret": "local-release-smoke-only" },
-    body: JSON.stringify(moodleBody),
+    headers: { "x-moodle-signature": signMoodleWebhookBody(moodleRawBody, moodleSecret) },
+    body: moodleRawBody,
   });
   assert(duplicateMoodle.data?.duplicate === true, "Moodle no reconoció el evento repetido.");
-  const financeFirst = await expectStatus(`/api/admin/enrollments/${enrollmentTwoId}/complete`, 200, { method: "POST" }, adminCookie);
+  const financeFirst = await expectStatus(`/api/admin/enrollments/${enrollmentTwoId}/complete`, 200, { method: "POST", body: JSON.stringify({ confirm: true }) }, adminCookie);
   assert(financeFirst.data?.simulated === true, "Finance no permaneció simulado.");
-  const financeRepeat = await expectStatus(`/api/admin/enrollments/${enrollmentTwoId}/complete`, 200, { method: "POST" }, adminCookie);
+  const financeRepeat = await expectStatus(`/api/admin/enrollments/${enrollmentTwoId}/complete`, 200, { method: "POST", body: JSON.stringify({ confirm: true }) }, adminCookie);
   assert(financeRepeat.data?.reused === true, "El handoff simulado no fue idempotente.");
   checks.push("moodle-finance-idempotency");
 
@@ -267,14 +271,14 @@ async function main() {
   entityIds.push(message.id);
   const retried = await expectStatus(`/api/admin/messages/${message.id}`, 200, {
     method: "PATCH",
-    body: JSON.stringify({ action: "retry" }),
+    body: JSON.stringify({ action: "retry", confirm: true }),
   }, adminCookie);
   assert(retried.data?.simulated === true, "La mensajería local intentó salir del modo simulado.");
   const cancellable = await prisma.outboundMessage.create({
     data: { leadId: manualLeadId, enrollmentId: enrollmentTwoId, channel: "EMAIL", toAddress: manualEmail, body: "Mensaje cancelable", status: "PROGRAMADO", scheduledAt: new Date(Date.now() + 60_000) },
   });
   entityIds.push(cancellable.id);
-  await expectStatus(`/api/admin/messages/${cancellable.id}`, 200, { method: "PATCH", body: JSON.stringify({ action: "cancel" }) }, adminCookie);
+  await expectStatus(`/api/admin/messages/${cancellable.id}`, 200, { method: "PATCH", body: JSON.stringify({ action: "cancel", confirm: true }) }, adminCookie);
   checks.push("messaging-simulation-cancel-retry");
 
   const socialAccount = await expectStatus("/api/admin/social/accounts", 201, {
@@ -296,15 +300,15 @@ async function main() {
   entityIds.push(postId);
   const duplicatePost = await expectStatus(`/api/admin/social/posts/${postId}`, 200, { method: "PATCH", body: JSON.stringify({ action: "duplicate" }) }, adminCookie);
   entityIds.push(String(duplicatePost.data?.postId ?? ""));
-  const published = await expectStatus("/api/admin/social/publish", 200, { method: "POST", body: JSON.stringify({ postId }) }, adminCookie);
+  const published = await expectStatus("/api/admin/social/publish", 200, { method: "POST", body: JSON.stringify({ postId, confirm: true }) }, adminCookie);
   assert(published.data?.simulated === true, "La publicación local no permaneció simulada.");
-  await expectStatus(`/api/admin/social/posts/${postId}`, 200, { method: "PATCH", body: JSON.stringify({ action: "cancel" }) }, adminCookie);
+  await expectStatus(`/api/admin/social/posts/${postId}`, 200, { method: "PATCH", body: JSON.stringify({ action: "cancel", confirm: true }) }, adminCookie);
   const schedule = await expectStatus("/api/admin/social/schedules", 201, {
     method: "POST",
     body: JSON.stringify({ accountId, name: "Recurrencia ficticia", caption: "Contenido ficticio", mediaUrl: "", linkUrl: "", weekday: 2, localTime: "09:30" }),
   }, adminCookie);
   entityIds.push(String((schedule.data?.schedule as { id?: string })?.id ?? ""));
-  await expectStatus(`/api/admin/social/accounts/${accountId}`, 200, { method: "DELETE" }, adminCookie);
+  await expectStatus(`/api/admin/social/accounts/${accountId}`, 200, { method: "DELETE", body: JSON.stringify({ confirm: true }) }, adminCookie);
   checks.push("social-simulation-connectors-schedule");
 
   const marketingCookie = await login(emails[1]);
@@ -326,7 +330,7 @@ async function main() {
   }
   await expectStatus("/api/nurture/dispatch", 401, { method: "POST", headers: { authorization: "Bearer incorrecto" } });
   await expectStatus("/api/social/publish", 401, { method: "POST", headers: { authorization: "Bearer incorrecto" } });
-  await expectStatus(`/api/admin/courses/${courseId}`, 200, { method: "DELETE" }, adminCookie);
+  await expectStatus(`/api/admin/courses/${courseId}`, 200, { method: "DELETE", body: JSON.stringify({ confirm: true }) }, adminCookie);
   const logout = await expectStatus("/api/admin/logout", 200, { method: "POST" }, adminCookie);
   assert((logout.response.headers.get("set-cookie") ?? "").toLowerCase().includes("max-age=0"), "Logout no invalidó la cookie.");
   checks.push("route-health-cron-guard-logout");

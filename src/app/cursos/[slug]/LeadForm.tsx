@@ -47,11 +47,8 @@ export function LeadForm({ courseSlug, courseTitle }: { courseSlug: string; cour
         setLoading(false);
         return;
       }
-      if (typeof result.redirectUrl === "string" && result.redirectUrl.startsWith("https://")) {
-        window.location.assign(result.redirectUrl);
-        return;
-      }
-      setError("La información se guardó, pero el curso no tiene un destino configurado.");
+      window.location.assign(`/gracias?curso=${encodeURIComponent(courseSlug)}`);
+      return;
     } catch {
       setError("No pudimos conectar. Revisa tu conexión e inténtalo de nuevo.");
     }
@@ -74,8 +71,8 @@ export function LeadForm({ courseSlug, courseTitle }: { courseSlug: string; cour
         </div>
       </div>
       <div className="field">
-        <label htmlFor="email">Correo electrónico</label>
-        <input id="email" name="email" type="email" autoComplete="email" required />
+        <label htmlFor="email">Correo electrónico <span className="muted">(opcional)</span></label>
+        <input id="email" name="email" type="email" autoComplete="email" />
       </div>
       <div className="field">
         <label htmlFor="phone">WhatsApp</label>

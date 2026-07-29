@@ -12,8 +12,7 @@ export default function VerificarIndex() {
         <div className="verify-card">
           <h1 style={{ marginTop: 0 }}>Verificar un certificado</h1>
           <p className="muted">
-            La verificacion se realiza en el sistema de RA-Training. Configura{" "}
-            <code>FINANCE_APP_URL</code> para habilitar el enlace.
+            La verificación se realiza en R.A. Training Finance y no está disponible temporalmente desde este entorno.
           </p>
         </div>
       </main>

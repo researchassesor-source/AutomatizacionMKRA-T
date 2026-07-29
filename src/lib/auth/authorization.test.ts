@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { removesActiveAdministrator, requireRole } from "./authorization";
+import { isSameOriginAdminRequest, removesActiveAdministrator, requireRole } from "./authorization";
 import { ADMIN_COOKIE, createSessionToken, verifySessionToken } from "./session";
 import { checkCronAuth } from "@/lib/cron-auth";
 import { canUseLegacyAdminLogin, isLegacyAdminEnabled } from "@/lib/admin-auth";
@@ -37,6 +37,10 @@ describe("autorización", () => {
   it("permite una ruta ADMIN a ADMIN", async () => expect((await requireRole(await requestFor("ADMIN"), ["ADMIN"])).error).toBeNull());
   it("rechaza una eliminación para LECTURA", async () => expect((await requireRole(await requestFor("LECTURA"), ["ADMIN"])).error?.status).toBe(403));
   it("rechaza acceso sin sesión", async () => expect((await requireRole(new Request("http://localhost/api/admin/test"), ["ADMIN"])).error?.status).toBe(401));
+  it("rechaza solicitudes administrativas desde otro origen", () => {
+    expect(isSameOriginAdminRequest(new Request("https://preview.example/api/admin/test", { method: "POST", headers: { origin: "https://attacker.example" } }))).toBe(false);
+    expect(isSameOriginAdminRequest(new Request("https://preview.example/api/admin/test", { method: "POST", headers: { origin: "https://preview.example" } }))).toBe(true);
+  });
   it("rechaza inmediatamente la sesión de un usuario desactivado", async () => {
     expect((await requireRole(await requestFor("ADMIN", "ADMIN", false), ["ADMIN"])).error?.status).toBe(401);
   });

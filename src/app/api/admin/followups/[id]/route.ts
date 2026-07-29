@@ -10,6 +10,7 @@ const schema = z.object({
   dueAt: z.string().datetime().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
   assignedToId: z.string().max(100).nullable().optional(),
+  confirm: z.boolean().optional(),
 }).refine((data) => Object.values(data).some((value) => value !== undefined), {
   message: "No hay cambios para guardar.",
 });
@@ -19,6 +20,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });
+  if (parsed.data.confirm !== true) return NextResponse.json({ error: "Debes confirmar la actualización del seguimiento." }, { status: 422 });
   const { id } = await params;
   const followUp = await prisma.followUp.update({
     where: { id },

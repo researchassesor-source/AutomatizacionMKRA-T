@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { sendMessage } from "@/lib/nurture/engine";
 import { writeAudit } from "@/lib/audit";
 
-const schema = z.object({ action: z.enum(["cancel", "retry"]) });
+const schema = z.object({ action: z.enum(["cancel", "retry"]), confirm: z.literal(true) });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(request, ["ADMIN", "MARKETING", "VENTAS"]);

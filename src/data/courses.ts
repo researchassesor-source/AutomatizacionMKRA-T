@@ -12,6 +12,7 @@ export type SeedCourse = {
   officialCourseUrl: string;
   price: number;
   duration: string;
+  modality: string;
   isFree: boolean;
   isPublished: boolean;
   isLeadMagnet: boolean;
@@ -20,9 +21,26 @@ export type SeedCourse = {
   benefits: string[];
 };
 
-// Catalogo comprobado en la pagina institucional el 28-07-2026. Cuando no
+// Catálogo comprobado en la página institucional el 29-07-2026. Cuando no
 // existe una pagina individual confirmada se conserva el catalogo como destino.
 export const seedCourses: SeedCourse[] = [
+  {
+    slug: "ia-apoyo-tareas-estudiantiles",
+    title: "IA para Apoyo en Tareas Académicas",
+    subtitle: "Uso responsable de IA en actividades académicas",
+    description: "Curso institucional gratuito para aplicar inteligencia artificial como apoyo en tareas académicas.",
+    category: "IA para Educación",
+    officialCourseUrl: "https://ra-training.com/cursos/ia-para-apoyo-en-tareas-escolares/",
+    price: 0,
+    duration: "60 horas",
+    modality: "Virtual",
+    isFree: true,
+    isPublished: true,
+    isLeadMagnet: true,
+    hasCertificate: true,
+    displayOrder: 10,
+    benefits: ["Modalidad virtual", "Aplicación práctica", "Certificado verificable"],
+  },
   {
     slug: "ia-planificacion-recursos-educativos",
     title: "IA para la Planificación de Recursos Educativos",
@@ -32,28 +50,13 @@ export const seedCourses: SeedCourse[] = [
     officialCourseUrl: "https://ra-training.com/cursos/ia-para-la-planificacion-de-recursos-educativos/",
     price: 20,
     duration: "60 horas",
-    isFree: false,
-    isPublished: true,
-    isLeadMagnet: false,
-    hasCertificate: true,
-    displayOrder: 10,
-    benefits: ["Modalidad virtual", "Acompañamiento profesional", "Certificado verificable"],
-  },
-  {
-    slug: "ia-apoyo-tareas-estudiantiles",
-    title: "IA para Apoyo en Tareas Estudiantiles",
-    subtitle: "Uso responsable de IA en actividades académicas",
-    description: "Curso institucional para aplicar inteligencia artificial como apoyo en tareas estudiantiles.",
-    category: "IA para Educación",
-    officialCourseUrl: "https://ra-training.com/cursos/ia-para-apoyo-en-tareas-escolares/",
-    price: 20,
-    duration: "60 horas",
+    modality: "Virtual",
     isFree: false,
     isPublished: true,
     isLeadMagnet: false,
     hasCertificate: true,
     displayOrder: 20,
-    benefits: ["Modalidad virtual", "Aplicación práctica", "Certificado verificable"],
+    benefits: ["Modalidad virtual", "Acompañamiento profesional", "Certificado verificable"],
   },
   {
     slug: "ia-planificacion-educativa",
@@ -64,6 +67,7 @@ export const seedCourses: SeedCourse[] = [
     officialCourseUrl: "https://ra-training.com/cursos/ia-para-la-planificacion-educativa/",
     price: 20,
     duration: "60 horas",
+    modality: "Virtual",
     isFree: false,
     isPublished: true,
     isLeadMagnet: false,
@@ -89,6 +93,7 @@ export const seedCourses: SeedCourse[] = [
     officialCourseUrl: COURSE_CATALOG_URL,
     price: 30,
     duration: "60 horas",
+    modality: "Virtual",
     isFree: false,
     isPublished: true,
     isLeadMagnet: false,

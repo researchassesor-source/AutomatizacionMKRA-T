@@ -40,6 +40,7 @@ export default async function HomePage() {
           <a href={COURSE_CATALOG_URL}>Abrir catálogo completo ↗</a>
         </div>
         <div className="course-list">
+          {courses.length === 0 ? <div className="card"><h3>Catálogo en actualización</h3><p>Consulta la oferta vigente en el sitio oficial de R.A. Training.</p><a className="btn-sm" href={COURSE_CATALOG_URL}>Abrir catálogo oficial</a></div> : null}
           {courses.map((course) => (
             <article className="course-card" key={course.id}>
               <span className="pill info">{course.category ?? "Formación profesional"}</span>

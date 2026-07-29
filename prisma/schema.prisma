@@ -47,6 +47,9 @@ model Course {
   imageUrl          String?
   price             Decimal? @db.Decimal(10, 2)
   duration          String?
+  modality          String?
+  startsAt          DateTime?
+  endsAt            DateTime?
   isFree            Boolean  @default(false)
   isPublished       Boolean  @default(false)
   isLeadMagnet      Boolean  @default(false)

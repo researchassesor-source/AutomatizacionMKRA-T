@@ -110,16 +110,25 @@ export function VentasManager({
   const [msg, setMsg] = useState<string | null>(null);
 
   async function onStage(leadId: string, stage: string) {
+    let lostReason: string | undefined;
+    if (stage === "PERDIDO") {
+      lostReason = window.prompt("Motivo de pérdida (obligatorio)")?.trim();
+      if (!lostReason) return;
+    }
+    const sensitive = stage === "CLIENTE" || stage === "PERDIDO";
+    if (sensitive && !window.confirm(stage === "CLIENTE" ? "¿Confirmas que la negociación cerró como cliente? Esto no emite certificados." : "¿Confirmas el cierre como perdido?")) return;
     setBusy(leadId);
-    await postJson("/api/admin/leads/stage", { leadId, stage });
+    const result = await postJson("/api/admin/leads/stage", { leadId, stage, lostReason, confirm: sensitive });
+    setMsg(result.ok ? "Etapa actualizada y registrada en el historial." : result.data.error ?? "No se pudo actualizar la etapa.");
     setBusy(null);
     router.refresh();
   }
 
   async function recompute() {
+    if (!window.confirm("¿Recalcular los puntajes de todos los contactos activos? Los que alcancen el umbral pueden pasar a oportunidad.")) return;
     setRecomputing(true);
     setMsg(null);
-    const { data } = await postJson("/api/admin/scoring/recompute", {});
+    const { data } = await postJson("/api/admin/scoring/recompute", { confirm: true });
     setMsg(
       `Recalculados ${data.total ?? 0} leads · ${data.promovidos ?? 0} nuevas oportunidades.`,
     );

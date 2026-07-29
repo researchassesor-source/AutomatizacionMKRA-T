@@ -41,8 +41,9 @@ Estado inicial de todos los casos: `PENDIENTE`. Usar datos ficticios y mantener 
 | SOCIAL-04 | Publicaciones | Editar, duplicar y cancelar | Cada acción persiste y audita | PENDIENTE | Fila/auditoría |
 | SOCIAL-05 | Publicaciones | Publicar localmente | Estado SIMULADO; no aparece contenido real | PENDIENTE | Captura |
 | SOCIAL-06 | Recurrencia | Crear recurrencia semanal | Próxima ejecución correcta y sin duplicados | PENDIENTE | Captura |
-| MOODLE-01 | Moodle | Llamar webhook sin secreto | Responde 401 | PENDIENTE | Respuesta HTTP |
-| MOODLE-02 | Moodle | Repetir `eventId` ficticio autorizado | Segunda respuesta indica duplicado | PENDIENTE | Respuestas |
+| MOODLE-01 | Moodle | Llamar webhook sin firma HMAC | Responde 401 | PENDIENTE | Respuesta HTTP |
+| MOODLE-02 | Moodle | Repetir `eventId` ficticio con firma válida | Segunda respuesta indica duplicado | PENDIENTE | Respuestas |
+| MOODLE-03 | Moodle | Alterar un byte después de firmar el cuerpo | Responde 401 | PENDIENTE | Respuesta HTTP |
 | FIN-01 | Finance | Completar curso localmente | Finalización registrada y handoff simulado | PENDIENTE | Detalle/auditoría |
 | FIN-02 | Finance | Completar dos cursos del mismo contacto | Dos estados y referencias independientes | PENDIENTE | Tabla |
 | FIN-03 | Finance | Reintentar un error ficticio | Conserva inscripción e incrementa intentos | PENDIENTE | Captura |

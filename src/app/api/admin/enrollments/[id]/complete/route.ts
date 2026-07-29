@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireRole } from "@/lib/auth/authorization";
 import { completeEnrollment } from "@/lib/finance/handoff";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(request, ["ADMIN"]);
   if (auth.error) return auth.error;
+  const parsed = z.object({ confirm: z.literal(true) }).safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Debes confirmar la finalización y el envío." }, { status: 422 });
   const { id } = await params;
   try {
     return NextResponse.json(await completeEnrollment(id, "ADMIN", auth.session));

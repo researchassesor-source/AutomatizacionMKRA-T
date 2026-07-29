@@ -6,6 +6,7 @@ import { verifyPassword } from "@/lib/auth/password";
 import {
   ADMIN_COOKIE,
   createSessionToken,
+  authIsConfigured,
   SESSION_MAX_AGE_SECONDS,
 } from "@/lib/auth/session";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
@@ -42,11 +43,15 @@ export async function POST(request: Request) {
   }
 
   const normalizedEmail = parsed.email?.toLowerCase() || "";
+  if (!authIsConfigured()) {
+    return NextResponse.json({ error: "El acceso administrativo no está configurado." }, { status: 503 });
+  }
   const user = normalizedEmail
     ? await prisma.adminUser.findUnique({ where: { email: normalizedEmail } })
     : null;
+  const passwordMatches = user ? await verifyPassword(parsed.password, user.passwordHash) : false;
 
-  if (user?.isActive && (await verifyPassword(parsed.password, user.passwordHash))) {
+  if (user?.isActive && passwordMatches) {
     await prisma.adminUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const token = await createSessionToken({
       userId: user.id,
@@ -73,6 +78,20 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
     });
     return response;
+  }
+
+  if (user && !user.isActive && passwordMatches) {
+    await writeAudit({
+      actorEmail: user.email,
+      action: "AUTH_LOGIN_DISABLED",
+      entityType: "AdminUser",
+      entityId: user.id,
+      result: "FAILURE",
+    });
+    return NextResponse.json(
+      { error: "Esta cuenta no tiene acceso. Contacta a un administrador." },
+      { status: 403 },
+    );
   }
 
   // Compatibilidad temporal: permite la contraseña compartida configurada en

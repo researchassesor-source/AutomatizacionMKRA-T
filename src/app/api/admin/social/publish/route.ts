@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { publishPost } from "@/lib/social/orchestrator";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
@@ -10,15 +11,13 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
   if (auth.error) return auth.error;
-  let postId: string | undefined;
-  try {
-    postId = (await request.json())?.postId;
-  } catch {
-    return NextResponse.json({ error: "JSON invalido" }, { status: 400 });
+  const parsed = z.object({ postId: z.string().trim().min(1).max(100), confirm: z.literal(true) }).safeParse(
+    await request.json().catch(() => null),
+  );
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Debes confirmar explícitamente la publicación." }, { status: 422 });
   }
-  if (!postId) {
-    return NextResponse.json({ error: "falta postId" }, { status: 422 });
-  }
+  const { postId } = parsed.data;
 
   const result = await publishPost(postId);
   await writeAudit({

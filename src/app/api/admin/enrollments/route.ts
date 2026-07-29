@@ -9,6 +9,7 @@ const schema = z.object({
   leadId: z.string().trim().min(1).max(100),
   courseId: z.string().trim().min(1).max(100),
   status: z.enum(["INTERESADO", "INSCRITO"]).default("INSCRITO"),
+  confirm: z.literal(true),
 });
 
 export async function POST(request: Request) {

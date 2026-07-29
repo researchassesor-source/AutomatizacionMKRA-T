@@ -59,6 +59,7 @@ export function AdminNav() {
   const router = useRouter();
   const [role, setRole] = useState("LECTURA");
   const [name, setName] = useState("Usuario");
+  const [legacy, setLegacy] = useState(false);
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -71,6 +72,7 @@ export function AdminNav() {
         if (data) {
           setRole(data.role);
           setName(data.name);
+          setLegacy(Boolean(data.legacy));
         }
       })
       .catch(() => undefined);
@@ -174,7 +176,7 @@ export function AdminNav() {
 
         <div className="admin-sidebar-footer">
           <AdminIcon name="secure" size={18} />
-          <span><strong>Sesión protegida</strong><small>Acceso según tu perfil</small></span>
+          <span><strong>{legacy ? "Acceso heredado temporal" : "Sesión protegida"}</strong><small>{legacy ? "Crea y usa una cuenta individual" : "Acceso según tu perfil"}</small></span>
         </div>
       </aside>
 
@@ -200,7 +202,7 @@ export function AdminNav() {
         </div>
 
         <div className="admin-topbar-actions">
-          <a className="admin-site-link" href="https://ra-training.com/courses-1/" target="_blank" rel="noreferrer">
+          <a className="admin-site-link" href="https://ra-training.com/courses-1/" target="_blank" rel="noreferrer" aria-label="Ver catálogo oficial de R.A. Training">
             <AdminIcon name="external" size={17} />
             <span>Ver sitio</span>
           </a>

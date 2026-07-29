@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       {
         ok: true,
         leadId: result.lead.id,
+        interestId: result.enrollment.id,
         enrollmentId: result.enrollment.id,
         redirectUrl: result.redirectUrl,
       },
@@ -45,6 +46,12 @@ export async function POST(request: Request) {
     }
     if (error instanceof Error && error.message === "COURSE_NOT_FOUND") {
       return NextResponse.json({ error: "No se encontró el curso." }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "CONTACT_IDENTITY_CONFLICT") {
+      return NextResponse.json(
+        { error: "El correo y el WhatsApp pertenecen a contactos diferentes. Solicita asistencia." },
+        { status: 409 },
+      );
     }
     console.error("[leads] No se pudo registrar el contacto.");
     return NextResponse.json(

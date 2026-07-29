@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { presentAdminValue } from "../../adminPresentation";
-import { ecuadorLocalDateTimeToIso } from "@/lib/time";
+import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
 
 type LeadDetail = {
   id: string;
@@ -69,15 +69,21 @@ export function LeadDetailManager({
     event.preventDefault();
     setBusy(true);
     const data = new FormData(event.currentTarget);
+    const stage = String(data.get("stage"));
+    const lostReason = String(data.get("lostReason") || "").trim();
+    const sensitiveStageChange = stage !== lead.stage && ["CLIENTE", "PERDIDO"].includes(stage);
+    if (stage === "PERDIDO" && !lostReason) { setBusy(false); setMessage("Indica el motivo de pérdida."); return; }
+    if (sensitiveStageChange && !window.confirm(stage === "CLIENTE" ? "¿Confirmas el cierre como cliente? Esto no emite certificados." : "¿Confirmas el cierre como perdido?")) { setBusy(false); return; }
     const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "PATCH", {
       firstName: data.get("firstName"),
       lastName: data.get("lastName"),
       email: data.get("email"),
       phone: data.get("phone"),
-      stage: data.get("stage"),
+      stage,
       assignedToId: data.get("assignedToId") || null,
-      lostReason: data.get("lostReason") || null,
+      lostReason: lostReason || null,
       nextActionAt: data.get("nextActionAt") ? ecuadorLocalDateTimeToIso(String(data.get("nextActionAt"))) : null,
+      confirm: sensitiveStageChange,
     });
     setBusy(false);
     setMessage(result.ok ? "Contacto actualizado." : result.data.error);
@@ -87,17 +93,9 @@ export function LeadDetailManager({
   async function archive() {
     const action = lead.isArchived ? "restaurar" : "archivar";
     if (!window.confirm(`¿Quieres ${action} a ${lead.fullName}?`)) return;
-    const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "PATCH", { isArchived: !lead.isArchived });
+    const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "PATCH", { isArchived: !lead.isArchived, confirm: true });
     setMessage(result.ok ? `Contacto ${lead.isArchived ? "restaurado" : "archivado"}.` : result.data.error);
     router.refresh();
-  }
-
-  async function permanentlyDelete() {
-    const confirmation = window.prompt(`Esta acción no se puede deshacer. Escribe exactamente: ${lead.fullName}`);
-    if (confirmation !== lead.fullName) return;
-    const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "DELETE", { confirmName: confirmation });
-    if (result.ok) router.replace("/admin/leads");
-    else setMessage(result.data.error);
   }
 
   async function addNote(event: React.FormEvent<HTMLFormElement>) {
@@ -112,6 +110,7 @@ export function LeadDetailManager({
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    if (!window.confirm("¿Programar este seguimiento con la fecha, tipo y responsable seleccionados?")) return;
     const result = await jsonRequest(`/api/admin/leads/${lead.id}/followups`, "POST", {
       type: data.get("type"),
       dueAt: ecuadorLocalDateTimeToIso(String(data.get("dueAt"))),
@@ -125,7 +124,7 @@ export function LeadDetailManager({
   async function complete(enrollmentId: string) {
     if (!window.confirm("¿Confirmas que el curso fue completado? Se preparará el envío a Finance, sin emitir certificados desde el CRM.")) return;
     setBusy(true);
-    const result = await jsonRequest(`/api/admin/enrollments/${enrollmentId}/complete`, "POST", {});
+    const result = await jsonRequest(`/api/admin/enrollments/${enrollmentId}/complete`, "POST", { confirm: true });
     setBusy(false);
     setMessage(result.ok ? (result.data.simulated ? "Finalización registrada. Envío a Finance simulado de forma segura." : "Inscripción enviada a Finance.") : result.data.error);
     router.refresh();
@@ -135,11 +134,13 @@ export function LeadDetailManager({
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    if (!window.confirm("¿Registrar esta relación con el curso? Un interés no equivale a una inscripción confirmada.")) return;
     setBusy(true);
     const result = await jsonRequest("/api/admin/enrollments", "POST", {
       leadId: lead.id,
       courseId: data.get("courseId"),
       status: data.get("status"),
+      confirm: true,
     });
     setBusy(false);
     setMessage(result.ok ? "Inscripción creada." : result.data.error);
@@ -153,9 +154,8 @@ export function LeadDetailManager({
     <>
       <div className="toolbar">
         {lead.phone && <a className="btn-sm" href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Abrir WhatsApp ↗</a>}
-        <a className="btn-sm ghost" href={`mailto:${lead.email}`}>Abrir correo</a>
+        {lead.email && <a className="btn-sm ghost" href={`mailto:${lead.email}`}>Abrir correo</a>}
         {canEdit && <button type="button" className="btn-sm ghost" onClick={archive}>{lead.isArchived ? "Restaurar" : "Archivar"}</button>}
-        {role === "ADMIN" && <button type="button" className="btn-sm danger" onClick={permanentlyDelete}>Eliminar definitivamente</button>}
         {message && <span className="result-line" role="status">{message}</span>}
       </div>
 
@@ -168,7 +168,7 @@ export function LeadDetailManager({
             <select name="stage" aria-label="Etapa comercial" defaultValue={lead.stage} disabled={!canEdit}>{["NUEVO","INSCRITO","EN_CURSO","CERTIFICADO","OPORTUNIDAD","CLIENTE","PERDIDO"].map((stage) => <option key={stage} value={stage}>{presentAdminValue(stage)}</option>)}</select>
             <select name="assignedToId" aria-label="Responsable" defaultValue={lead.assignedToId ?? ""} disabled={!canEdit}><option value="">Sin responsable</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>
           </div>
-          <div className="form-row"><input name="lostReason" aria-label="Motivo de pérdida" defaultValue={lead.lostReason ?? ""} placeholder="Motivo de pérdida" disabled={!canEdit} /><input name="nextActionAt" aria-label="Próxima acción" type="datetime-local" defaultValue={lead.nextActionAt?.slice(0,16) ?? ""} disabled={!canEdit} /></div>
+          <div className="form-row"><input name="lostReason" aria-label="Motivo de pérdida" defaultValue={lead.lostReason ?? ""} placeholder="Motivo de pérdida" disabled={!canEdit} /><input name="nextActionAt" aria-label="Próxima acción" type="datetime-local" defaultValue={lead.nextActionAt ? isoToEcuadorLocalInput(lead.nextActionAt) : ""} disabled={!canEdit} /></div>
           {canEdit && <button type="submit" className="btn-sm" disabled={busy}>Guardar cambios</button>}
           <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Campaña</dt><dd>{lead.utmCampaign ?? "—"}</dd><dt>Medio</dt><dd>{lead.utmMedium ?? "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>
         </form>

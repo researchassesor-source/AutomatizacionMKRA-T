@@ -10,26 +10,26 @@ export default async function GraciasPage({
   return (
     <main className="container">
       <div className="center-narrow">
-        <span className="badge">Inscripcion confirmada</span>
-        <h1>¡Listo! Ya estas dentro 🎉</h1>
+        <span className="badge">Interés registrado</span>
+        <h1>¡Gracias por contactarnos!</h1>
         <p className="lead" style={{ margin: "12px auto" }}>
-          Revisa tu correo: te enviamos el acceso al curso y los siguientes
-          pasos. Si no lo ves, revisa la carpeta de spam.
+          El equipo de R.A. Training revisará tu solicitud y te contactará para
+          explicar disponibilidad, inscripción y siguientes pasos.
         </p>
         {curso && (
           <Link
             className="btn"
-            href={`/aula/${curso}`}
+            href={`/cursos/${curso}`}
             style={{ maxWidth: 300, margin: "20px auto 8px" }}
           >
-            Ir al aula ahora
+            Ver información del curso
           </Link>
         )}
         <Link
           href="/"
           style={{ display: "inline-block", marginTop: 8, fontWeight: 600 }}
         >
-          Ver mas cursos
+          Ver más cursos
         </Link>
       </div>
     </main>

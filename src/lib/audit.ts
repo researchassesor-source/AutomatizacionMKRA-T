@@ -4,13 +4,32 @@ import type { AdminSession } from "@/lib/auth/session";
 
 const BLOCKED_KEYS = /password|hash|token|secret|credential|authorization|cookie/i;
 
-function safeMetadata(value: Record<string, unknown> | undefined): Prisma.InputJsonValue | undefined {
-  if (!value) return undefined;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => !BLOCKED_KEYS.test(key))
-      .map(([key, item]) => [key, typeof item === "string" ? item.slice(0, 500) : item]),
-  ) as Prisma.InputJsonValue;
+function sanitizeValue(value: unknown, depth: number): Prisma.InputJsonValue | undefined {
+  if (depth > 5 || value === undefined) return undefined;
+  if (value === null) return undefined;
+  if (typeof value === "boolean" || typeof value === "number") return value;
+  if (typeof value === "string") return value.slice(0, 500);
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 50)
+      .map((item) => sanitizeValue(item, depth + 1))
+      .filter((item): item is Prisma.InputJsonValue => item !== undefined);
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !BLOCKED_KEYS.test(key))
+        .map(([key, item]) => [key, sanitizeValue(item, depth + 1)])
+        .filter((entry): entry is [string, Prisma.InputJsonValue] => entry[1] !== undefined),
+    );
+  }
+  return String(value).slice(0, 500);
+}
+
+export function sanitizeAuditMetadata(
+  value: Record<string, unknown> | undefined,
+): Prisma.InputJsonValue | undefined {
+  return value ? sanitizeValue(value, 0) : undefined;
 }
 
 export async function writeAudit(input: {
@@ -31,7 +50,7 @@ export async function writeAudit(input: {
         entityType: input.entityType,
         entityId: input.entityId ?? null,
         result: input.result ?? "SUCCESS",
-        metadata: safeMetadata(input.metadata),
+        metadata: sanitizeAuditMetadata(input.metadata),
       },
     });
   } catch {

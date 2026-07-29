@@ -7,9 +7,9 @@ export function MessageActions({ id, status }: { id: string; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   async function action(value: "cancel" | "retry") {
-    if (value === "cancel" && !window.confirm("¿Cancelar este mensaje programado?")) return;
+    if (!window.confirm(value === "cancel" ? "¿Cancelar este mensaje programado?" : "¿Reintentar este mensaje ahora? En Preview seguirá siendo una simulación.")) return;
     setBusy(true);
-    await fetch(`/api/admin/messages/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: value }) });
+    await fetch(`/api/admin/messages/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: value, confirm: true }) });
     setBusy(false);
     router.refresh();
   }

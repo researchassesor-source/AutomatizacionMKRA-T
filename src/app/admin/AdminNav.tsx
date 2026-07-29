@@ -202,9 +202,9 @@ export function AdminNav() {
         </div>
 
         <div className="admin-topbar-actions">
-          <a className="admin-site-link" href="https://ra-training.com/courses-1/" target="_blank" rel="noreferrer" aria-label="Ver catálogo oficial de R.A. Training">
+          <a className="admin-site-link" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer" aria-label="Ver catálogo oficial de R.A. Training">
             <AdminIcon name="external" size={17} />
-            <span>Ver sitio</span>
+            <span>Ver catálogo oficial</span>
           </a>
           <details className="admin-user-menu">
             <summary aria-label="Abrir menú de usuario">

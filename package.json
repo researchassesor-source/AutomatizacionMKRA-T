@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "biome lint .",
     "smoke:release": "tsx --env-file=.env scripts/release-smoke.ts",
+    "smoke:catalog": "tsx --env-file=.env scripts/course-catalog-smoke.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",

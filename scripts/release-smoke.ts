@@ -99,6 +99,16 @@ async function main() {
   const existingCourses = await prisma.course.findMany({ where: { isPublished: true }, select: { id: true, slug: true }, take: 2 });
   assert(existingCourses.length >= 1, "Se necesita al menos un curso local publicado.");
 
+  const rootResponse = await fetch(`${baseUrl}/`, { redirect: "manual" });
+  assert([307, 308].includes(rootResponse.status), "/ no redirigió en servidor.");
+  assert(new URL(rootResponse.headers.get("location") ?? "", baseUrl).pathname === "/admin/login", "/ no dirige al login administrativo.");
+  const loginPageResponse = await fetch(`${baseUrl}/admin/login`, { redirect: "manual" });
+  assert(loginPageResponse.status === 200, "/admin/login no mostró el formulario.");
+  const anonymousAdminResponse = await fetch(`${baseUrl}/admin`, { redirect: "manual" });
+  assert([307, 308].includes(anonymousAdminResponse.status), "/admin sin sesión no redirigió.");
+  assert(new URL(anonymousAdminResponse.headers.get("location") ?? "", baseUrl).pathname === "/admin/login", "/admin sin sesión no dirige al login.");
+  checks.push("server-login-redirects");
+
   await expectStatus("/api/admin/login", 401, {
     method: "POST",
     body: JSON.stringify({ email: emails[0], password: "incorrecta-local" }),

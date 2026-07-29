@@ -53,6 +53,8 @@ const labels: Record<string, string> = {
   COURSE_UPDATED: "Curso actualizado",
   COURSE_DEACTIVATED: "Curso desactivado",
   COURSE_CATALOG_IMPORTED: "Catálogo oficial importado",
+  COURSE_CATALOG_IMPORT_NO_CHANGES: "Catálogo oficial verificado sin cambios",
+  COURSE_CATALOG_HISTORICAL_DEACTIVATED: "Curso histórico desactivado",
   FINANCE_HANDOFF: "Envío preparado para Finance",
   FINANCE_HANDOFF_SIMULATED: "Envío a Finance simulado",
   MESSAGE_CANCELLED: "Mensaje cancelado",

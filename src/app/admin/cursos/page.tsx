@@ -7,6 +7,7 @@ import { AdminPageHeader } from "../AdminPageHeader";
 import { CourseManager, type CourseRow } from "./CourseManager";
 import { CourseCatalogAudit } from "./CourseCatalogAudit";
 import { loadCourseCatalogReport } from "@/lib/course-catalog-server";
+import { canApplyCourseCatalog } from "@/lib/course-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
       ...(filters.category ? { category: filters.category } : {}),
     },
     orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
-  }), loadCourseCatalogReport()]);
+  }), session.role === "ADMIN" ? loadCourseCatalogReport() : Promise.resolve(null)]);
   const categories = await prisma.course.findMany({ distinct: ["category"], select: { category: true }, where: { category: { not: null } } });
   const rows: CourseRow[] = courses.map((course) => ({ ...course, price: course.price === null ? null : Number(course.price), startsAt: course.startsAt?.toISOString() ?? null, endsAt: course.endsAt?.toISOString() ?? null }));
   return (
@@ -50,7 +51,13 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         </div>
         </AdminFilterPanel>
       </form>
-      <CourseCatalogAudit initialReport={catalogReport} canApply={session.role === "ADMIN"} />
+      {catalogReport ? (
+        <CourseCatalogAudit initialReport={catalogReport} canApply={canApplyCourseCatalog()} />
+      ) : (
+        <section className="panel admin-notice" aria-label="Permisos del catálogo oficial">
+          La comparación e importación del catálogo oficial está disponible únicamente para administradores.
+        </section>
+      )}
       <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
     </main>
   );

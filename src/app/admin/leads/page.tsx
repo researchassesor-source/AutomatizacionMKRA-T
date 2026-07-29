@@ -93,7 +93,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             </label>
             <label className="filter-field">
               <span>Curso</span>
-              <select name="course" defaultValue={filters.course ?? ""}><option value="">Todos los cursos</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
+              <select name="course" defaultValue={filters.course ?? ""}><option value="">Todos los cursos activos</option>{activeCourses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
             </label>
             <label className="filter-field">
               <span>Responsable</span>

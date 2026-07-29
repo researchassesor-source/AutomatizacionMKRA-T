@@ -520,8 +520,15 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .pill { display: inline-flex; min-height: 25px; align-items: center; width: fit-content; padding: 4px 9px; border-radius: 999px; background: #eef2f7; color: var(--muted); font-size: .68rem; font-weight: 800; white-space: nowrap; }
 .pill.ok { background: #dcfce7; color: var(--success); }
 .pill.warn { background: #fff7d6; color: var(--warning); }
+.pill.catalog-different { background: #ffedd5; color: #9a3412; }
+.pill.catalog-historical { background: #e5e7eb; color: #4b5563; }
 .pill.err { background: #fee2e2; color: var(--danger); }
 .pill.info { background: #dbeafe; color: var(--info); }
+.catalog-summary { margin-block: 14px; }
+.catalog-explanations { display: grid; gap: 6px; margin: 14px 0; color: var(--muted); font-size: .78rem; }
+.catalog-explanations p { margin: 0; }
+.catalog-explanations strong { color: var(--ink); }
+.catalog-change-summary { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; color: var(--muted); font-size: .75rem; font-weight: 700; }
 .empty-state { display: grid; min-height: 220px; place-items: center; align-content: center; padding: 40px 20px; color: var(--muted); text-align: center; }
 .empty-state-icon { display: grid; width: 46px; height: 46px; margin-bottom: 12px; place-items: center; border-radius: 14px; background: var(--primary-50); color: var(--brand-primary); }
 .empty-state strong { color: #334e68; font-size: .91rem; }

@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
-import { seedCourses } from "@/data/courses";
-import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
-import { canApplyCourseCatalog, officialCourseMutationData } from "@/lib/course-catalog";
-import { loadCourseCatalogReport } from "@/lib/course-catalog-server";
-import { prisma } from "@/lib/db";
+import { canApplyCourseCatalog } from "@/lib/course-catalog";
+import { applyOfficialCourseCatalog, loadCourseCatalogReport } from "@/lib/course-catalog-server";
+import { PayloadTooLargeError, readJsonBody } from "@/lib/http";
 
-const applySchema = z.object({ confirm: z.literal("IMPORTAR_CATALOGO_OFICIAL") });
+const applySchema = z.object({ confirm: z.literal("IMPORTAR_CATALOGO_OFICIAL") }).strict();
 
 export async function GET(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING", "VENTAS", "LECTURA"]);
+  const auth = await requireRole(request, ["ADMIN"]);
   if (auth.error) return auth.error;
   return NextResponse.json(await loadCourseCatalogReport());
 }
@@ -19,34 +16,26 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireRole(request, ["ADMIN"]);
   if (auth.error) return auth.error;
+  if (!auth.session) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   if (!canApplyCourseCatalog()) {
     return NextResponse.json(
       { error: "La importación automática del catálogo está bloqueada en Producción." },
       { status: 409 },
     );
   }
-  const parsed = applySchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) {
-    return NextResponse.json({ error: "La confirmación del catálogo no es válida." }, { status: 422 });
-  }
 
-  const before = await loadCourseCatalogReport();
-  await prisma.$transaction(async (tx) => {
-    for (const course of seedCourses) {
-      const data = officialCourseMutationData(course);
-      await tx.course.upsert({ where: { slug: course.slug }, create: data, update: data });
+  try {
+    const parsed = applySchema.safeParse(await readJsonBody(request, 4_096));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "La confirmación del catálogo no es válida." }, { status: 422 });
     }
-    await tx.course.updateMany({
-      where: { slug: { notIn: seedCourses.map((course) => course.slug) }, isPublished: true },
-      data: { isPublished: false },
-    });
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-
-  await writeAudit({
-    session: auth.session,
-    action: "COURSE_CATALOG_IMPORTED",
-    entityType: "CourseCatalog",
-    metadata: { ...before.summary, sourceUrl: before.sourceUrl, preservedHistory: true },
-  });
-  return NextResponse.json({ ok: true, report: await loadCourseCatalogReport() });
+    const result = await applyOfficialCourseCatalog(auth.session);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return NextResponse.json({ error: "La solicitud es demasiado grande." }, { status: 413 });
+    }
+    console.error("[course-catalog] No se pudo importar el catálogo.");
+    return NextResponse.json({ error: "No se pudo importar el catálogo oficial." }, { status: 500 });
+  }
 }

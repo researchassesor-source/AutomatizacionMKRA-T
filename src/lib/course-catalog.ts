@@ -6,6 +6,8 @@ export type CourseRelations = {
   messages: number;
   followUps: number;
   audits: number;
+  financeHandoffs: number;
+  moodleCompletions: number;
 };
 
 export type CrmCatalogCourse = {
@@ -40,6 +42,12 @@ export type CourseCatalogReport = {
   sourceUrl: string;
   checkedAt: string;
   summary: Record<CatalogDifferenceStatus, number>;
+  actions: {
+    create: number;
+    update: number;
+    deactivate: number;
+    delete: 0;
+  };
   differences: CatalogDifference[];
 };
 
@@ -96,6 +104,12 @@ export function buildCourseCatalogReport(
     sourceUrl: "https://ra-training.com/courses-1/",
     checkedAt: checkedAt.toISOString(),
     summary,
+    actions: {
+      create: summary.MISSING_IN_CRM,
+      update: summary.DIFFERENT,
+      deactivate: differences.filter((item) => item.status === "EXTRA_IN_CRM" && item.crm?.isPublished).length,
+      delete: 0,
+    },
     differences,
   };
 }
@@ -108,5 +122,7 @@ export function officialCourseMutationData(course: SeedCourse) {
 }
 
 export function canApplyCourseCatalog(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.VERCEL_ENV === "preview" || env.NODE_ENV !== "production";
+  if (env.VERCEL_ENV === "production") return false;
+  if (env.VERCEL_ENV === "preview" || env.VERCEL_ENV === "development") return true;
+  return env.NODE_ENV !== "production";
 }

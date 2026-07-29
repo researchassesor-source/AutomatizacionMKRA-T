@@ -1,4 +1,4 @@
-import { seedCourses, type SeedCourse } from "@/data/courses";
+﻿import { seedCourses, type SeedCourse } from "@/data/courses";
 
 export type CourseRelations = {
   interests: number;
@@ -122,7 +122,10 @@ export function officialCourseMutationData(course: SeedCourse) {
 }
 
 export function canApplyCourseCatalog(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.VERCEL_ENV === "production") return false;
+  if (env.VERCEL_ENV === "production") {
+    return env.ALLOW_PRODUCTION_COURSE_CATALOG_IMPORT === "true";
+  }
   if (env.VERCEL_ENV === "preview" || env.VERCEL_ENV === "development") return true;
   return env.NODE_ENV !== "production";
 }
+

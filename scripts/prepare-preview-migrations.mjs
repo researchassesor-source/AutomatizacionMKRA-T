@@ -1,11 +1,31 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { PrismaClient } from "@prisma/client";
 
 export const BASELINE_MIGRATION = "20260728000000_baseline_b1ca4fe";
 export const RELEASE_MIGRATION = "20260728010000_crm_release_candidate";
+export const COURSE_SCHEDULE_MIGRATION = "20260729010000_course_schedule_fields";
+
+const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+const MIGRATIONS_DIRECTORY = resolve(SCRIPT_DIRECTORY, "../prisma/migrations");
+
+export function discoverRepositoryMigrations(directory = MIGRATIONS_DIRECTORY) {
+  const migrations = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  for (const migration of migrations) {
+    if (!existsSync(resolve(directory, migration, "migration.sql"))) {
+      throw new Error(`Carpeta de migración inválida: ${migration}.`);
+    }
+  }
+  return migrations;
+}
+
+export const REPOSITORY_MIGRATIONS = Object.freeze(discoverRepositoryMigrations());
 
 export const BASELINE_TABLE_COLUMNS = Object.freeze({
   courses: [
@@ -61,10 +81,15 @@ export const INCREMENTAL_REQUIRED_COLUMNS = Object.freeze([
   "social_schedules.localTime", "social_schedules.nextRunAt",
 ]);
 
+export const COURSE_SCHEDULE_REQUIRED_COLUMNS = Object.freeze([
+  "courses.modality",
+  "courses.startsAt",
+  "courses.endsAt",
+]);
+
 const PREVIEW_FLAG = "PREVIEW_DATABASE_MIGRATIONS_ENABLED";
 const DIRECT_URL = "POSTGRES_URL_NON_POOLING";
 const HISTORY_TABLE = "_prisma_migrations";
-const KNOWN_MIGRATIONS = new Set([BASELINE_MIGRATION, RELEASE_MIGRATION]);
 const BASELINE_TABLES = Object.keys(BASELINE_TABLE_COLUMNS);
 const FINAL_TABLES = new Set([...BASELINE_TABLES, ...INCREMENTAL_TABLES]);
 const require = createRequire(import.meta.url);
@@ -97,60 +122,99 @@ function exactBaselineSchema(tables, columns) {
   });
 }
 
-function completeFinalSchema(tables, columns) {
+function completeIncrementalSchema(tables, columns, { requireSchedule, allowAdditionalTables = false }) {
   const businessTables = [...tables].filter((table) => table !== HISTORY_TABLE);
-  if (!businessTables.every((table) => FINAL_TABLES.has(table))) return false;
+  if (!allowAdditionalTables && !businessTables.every((table) => FINAL_TABLES.has(table))) return false;
   if (![...FINAL_TABLES].every((table) => tables.has(table))) return false;
   const baselineColumnsRemain = Object.entries(BASELINE_TABLE_COLUMNS)
     .every(([table, expected]) => expected.every((column) => columns.has(`${table}.${column}`)));
-  return baselineColumnsRemain && INCREMENTAL_REQUIRED_COLUMNS.every((column) => columns.has(column));
+  if (!baselineColumnsRemain || !INCREMENTAL_REQUIRED_COLUMNS.every((column) => columns.has(column))) return false;
+  const scheduleColumnCount = COURSE_SCHEDULE_REQUIRED_COLUMNS
+    .filter((column) => columns.has(column)).length;
+  return requireSchedule
+    ? scheduleColumnCount === COURSE_SCHEDULE_REQUIRED_COLUMNS.length
+    : scheduleColumnCount === 0;
 }
 
-function migrationState(migrations, name) {
-  const row = migrations.find((migration) => migration.name === name);
-  if (!row) return "absent";
-  return row.applied ? "applied" : "invalid";
+function validateRepositoryMigrations(repositoryMigrations) {
+  const baselineIndex = repositoryMigrations.indexOf(BASELINE_MIGRATION);
+  const releaseIndex = repositoryMigrations.indexOf(RELEASE_MIGRATION);
+  const scheduleIndex = repositoryMigrations.indexOf(COURSE_SCHEDULE_MIGRATION);
+  if (baselineIndex !== 0 || releaseIndex <= baselineIndex || scheduleIndex <= releaseIndex) {
+    fail("el repositorio no contiene la secuencia de migraciones obligatoria en orden lógico.");
+  }
+  return { releaseIndex, scheduleIndex };
 }
 
-export function classifyPreviewDatabase(snapshot) {
+function validateMigrationHistory(migrations, repositoryMigrations) {
+  const knownMigrations = new Set(repositoryMigrations);
+  if (new Set(migrations.map((migration) => migration.name)).size !== migrations.length) {
+    fail("el historial contiene registros de migración duplicados.");
+  }
+  if (migrations.some((migration) => !knownMigrations.has(migration.name))) {
+    fail("el historial contiene migraciones desconocidas.");
+  }
+  if (migrations.some((migration) => !migration.applied)) {
+    fail("existe una migración fallida, revertida o incompleta.");
+  }
+
+  const applied = new Set(migrations.map((migration) => migration.name));
+  let foundGap = false;
+  for (const migration of repositoryMigrations) {
+    if (!applied.has(migration)) {
+      foundGap = true;
+    } else if (foundGap) {
+      fail("el historial contiene migraciones aplicadas fuera de orden lógico.");
+    }
+  }
+  return applied.size;
+}
+
+export function classifyPreviewDatabase(snapshot, repositoryMigrations = REPOSITORY_MIGRATIONS) {
+  const { releaseIndex, scheduleIndex } = validateRepositoryMigrations(repositoryMigrations);
   const tables = new Set(snapshot.tables);
   const columns = new Set(snapshot.columns);
   const migrations = snapshot.migrations ?? [];
-  const unknownMigrations = migrations.filter((migration) => !KNOWN_MIGRATIONS.has(migration.name));
-  if (unknownMigrations.length) fail("el historial contiene migraciones desconocidas.");
-
-  const baselineState = migrationState(migrations, BASELINE_MIGRATION);
-  const releaseState = migrationState(migrations, RELEASE_MIGRATION);
-  if (baselineState === "invalid" || releaseState === "invalid") {
-    fail("existe una migración fallida, revertida o incompleta.");
-  }
-  if (releaseState === "applied" && baselineState !== "applied") {
-    fail("la migración incremental figura aplicada sin el baseline.");
-  }
+  const appliedCount = validateMigrationHistory(migrations, repositoryMigrations);
 
   const businessTables = [...tables].filter((table) => table !== HISTORY_TABLE);
   if (businessTables.length === 0) {
-    if (baselineState !== "absent" || releaseState !== "absent") {
-      fail("el historial no coincide con una base vacía.");
-    }
+    if (appliedCount !== 0) fail("el historial no coincide con una base vacía.");
     return { mode: "empty" };
   }
 
   const baselineCompatible = exactBaselineSchema(tables, columns);
-  const finalCompatible = completeFinalSchema(tables, columns);
-
-  if (baselineState === "applied" && releaseState === "applied") {
-    if (!finalCompatible) fail("el historial completo no coincide con el esquema final.");
-    return { mode: "up-to-date" };
+  if (appliedCount === 0) {
+    if (baselineCompatible) return { mode: "resolve-baseline" };
+    fail("el esquema es ambiguo, parcial o contiene estructuras incrementales sin historial compatible.");
   }
 
-  if (baselineState === "applied") {
+  if (appliedCount === 1) {
     if (!baselineCompatible) fail("el baseline registrado no coincide exactamente con el esquema histórico.");
     return { mode: "baseline-recorded" };
   }
 
-  if (baselineCompatible) return { mode: "resolve-baseline" };
-  fail("el esquema es ambiguo, parcial o contiene estructuras incrementales sin historial compatible.");
+  const scheduleApplied = appliedCount > scheduleIndex;
+  const appliedMigrations = repositoryMigrations.slice(0, appliedCount);
+  const additionalSchemaMigrationsApplied = appliedMigrations.some((migration) => ![
+    BASELINE_MIGRATION,
+    RELEASE_MIGRATION,
+    COURSE_SCHEDULE_MIGRATION,
+  ].includes(migration));
+  const compatible = completeIncrementalSchema(tables, columns, {
+    requireSchedule: scheduleApplied,
+    allowAdditionalTables: additionalSchemaMigrationsApplied,
+  });
+  if (!compatible) {
+    const stage = scheduleApplied ? "final" : "incremental previo a course_schedule_fields";
+    fail(`el historial no coincide con el esquema ${stage}.`);
+  }
+
+  if (appliedCount === repositoryMigrations.length) return { mode: "up-to-date" };
+  if (appliedCount <= releaseIndex) {
+    fail("el historial no alcanza el estado incremental mínimo esperado.");
+  }
+  return { mode: "migrations-pending" };
 }
 
 export async function inspectPreviewDatabase(prisma) {
@@ -205,9 +269,11 @@ export async function preparePreviewMigrations({ env, inspect, resolveBaseline, 
   } else if (decision.mode === "empty") {
     logger.info("[preview-baseline] Base vacía; migrate deploy aplicará baseline e incremental.");
   } else if (decision.mode === "baseline-recorded") {
-    logger.info("[preview-baseline] Baseline ya registrado; migrate deploy aplicará el incremental pendiente.");
+    logger.info("[preview-baseline] Baseline ya registrado; migrate deploy aplicará las migraciones incrementales pendientes.");
+  } else if (decision.mode === "migrations-pending") {
+    logger.info("[preview-baseline] Historial válido con migraciones pendientes; migrate deploy completará la secuencia.");
   } else {
-    logger.info("[preview-baseline] Baseline e incremental ya registrados; se verificará su estado.");
+    logger.info("[preview-baseline] Todas las migraciones del repositorio ya están registradas; se verificará su estado.");
   }
   return decision;
 }

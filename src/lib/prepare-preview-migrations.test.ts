@@ -1,14 +1,20 @@
+import { readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   BASELINE_MIGRATION,
   BASELINE_TABLE_COLUMNS,
+  COURSE_SCHEDULE_MIGRATION,
+  COURSE_SCHEDULE_REQUIRED_COLUMNS,
   INCREMENTAL_REQUIRED_COLUMNS,
   INCREMENTAL_TABLES,
   preparePreviewMigrations,
+  REPOSITORY_MIGRATIONS,
   RELEASE_MIGRATION,
 } from "../../scripts/prepare-preview-migrations.mjs";
 
-type Migration = { name: string; applied: boolean };
+type Migration = { name: string; applied: boolean; rolledBack?: boolean };
 type Snapshot = { tables: string[]; columns: string[]; migrations: Migration[] };
 
 const previewEnv = {
@@ -27,15 +33,28 @@ function baselineSnapshot(migrations: Migration[] = [], historyTable = migration
   };
 }
 
-function finalSnapshot(): Snapshot {
+function releaseSnapshot(migrations: Migration[] = [
+  { name: BASELINE_MIGRATION, applied: true },
+  { name: RELEASE_MIGRATION, applied: true },
+]): Snapshot {
   const baseline = baselineSnapshot([
-    { name: BASELINE_MIGRATION, applied: true },
-    { name: RELEASE_MIGRATION, applied: true },
+    ...migrations,
   ]);
   return {
     tables: [...baseline.tables, ...INCREMENTAL_TABLES],
     columns: [...baseline.columns, ...INCREMENTAL_REQUIRED_COLUMNS],
     migrations: baseline.migrations,
+  };
+}
+
+function finalSnapshot(migrations: Migration[] = REPOSITORY_MIGRATIONS.map((name: string) => ({
+  name,
+  applied: true,
+}))): Snapshot {
+  const release = releaseSnapshot(migrations);
+  return {
+    ...release,
+    columns: [...release.columns, ...COURSE_SCHEDULE_REQUIRED_COLUMNS],
   };
 }
 
@@ -70,6 +89,12 @@ describe("prepare-preview-migrations", () => {
   it("no repite resolve cuando el baseline ya está registrado", async () => {
     const test = harness(baselineSnapshot([{ name: BASELINE_MIGRATION, applied: true }]));
     await expect(test.run()).resolves.toEqual({ mode: "baseline-recorded" });
+    expect(test.resolveBaseline).not.toHaveBeenCalled();
+  });
+
+  it("acepta baseline y release registrados con course_schedule_fields pendiente", async () => {
+    const test = harness(releaseSnapshot());
+    await expect(test.run()).resolves.toEqual({ mode: "migrations-pending" });
     expect(test.resolveBaseline).not.toHaveBeenCalled();
   });
 
@@ -119,18 +144,73 @@ describe("prepare-preview-migrations", () => {
     await expect(test.run()).rejects.toThrow("migrate resolve falló");
   });
 
-  it("rechaza el incremental registrado sin baseline", async () => {
-    const test = harness(finalSnapshot());
-    test.inspect.mockResolvedValue({
-      ...finalSnapshot(),
-      migrations: [{ name: RELEASE_MIGRATION, applied: true }],
-    });
-    await expect(test.run()).rejects.toThrow("sin el baseline");
+  it("rechaza course_schedule_fields aplicada sin sus migraciones anteriores", async () => {
+    const test = harness(finalSnapshot([{ name: COURSE_SCHEDULE_MIGRATION, applied: true }]));
+    await expect(test.run()).rejects.toThrow("fuera de orden lógico");
+    expect(test.resolveBaseline).not.toHaveBeenCalled();
   });
 
-  it("rechaza historial desconocido o incompleto", async () => {
-    const test = harness(baselineSnapshot([{ name: "migracion_desconocida", applied: true }]));
+  it("rechaza una migración que no existe en prisma/migrations", async () => {
+    const test = harness(baselineSnapshot([{
+      name: "20260730000000_migracion_ajena_al_repositorio",
+      applied: true,
+    }]));
     await expect(test.run()).rejects.toThrow("desconocidas");
+  });
+
+  it("rechaza una migración fallida o incompleta", async () => {
+    const test = harness(baselineSnapshot([{ name: BASELINE_MIGRATION, applied: false }]));
+    await expect(test.run()).rejects.toThrow("fallida, revertida o incompleta");
+    expect(test.resolveBaseline).not.toHaveBeenCalled();
+  });
+
+  it("rechaza una migración revertida", async () => {
+    const test = harness(baselineSnapshot([{
+      name: BASELINE_MIGRATION,
+      applied: false,
+      rolledBack: true,
+    }]));
+    await expect(test.run()).rejects.toThrow("fallida, revertida o incompleta");
+    expect(test.resolveBaseline).not.toHaveBeenCalled();
+  });
+
+  for (const requiredColumn of COURSE_SCHEDULE_REQUIRED_COLUMNS) {
+    it(`rechaza un esquema final sin ${requiredColumn}`, async () => {
+      const snapshot = finalSnapshot();
+      snapshot.columns = snapshot.columns.filter((column) => column !== requiredColumn);
+      const test = harness(snapshot);
+      await expect(test.run()).rejects.toThrow("esquema final");
+      expect(test.resolveBaseline).not.toHaveBeenCalled();
+    });
+  }
+
+  it("reconoce dinámicamente todas las carpetas de migración del repositorio", () => {
+    const testDirectory = dirname(fileURLToPath(import.meta.url));
+    const migrationsDirectory = resolve(testDirectory, "../../prisma/migrations");
+    const migrationDirectories = readdirSync(migrationsDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+    expect(REPOSITORY_MIGRATIONS).toEqual(migrationDirectories);
+    expect(REPOSITORY_MIGRATIONS).toContain(COURSE_SCHEDULE_MIGRATION);
+  });
+
+  it("solo ejecuta migrate resolve para el esquema baseline sin historial", async () => {
+    const cases: Array<{ snapshot: Snapshot; resolvesBaseline: boolean }> = [
+      { snapshot: { tables: [], columns: [], migrations: [] }, resolvesBaseline: false },
+      { snapshot: baselineSnapshot(), resolvesBaseline: true },
+      {
+        snapshot: baselineSnapshot([{ name: BASELINE_MIGRATION, applied: true }]),
+        resolvesBaseline: false,
+      },
+      { snapshot: releaseSnapshot(), resolvesBaseline: false },
+      { snapshot: finalSnapshot(), resolvesBaseline: false },
+    ];
+    for (const scenario of cases) {
+      const test = harness(scenario.snapshot);
+      await test.run();
+      expect(test.resolveBaseline).toHaveBeenCalledTimes(scenario.resolvesBaseline ? 1 : 0);
+    }
   });
 
   it("redacta secretos presentes en errores del proceso de resolve", async () => {

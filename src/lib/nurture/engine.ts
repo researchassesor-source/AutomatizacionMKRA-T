@@ -4,6 +4,7 @@ import { EmailChannel } from "./channels/email";
 import { WhatsAppChannel } from "./channels/whatsapp";
 import type { MessageChannelAdapter } from "./channels/types";
 import { welcomeSequence, type Sequence } from "./sequences";
+import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
 
 function buildChannels(): Record<MessageChannel, MessageChannelAdapter> {
   return {
@@ -18,7 +19,7 @@ function buildChannels(): Record<MessageChannel, MessageChannelAdapter> {
 const channels = buildChannels();
 
 export function isMessagingSimulation(): boolean {
-  return process.env.NODE_ENV !== "production" || process.env.MESSAGING_MODE !== "live";
+  return mustSimulateExternalIntegration(process.env.MESSAGING_MODE);
 }
 
 export const TEMPLATE_VARIABLES = [

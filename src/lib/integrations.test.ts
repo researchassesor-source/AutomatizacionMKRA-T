@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isMessagingSimulation, renderMessageTemplate } from "./nurture/engine";
 import { isFinanceSimulation } from "./finance/client";
-import { nextGuayaquilOccurrence } from "./social/orchestrator";
+import { nextGuayaquilOccurrence, socialConnectionState } from "./social/orchestrator";
 import { POST as legacyComplete } from "@/app/api/courses/complete/route";
 import { moodleCompletionSchema } from "./moodle";
 
@@ -32,10 +32,21 @@ describe("integraciones seguras", () => {
   });
   it("mensajería requiere activación explícita en Producción", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("MESSAGING_MODE", "simulation");
     expect(isMessagingSimulation()).toBe(true);
     vi.stubEnv("MESSAGING_MODE", "live");
     expect(isMessagingSimulation()).toBe(false);
+  });
+  it("Preview fuerza simulación aunque las integraciones estén configuradas como live", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("FINANCE_MODE", "live");
+    vi.stubEnv("MESSAGING_MODE", "live");
+    vi.stubEnv("SOCIAL_MODE", "live");
+    expect(isFinanceSimulation()).toBe(true);
+    expect(isMessagingSimulation()).toBe(true);
+    expect(socialConnectionState("FACEBOOK")).toBe("SIMULATION");
   });
   it("la finalización pública antigua está deshabilitada", async () => expect((await legacyComplete()).status).toBe(410));
   it("calcula la siguiente recurrencia en America/Guayaquil", () => {

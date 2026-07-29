@@ -5,8 +5,10 @@
 - [ ] Rama y commit exactos aprobados; worktree limpio.
 - [ ] Base PostgreSQL nueva y exclusiva para Preview.
 - [ ] Variables propias de Preview, sin secretos ni URLs privadas de Producción.
+- [ ] `POSTGRES_PRISMA_URL` y `POSTGRES_URL_NON_POOLING` apuntan a la misma rama aislada, con conexión pooled y directa respectivamente.
+- [ ] `PREVIEW_DATABASE_MIGRATIONS_ENABLED=true` existe solo en Preview.
 - [ ] `FINANCE_MODE=simulation`, `SOCIAL_MODE=simulation` y `MESSAGING_MODE=simulation`.
-- [ ] Migraciones aplicadas con `prisma migrate deploy`; nunca `db push`.
+- [ ] El log de `npm run vercel-build` aprueba validate, migrate deploy, migrate status, generate, schema-check y next build; nunca `db push` ni seed.
 - [ ] Usuario ADMIN ficticio creado con `CRM_ADMIN_PASSWORD` solo en la sesión del comando.
 - [ ] Matriz funcional, responsive, accesibilidad, consola y red aprobadas.
 - [ ] Datos ficticios retirados y auditoría revisada sin secretos.
@@ -22,14 +24,22 @@
 - [ ] Integraciones continúan en simulación para el primer despliegue.
 - [ ] Rollback ensayado; no hay cambios destructivos pendientes.
 
-## Despliegue
+## Despliegue Preview
 
-- [ ] Ejecutar `npx prisma migrate deploy` una sola vez con conexión no agrupada.
-- [ ] Confirmar `npx prisma migrate status`.
-- [ ] Desplegar el commit aprobado, sin ejecutar semillas.
+- [ ] Vercel usa `buildCommand: npm run vercel-build` desde `vercel.json`; no duplicar comandos en Project Settings.
+- [ ] Confirmar que el build detectó `VERCEL_ENV=preview` antes de migrar.
+- [ ] Confirmar que la comprobación de esquema encontró `admin_users`, `courses.category`, contactos, inscripciones, seguimientos y auditoría.
+- [ ] Desplegar el commit aprobado sin ejecutar semillas.
 - [ ] Probar login, permisos, contactos, dos inscripciones por contacto, agenda y auditoría.
 - [ ] Confirmar que mensajes, redes y Finance siguen simulados.
 - [ ] Vigilar errores sin registrar datos personales ni secretos.
+- [ ] Al cerrar el Preview, revisar periódicamente ramas Neon y deployments retenidos; no conservar datos reales.
+
+## Despliegue Producción
+
+- [ ] Las migraciones automáticas permanecen desactivadas en `npm run vercel-build`.
+- [ ] Ejecutar migraciones solo en una ventana aprobada siguiendo `MIGRACION_PRODUCCION.md`.
+- [ ] No establecer `PREVIEW_DATABASE_MIGRATIONS_ENABLED` en Producción.
 
 ## Activación posterior de integraciones
 

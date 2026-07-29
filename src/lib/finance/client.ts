@@ -1,3 +1,5 @@
+import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
+
 type FinanceResponse<T = unknown> = {
   success: boolean;
   error?: string;
@@ -12,7 +14,7 @@ export function isFinanceConfigured(): boolean {
 }
 
 export function isFinanceSimulation(): boolean {
-  return process.env.NODE_ENV !== "production" || process.env.FINANCE_MODE !== "live";
+  return mustSimulateExternalIntegration(process.env.FINANCE_MODE);
 }
 
 export function financeAppUrl(): string {

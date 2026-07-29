@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { MetaAdapter } from "./adapters/meta";
 import { TikTokAdapter } from "./adapters/tiktok";
 import type { Platform, SocialAdapter } from "./types";
+import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
 
 function buildAdapters(): Partial<Record<Platform, SocialAdapter>> {
   const metaConfig = {
@@ -30,10 +31,14 @@ export function getAdapter(platform: Platform): SocialAdapter | undefined {
 
 export type SocialConnectionState = "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED";
 
+export function isSocialSimulation(): boolean {
+  return mustSimulateExternalIntegration(process.env.SOCIAL_MODE);
+}
+
 export function socialConnectionState(platform: Platform): SocialConnectionState {
   const adapter = getAdapter(platform);
   if (!adapter) return "UNSUPPORTED";
-  if (process.env.NODE_ENV !== "production" || process.env.SOCIAL_MODE !== "live") return "SIMULATION";
+  if (isSocialSimulation()) return "SIMULATION";
   return adapter.isConfigured() ? "READY" : "NOT_CONFIGURED";
 }
 
@@ -42,7 +47,7 @@ export function isSocialAccountUsable(platform: Platform): boolean {
 }
 
 export async function verifyPlatformConnection(platform: Platform) {
-  if (process.env.NODE_ENV !== "production" || process.env.SOCIAL_MODE !== "live") {
+  if (isSocialSimulation()) {
     return { ok: false, error: "La conexión real está desactivada en este entorno." };
   }
   const adapter = adapters[platform];
@@ -131,7 +136,7 @@ export async function publishPost(postId: string) {
   const post = await prisma.socialPost.findUnique({ where: { id: postId }, include: { account: true } });
   if (!post) return { ok: false, error: "No se encontró la publicación." };
 
-  if (process.env.NODE_ENV !== "production" || process.env.SOCIAL_MODE !== "live") {
+  if (isSocialSimulation()) {
     await prisma.socialPost.update({
       where: { id: post.id },
       data: { status: "SIMULADO", publishStartedAt: null, error: null },

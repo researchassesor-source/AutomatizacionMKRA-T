@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     return json(request, id, { error: "Origen no permitido." }, 403);
   }
 
-  const limit = checkRateLimit(requestKey(request, "lead-capture"), {
+  const limit = await checkRateLimit(requestKey(request, "lead-capture"), {
     limit: 12,
     windowMs: 10 * 60 * 1000,
   });

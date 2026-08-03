@@ -4,12 +4,23 @@ import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { UserManager } from "./UserManager";
+import { canRecommendLegacyDisable, legacyConfigurationState } from "@/lib/legacy-auth-assessment";
 
 export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const session = await currentAdminSession();
   if (session?.role !== "ADMIN") return <main className="container admin-shell"><AdminNav /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para administrar usuarios." /></main>;
-  const users = await prisma.adminUser.findMany({ orderBy: { createdAt: "asc" } });
-  return <main className="container admin-shell"><AdminNav /><AdminPageHeader eyebrow="Acceso y permisos" title="Usuarios administrativos" description="Administra perfiles, roles y disponibilidad de acceso al panel." /><UserManager users={users.map((user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt?.toISOString() ?? null, createdAt: user.createdAt.toISOString() }))} /></main>;
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60_000);
+  const [users, recentLegacyLogins] = await Promise.all([
+    prisma.adminUser.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.auditLog.count({ where: { action: "AUTH_LOGIN_LEGACY", createdAt: { gte: ninetyDaysAgo } } }),
+  ]);
+  const legacyState = legacyConfigurationState();
+  const activeAdmins = users.filter((user) => user.isActive && user.role === "ADMIN").length;
+  const recommendDisable = canRecommendLegacyDisable({ state: legacyState, activeAdmins, recentLegacyLogins });
+  return <main className="container admin-shell"><AdminNav /><AdminPageHeader eyebrow="Acceso y permisos" title="Usuarios administrativos" description="Administra perfiles, roles y disponibilidad de acceso al panel." />
+    <section className="panel"><h2>Diagnóstico del acceso heredado</h2><dl className="detail-list"><dt>Configuración</dt><dd>{legacyState === "DISABLED" ? "Desactivada explícitamente" : legacyState === "EXPLICITLY_ENABLED" ? "Activada explícitamente" : legacyState === "IMPLICITLY_ENABLED" ? "Activada implícitamente por compatibilidad" : "Sin contraseña heredada configurada"}</dd><dt>Administradores individuales activos</dt><dd>{activeAdmins}</dd><dt>Ingresos heredados en 90 días</dt><dd>{recentLegacyLogins}</dd><dt>Recomendación</dt><dd>{recommendDisable ? "Preparado para solicitar autorización de desactivación." : "Mantener temporalmente y completar la migración de usuarios."}</dd></dl><p className="muted">Esta comprobación no muestra contraseñas ni valores de variables y no cambia el método de acceso.</p></section>
+    <UserManager users={users.map((user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt?.toISOString() ?? null, createdAt: user.createdAt.toISOString() }))} />
+  </main>;
 }

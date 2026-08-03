@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return NextResponse.json({ error: "Contenido no válido." }, { status: 415, headers: headers(request, requestId) });
   }
-  const limit = checkRateLimit(requestKey(request, "lead-activity"), {
+  const limit = await checkRateLimit(requestKey(request, "lead-activity"), {
     limit: 30,
     windowMs: 10 * 60 * 1000,
   });

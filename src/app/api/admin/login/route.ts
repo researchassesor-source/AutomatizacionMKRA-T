@@ -21,7 +21,7 @@ const loginSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const limit = checkRateLimit(requestKey(request, "admin-login"), {
+  const limit = await checkRateLimit(requestKey(request, "admin-login"), {
     limit: 7,
     windowMs: 15 * 60 * 1000,
   });

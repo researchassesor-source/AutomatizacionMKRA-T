@@ -1,5 +1,9 @@
 name: Automatizacion (cron)
 
+concurrency:
+  group: crm-automation-production
+  cancel-in-progress: false
+
 # Reloj gratuito que dispara las tareas programadas del sistema:
 #  - publicar los posts programados cuya hora ya llego
 #  - enviar los correos/WhatsApp de nurture vencidos
@@ -16,12 +20,27 @@ on:
 jobs:
   disparar:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CRM_JOB_BASE_URL: https://automatizacion-mkra-t2.vercel.app
     steps:
+      - name: Verificar rama operativa del repositorio
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$DEFAULT_BRANCH" != "main" ]; then
+            echo "El cron debe residir en la rama predeterminada main; actual: $DEFAULT_BRANCH"
+            exit 1
+          fi
       - name: Publicar posts programados
         run: |
-          curl -sS -X GET "https://automatizacion-mkra-t2.vercel.app/api/social/publish" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" -w "\nHTTP %{http_code}\n"
+          curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 45 \
+            -X GET "$CRM_JOB_BASE_URL/api/social/publish" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "X-CRM-Cron-Contract: 2026-08-v2"
       - name: Enviar nurture pendiente
         run: |
-          curl -sS -X GET "https://automatizacion-mkra-t2.vercel.app/api/nurture/dispatch" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" -w "\nHTTP %{http_code}\n"
+          curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 45 \
+            -X GET "$CRM_JOB_BASE_URL/api/nurture/dispatch" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "X-CRM-Cron-Contract: 2026-08-v2"

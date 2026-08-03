@@ -45,6 +45,9 @@ function input(overrides: Record<string, unknown> = {}) {
     utmCampaign: "qa_cursos_agosto",
     utmContent: "arte_prueba",
     utmTerm: "docentes",
+    fbclid: "fb_123",
+    gclid: "google_123",
+    ttclid: "tiktok_123",
     landingUrl: "https://ra-training.com/cursos/curso-uno/",
     referrer: "https://facebook.com/",
     website: "",
@@ -162,6 +165,11 @@ describe("captura transaccional de contactos", () => {
       "CONSENT_RECORDED",
       "FORM_SUBMIT_SUCCESS",
     ]));
+    expect(events.find((event) => event.type === "form_submit")?.payload).toMatchObject({
+      fbclid: "fb_123",
+      gclid: "google_123",
+      ttclid: "tiktok_123",
+    });
     expect(mocks.writeAudit.mock.calls.map(([audit]) => audit.action)).toEqual(expect.arrayContaining([
       "CONTACT_CREATED",
       "ENROLLMENT_CREATED",

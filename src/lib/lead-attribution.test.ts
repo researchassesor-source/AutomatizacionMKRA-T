@@ -4,7 +4,7 @@ import { captureLeadAttribution } from "./lead-attribution";
 describe("atribucion de campana", () => {
   it("captura las cinco UTMs, fuente, landing y referrer", () => {
     const result = captureLeadAttribution(
-      "?utm_source=facebook&utm_medium=paid_social&utm_campaign=qa_cursos_agosto&utm_content=arte_prueba&utm_term=docentes&source=meta&landing_url=https%3A%2F%2Fra-training.com%2Fcursos%2Fcurso%2F&referrer=https%3A%2F%2Ffacebook.com%2F",
+      "?utm_source=facebook&utm_medium=paid_social&utm_campaign=qa_cursos_agosto&utm_content=arte_prueba&utm_term=docentes&fbclid=fb_123&gclid=google_123&ttclid=tiktok_123&source=meta&landing_url=https%3A%2F%2Fra-training.com%2Fcursos%2Fcurso%2F&referrer=https%3A%2F%2Ffacebook.com%2F",
       "https://preview.example.test/cursos/curso",
     );
     expect(result).toEqual({
@@ -14,6 +14,9 @@ describe("atribucion de campana", () => {
       utmCampaign: "qa_cursos_agosto",
       utmContent: "arte_prueba",
       utmTerm: "docentes",
+      fbclid: "fb_123",
+      gclid: "google_123",
+      ttclid: "tiktok_123",
       landingUrl: "https://ra-training.com/cursos/curso/",
       referrer: "https://facebook.com/",
     });

@@ -28,6 +28,9 @@ export type LeadAttribution = {
   utmCampaign?: string;
   utmContent?: string;
   utmTerm?: string;
+  fbclid?: string;
+  gclid?: string;
+  ttclid?: string;
   landingUrl?: string;
   referrer?: string;
 };
@@ -50,6 +53,9 @@ export function captureLeadAttribution(
     utmCampaign: optionalParam(params, "utm_campaign"),
     utmContent: optionalParam(params, "utm_content"),
     utmTerm: optionalParam(params, "utm_term"),
+    fbclid: optionalParam(params, "fbclid"),
+    gclid: optionalParam(params, "gclid"),
+    ttclid: optionalParam(params, "ttclid"),
     landingUrl,
     referrer: explicitReferrer ?? browserReferrer,
   };

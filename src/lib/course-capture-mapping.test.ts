@@ -34,6 +34,8 @@ describe("mapeo oficial de captacion por curso", () => {
   it("conserva de forma explicita el slug distinto del curso de tareas", () => {
     const mapping = findCourseCaptureMappingByOfficialPath("/cursos/ia-para-apoyo-en-tareas-escolares/");
     expect(mapping?.crmCourseSlug).toBe("ia-apoyo-tareas-estudiantiles");
+    expect(mapping?.startDate).toBe("11 de agosto");
+    expect(mapping?.endDate).toBe("13 de agosto");
     expect(findCourseCaptureMappingByCrmSlug("ia-apoyo-tareas-estudiantiles")).toBe(mapping);
   });
 
@@ -54,7 +56,7 @@ describe("mapeo oficial de captacion por curso", () => {
       addEventListener() {},
     };
     const location = new URL(
-      "https://ra-training.com/cursos/ia-para-apoyo-en-tareas-escolares/?utm_source=facebook&utm_medium=paid_social&utm_campaign=agosto&utm_content=video_01&utm_term=ia&utm_source=duplicado",
+      "https://ra-training.com/cursos/ia-para-apoyo-en-tareas-escolares/?utm_source=facebook&utm_medium=paid_social&utm_campaign=agosto&utm_content=video_01&utm_term=ia&utm_source=duplicado&fbclid=fb_123&gclid=google_123&ttclid=tiktok_123",
     );
     const documentObject = {
       currentScript: { src: "https://preview.example.test/course-cta.js" },
@@ -70,9 +72,15 @@ describe("mapeo oficial de captacion por curso", () => {
     expect(destination.origin).toBe("https://preview.example.test");
     expect(destination.pathname).toBe("/cursos/ia-apoyo-tareas-estudiantiles");
     expect(destination.searchParams.get("utm_source")).toBe("facebook");
-    for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"]) {
+    for (const key of [
+      "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+      "fbclid", "gclid", "ttclid",
+    ]) {
       expect(destination.searchParams.getAll(key)).toHaveLength(1);
     }
+    expect(destination.searchParams.get("fbclid")).toBe("fb_123");
+    expect(destination.searchParams.get("gclid")).toBe("google_123");
+    expect(destination.searchParams.get("ttclid")).toBe("tiktok_123");
     expect(destination.searchParams.get("landing_url")).toContain("ra-training.com/cursos/");
     expect(destination.searchParams.get("referrer")).toBe("https://facebook.example.test/anuncio");
     expect(anchor.dataset.crmCourse).toBe("ia-apoyo-tareas-estudiantiles");

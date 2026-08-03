@@ -49,6 +49,9 @@ describe("captacion de contactos", () => {
       utmCampaign: "curso_julio",
       utmContent: "video_01",
       utmTerm: "profesores",
+      fbclid: "fb_123",
+      gclid: "google_123",
+      ttclid: "tiktok_123",
       landingUrl: "https://ra-training.com/cursos/curso/",
       referrer: "https://facebook.com/",
     });
@@ -59,6 +62,9 @@ describe("captacion de contactos", () => {
       utmCampaign: "curso_julio",
       utmContent: "video_01",
       utmTerm: "profesores",
+      fbclid: "fb_123",
+      gclid: "google_123",
+      ttclid: "tiktok_123",
       landingUrl: "https://ra-training.com/cursos/curso/",
       referrer: "https://facebook.com/",
     });

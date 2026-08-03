@@ -21,7 +21,10 @@ export function buildCourseCtaScript() {
     try { return new URL(document.currentScript && document.currentScript.src || ${fallbackOrigin}).origin; }
     catch { return ${fallbackOrigin}; }
   })();
-  const trackingKeys = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
+  const trackingKeys = [
+    "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+    "fbclid", "gclid", "ttclid"
+  ];
   const buildDestination = () => {
     const current = new URL(window.location.href);
     current.hash = "";

@@ -8,8 +8,10 @@ export function DispatchButton({ simulation, pendingCount }: { simulation: boole
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   async function run() {
-    const action = simulation ? "simular" : "enviar";
-    if (!window.confirm(`¿Confirmas que deseas ${action} ${pendingCount} mensaje(s) pendiente(s)?`)) return;
+    const confirmation = simulation
+      ? `Se procesarán ${pendingCount} mensaje(s) únicamente como simulación. No se enviarán correos ni WhatsApp y ningún contacto será notificado. ¿Deseas continuar?`
+      : `¿Confirmas que deseas enviar ${pendingCount} mensaje(s) pendiente(s)?`;
+    if (!window.confirm(confirmation)) return;
     setLoading(true);
     const response = await fetch("/api/admin/nurture/dispatch", {
       method: "POST",
@@ -21,5 +23,5 @@ export function DispatchButton({ simulation, pendingCount }: { simulation: boole
     setLoading(false);
     router.refresh();
   }
-  return <div className="toolbar"><button type="button" className="btn-sm" onClick={run} disabled={loading || pendingCount === 0}>{loading ? "Procesando…" : simulation ? `Simular pendientes (${pendingCount})` : `Enviar pendientes (${pendingCount})`}</button>{message && <span className="result-line" role="status">{message}</span>}</div>;
+  return <div className="toolbar"><button type="button" className="btn-sm" onClick={run} disabled={loading || pendingCount === 0}>{loading ? "Procesando…" : simulation ? `Procesar simulación · sin envíos (${pendingCount})` : `Enviar pendientes (${pendingCount})`}</button>{message && <span className="result-line" role="status">{message}</span>}</div>;
 }

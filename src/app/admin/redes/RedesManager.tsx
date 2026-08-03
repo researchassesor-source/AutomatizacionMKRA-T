@@ -2,20 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { presentAdminValue } from "../adminPresentation";
-import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
 
-type Account = { id: string; platform: string; displayName: string; isActive: boolean; connectorState: "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED" };
-type Post = { id: string; caption: string; mediaUrl: string | null; linkUrl: string | null; status: string; account: string; scheduledAt: string | null; error: string | null };
+type Account = { id: string; platform: string; displayName: string; externalId: string | null; isActive: boolean; connectorState: "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED"; connectionStatus: string; connectionCheckedAt: string | null; connectionError: string | null };
+type Post = { id: string; caption: string; mediaUrl: string | null; linkUrl: string | null; status: string; account: string; scheduledAt: string | null; error: string | null; errorCode: string | null; providerPostUrl: string | null; externalPostId: string | null };
 type Schedule = { id: string; name: string; caption: string; mediaUrl: string | null; linkUrl: string | null; weekday: number; localTime: string; isActive: boolean; nextRunAt: string; account: string };
-const platforms = [
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "FACEBOOK", label: "Facebook" },
-  { value: "TIKTOK", label: "TikTok" },
-  { value: "YOUTUBE", label: "YouTube (sin conector)", disabled: true },
-  { value: "LINKEDIN", label: "LinkedIn (sin conector)", disabled: true },
-];
+const platforms = [{ value: "INSTAGRAM", label: "Instagram" }, { value: "FACEBOOK", label: "Facebook" }, { value: "TIKTOK", label: "TikTok" }];
 const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 async function request(url: string, method: string, body?: unknown) {
@@ -30,113 +24,101 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
   const [mediaUrl, setMediaUrl] = useState("");
   const usableAccounts = accounts.filter((account) => account.isActive && ["SIMULATION", "READY"].includes(account.connectorState));
 
-  function accountStatus(account: Account) {
-    if (account.connectorState === "UNSUPPORTED") return "Sin conector";
-    if (account.connectorState === "NOT_CONFIGURED") return "No configurada";
-    if (!account.isActive) return "Inactiva";
-    return account.connectorState === "SIMULATION" ? "Simulación" : "Activa";
+  async function run(id: string, action: () => Promise<{ ok: boolean; data: Record<string, unknown> }>, success: string) {
+    setBusy(id); const result = await action(); setBusy(null);
+    setMessage(result.ok ? success : String(result.data.error ?? "No se pudo completar la acción."));
+    if (result.ok) router.refresh();
+    return result;
   }
 
   async function upload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setBusy("upload");
+    const file = event.target.files?.[0]; if (!file) return; setBusy("upload");
     try {
       if (file.type.startsWith("video/")) {
-        const { upload } = await import("@vercel/blob/client");
-        const blob = await upload(`social/${Date.now()}-${file.name}`, file, { access: "public", handleUploadUrl: "/api/admin/upload/token" });
+        const { upload: uploadBlob } = await import("@vercel/blob/client");
+        const blob = await uploadBlob(`social/${Date.now()}-${file.name}`, file, { access: "public", handleUploadUrl: "/api/admin/upload/token" });
         setMediaUrl(blob.url);
       } else {
         const form = new FormData(); form.append("file", file);
         const response = await fetch("/api/admin/upload", { method: "POST", body: form });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error);
-        setMediaUrl(result.url);
+        const result = await response.json(); if (!response.ok) throw new Error(result.error); setMediaUrl(result.url);
       }
       setMessage("Archivo preparado.");
-    } catch (error) { setMessage((error as Error).message ?? "No se pudo preparar el archivo."); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo preparar el archivo."); }
     setBusy(null);
   }
 
   async function registerAccount(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy("account");
-    const result = await request("/api/admin/social/accounts", "POST", { platform: data.get("platform"), displayName: data.get("displayName"), externalId: data.get("externalId") || undefined });
-    setMessage(result.ok ? "Cuenta guardada." : result.data.error); setBusy(null); if (result.ok) { form.reset(); router.refresh(); }
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
+    const result = await run("account-new", () => request("/api/admin/social/accounts", "POST", { platform: data.get("platform"), displayName: data.get("displayName"), externalId: data.get("externalId") || undefined }), "Cuenta guardada en modo seguro.");
+    if (result.ok) form.reset();
   }
 
-  async function accountAction(account: Account, action: "toggle" | "edit" | "delete") {
-    if (action === "delete" && !window.confirm(`¿Eliminar o desactivar “${account.displayName}”?`)) return;
-    const displayName = action === "edit" ? window.prompt("Nombre visible", account.displayName) : undefined;
-    if (action === "edit" && !displayName) return;
-    setBusy(account.id);
-    const result = action === "delete"
-      ? await request(`/api/admin/social/accounts/${account.id}`, "DELETE", { confirm: true })
-      : await request(`/api/admin/social/accounts/${account.id}`, "PATCH", action === "toggle" ? { isActive: !account.isActive, confirm: true } : { displayName });
-    setMessage(result.ok ? "Cuenta actualizada." : result.data.error); setBusy(null); router.refresh();
+  async function editAccount(event: React.FormEvent<HTMLFormElement>, account: Account) {
+    event.preventDefault(); const data = new FormData(event.currentTarget);
+    await run(account.id, () => request(`/api/admin/social/accounts/${account.id}`, "PATCH", { displayName: data.get("displayName"), externalId: data.get("externalId") || null }), "Cuenta actualizada.");
+  }
+
+  async function accountToggle(account: Account) {
+    if (!window.confirm(`¿${account.isActive ? "Desactivar" : "Activar"} ${account.displayName}? No se eliminará historial.`)) return;
+    await run(account.id, () => request(`/api/admin/social/accounts/${account.id}`, "PATCH", { isActive: !account.isActive, confirm: true }), "Cuenta actualizada.");
+  }
+
+  async function verify(account: Account) {
+    await run(account.id, () => request("/api/admin/social/test", "POST", { platform: account.platform }), account.connectorState === "SIMULATION" ? "Comprobación simulada: Preview no consultó al proveedor." : "Conexión comprobada.");
   }
 
   async function createPost(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy("post");
-    const date = String(data.get("scheduledAt") || "");
-    const result = await request("/api/admin/social/posts", "POST", { accountId: data.get("accountId"), caption: data.get("caption"), mediaUrl: mediaUrl || data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "", scheduledAt: date ? ecuadorLocalDateTimeToIso(date) : "" });
-    setMessage(result.ok ? "Publicación creada." : result.data.error); setBusy(null); if (result.ok) { form.reset(); setMediaUrl(""); router.refresh(); }
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); const localDate = String(data.get("scheduledAt") || "");
+    const result = await run("post-new", () => request("/api/admin/social/posts", "POST", { accountId: data.get("accountId"), caption: data.get("caption"), mediaUrl: mediaUrl || data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "", scheduledAt: localDate ? ecuadorLocalDateTimeToIso(localDate) : "" }), "Publicación creada sin contactar al proveedor.");
+    if (result.ok) { form.reset(); setMediaUrl(""); }
   }
 
-  async function postAction(post: Post, action: string) {
-    let body: Record<string, unknown> = { action };
-    if (action === "update") {
-      const caption = window.prompt("Texto de la publicación", post.caption);
-      if (!caption) return;
-      body = { action, caption, mediaUrl: post.mediaUrl, linkUrl: post.linkUrl };
-    }
-    if (action === "reschedule") {
-      const date = window.prompt("Nueva fecha y hora en Ecuador (AAAA-MM-DDTHH:mm)", post.scheduledAt ? isoToEcuadorLocalInput(post.scheduledAt) : "");
-      if (!date) return;
-      body = { action, scheduledAt: ecuadorLocalDateTimeToIso(date) };
-    }
-    if (action === "cancel" && !window.confirm("¿Cancelar esta publicación?")) return;
-    if (action === "cancel") body.confirm = true;
-    if (action === "publish" && !window.confirm("¿Publicar esta entrada ahora? Esta acción puede comunicarse con una red externa.")) return;
-    if (action === "retry" && !window.confirm("¿Reintentar ahora esta publicación?")) return;
-    if (action === "retry") body.confirm = true;
-    setBusy(post.id);
-    const result = action === "publish" ? await request("/api/admin/social/publish", "POST", { postId: post.id, confirm: true }) : await request(`/api/admin/social/posts/${post.id}`, "PATCH", body);
-    setMessage(result.ok ? (result.data.simulated ? "Publicación simulada de forma segura." : "Publicación actualizada.") : result.data.error); setBusy(null); router.refresh();
+  async function editPost(event: React.FormEvent<HTMLFormElement>, post: Post) {
+    event.preventDefault(); const data = new FormData(event.currentTarget); const localDate = String(data.get("scheduledAt") || "");
+    await run(post.id, () => request(`/api/admin/social/posts/${post.id}`, "PATCH", { action: "update", caption: data.get("caption"), mediaUrl: data.get("mediaUrl") || null, linkUrl: data.get("linkUrl") || null, scheduledAt: localDate ? ecuadorLocalDateTimeToIso(localDate) : null }), "Borrador actualizado.");
+  }
+
+  async function postAction(post: Post, action: "publish" | "duplicate" | "cancel" | "retry" | "archive" | "delete") {
+    const descriptions = { publish: "procesar esta publicación ahora", duplicate: "duplicar esta publicación como borrador", cancel: "cancelar esta programación", retry: "reintentar esta publicación", archive: "archivar localmente este registro sin borrar contenido del proveedor", delete: "eliminar definitivamente este borrador o simulación local" };
+    if (!window.confirm(`¿Confirmas ${descriptions[action]}?${action === "publish" ? " En Preview solo se simulará." : ""}`)) return;
+    const operation = action === "publish"
+      ? () => request("/api/admin/social/publish", "POST", { postId: post.id, confirm: true })
+      : action === "delete"
+        ? () => request(`/api/admin/social/posts/${post.id}`, "DELETE", { confirm: "DELETE_LOCAL_DRAFT" })
+        : () => request(`/api/admin/social/posts/${post.id}`, "PATCH", { action, confirm: true });
+    await run(post.id, operation, action === "delete" ? "Registro local eliminado; no se solicitó eliminación externa." : action === "archive" ? "Registro archivado localmente; el proveedor no fue modificado." : action === "publish" ? "Publicación procesada en SIMULATED; no se llamó al proveedor." : "Publicación actualizada.");
   }
 
   async function createSchedule(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy("schedule");
-    const result = await request("/api/admin/social/schedules", "POST", { accountId: data.get("accountId"), name: data.get("name"), caption: data.get("caption"), mediaUrl: data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "", weekday: Number(data.get("weekday")), localTime: data.get("localTime") });
-    setMessage(result.ok ? "Recurrencia semanal creada." : result.data.error); setBusy(null); if (result.ok) { form.reset(); router.refresh(); }
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
+    const result = await run("schedule-new", () => request("/api/admin/social/schedules", "POST", { accountId: data.get("accountId"), name: data.get("name"), caption: data.get("caption"), mediaUrl: data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "", weekday: Number(data.get("weekday")), localTime: data.get("localTime") }), "Recurrencia semanal creada.");
+    if (result.ok) form.reset();
   }
 
-  async function scheduleAction(schedule: Schedule, action: "update" | "pause" | "resume" | "archive") {
-    let body: Record<string, unknown> = { action, confirm: true };
-    if (action === "update") {
-      const name = window.prompt("Nombre de la recurrencia", schedule.name)?.trim();
-      if (!name) return;
-      const weekday = Number(window.prompt("Día de la semana (0 domingo a 6 sábado)", String(schedule.weekday)));
-      if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) { setMessage("El día debe estar entre 0 y 6."); return; }
-      const localTime = window.prompt("Hora en America/Guayaquil (HH:mm)", schedule.localTime)?.trim();
-      if (!localTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(localTime)) { setMessage("La hora no es válida."); return; }
-      const caption = window.prompt("Contenido recurrente", schedule.caption)?.trim();
-      if (!caption) return;
-      body = { ...body, name, weekday, localTime, caption, mediaUrl: schedule.mediaUrl ?? "", linkUrl: schedule.linkUrl ?? "" };
-    }
-    const question = action === "pause" ? "¿Pausar esta recurrencia?" : action === "resume" ? "¿Reactivar esta recurrencia y recalcular su próxima ejecución?" : action === "archive" ? "¿Archivar esta recurrencia? Se conservará su historial." : "¿Guardar los cambios de esta recurrencia?";
-    if (!window.confirm(question)) return;
-    setBusy(schedule.id);
-    const result = await request(`/api/admin/social/schedules/${schedule.id}`, "PATCH", body);
-    setMessage(result.ok ? "Recurrencia actualizada." : result.data.error);
-    setBusy(null);
-    if (result.ok) router.refresh();
+  async function editSchedule(event: React.FormEvent<HTMLFormElement>, schedule: Schedule) {
+    event.preventDefault(); const data = new FormData(event.currentTarget);
+    await run(schedule.id, () => request(`/api/admin/social/schedules/${schedule.id}`, "PATCH", { action: "update", confirm: true, name: data.get("name"), weekday: Number(data.get("weekday")), localTime: data.get("localTime"), caption: data.get("caption"), mediaUrl: data.get("mediaUrl") || "", linkUrl: data.get("linkUrl") || "" }), "Recurrencia actualizada.");
   }
+
+  async function scheduleStatus(schedule: Schedule, action: "pause" | "resume" | "archive") {
+    if (!window.confirm(action === "archive" ? "¿Archivar la recurrencia conservando su historial?" : `¿${action === "pause" ? "Pausar" : "Reactivar"} esta recurrencia?`)) return;
+    await run(schedule.id, () => request(`/api/admin/social/schedules/${schedule.id}`, "PATCH", { action, confirm: true }), "Recurrencia actualizada.");
+  }
+
+  const accountState = (account: Account) => !account.isActive ? "Inactiva" : account.connectorState === "SIMULATION" ? "SIMULATED" : account.connectionStatus === "READY" ? "Conexión validada" : presentAdminValue(account.connectionStatus);
 
   return <>
     {message && <div className="panel result-line" role="status">{message}</div>}
-    <section className="panel"><h2>Cuentas sociales</h2><p className="muted">YouTube y LinkedIn se muestran como integraciones no disponibles; no pueden activarse ni publicar.</p><form onSubmit={registerAccount}><div className="form-row"><select name="platform" aria-label="Red social">{platforms.map((platform) => <option key={platform.value} value={platform.value} disabled={platform.disabled}>{platform.label}</option>)}</select><input name="displayName" aria-label="Nombre visible de la cuenta" placeholder="Nombre visible" required /><input name="externalId" aria-label="Identificador externo de la cuenta" placeholder="Identificador externo (opcional)" /><button type="submit" className="btn-sm" disabled={busy === "account"}>Guardar cuenta</button></div></form>{accounts.length > 0 ? <div className="table-wrap"><table className="data"><thead><tr><th>Red</th><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.id}><td>{presentAdminValue(account.platform)}</td><td>{account.displayName}</td><td><span className={`pill ${account.connectorState === "READY" && account.isActive ? "ok" : account.connectorState === "NOT_CONFIGURED" || account.connectorState === "UNSUPPORTED" ? "warn" : "info"}`}>{accountStatus(account)}</span></td><td><div className="card-actions"><button className="btn-sm ghost" type="button" disabled={busy === account.id} onClick={() => accountAction(account, "edit")}>Editar</button><button className="btn-sm ghost" type="button" disabled={busy === account.id || (!account.isActive && account.connectorState === "UNSUPPORTED")} onClick={() => accountAction(account, "toggle")}>{account.isActive ? "Desactivar" : "Activar"}</button><button className="btn-sm danger" type="button" disabled={busy === account.id} onClick={() => accountAction(account, "delete")}>Eliminar</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="social" title="Sin cuentas conectadas" description="Registra una cuenta para comenzar a organizar contenidos." />}</section>
-    <section className="panel"><h2>Nueva publicación</h2>{usableAccounts.length === 0 ? <p className="muted">Registra y habilita una cuenta con conector disponible primero.</p> : <form onSubmit={createPost}><div className="form-row"><select name="accountId" aria-label="Cuenta para la publicación">{usableAccounts.map((account) => <option value={account.id} key={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="linkUrl" aria-label="Enlace de la publicación" type="url" placeholder="Enlace (opcional)" /><input name="scheduledAt" aria-label="Fecha y hora de publicación" type="datetime-local" title="Zona horaria America/Guayaquil" /></div><div className="form-row"><label className="btn-sm ghost">{busy === "upload" ? "Preparando…" : "Subir imagen o video"}<input type="file" accept="image/*,video/*" hidden onChange={upload} /></label><input name="mediaUrl" aria-label="URL del contenido multimedia" type="url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="URL del contenido (opcional)" /></div><div className="form-row"><textarea name="caption" aria-label="Texto de la publicación" rows={4} placeholder="Texto de la publicación" required /></div><button type="submit" className="btn-sm" disabled={busy === "post"}>Crear publicación</button><span className="muted"> Sin fecha se guarda como borrador.</span></form>}</section>
-    <section className="panel"><h2>Publicaciones</h2>{posts.length === 0 ? <AdminEmptyState icon="social" title="No hay publicaciones" description="Crea un borrador o programa el primer contenido." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Cuenta</th><th>Texto</th><th>Estado</th><th>Programación</th><th>Acciones</th></tr></thead><tbody>{posts.map((post) => <tr key={post.id}><td>{post.account}</td><td>{post.caption.slice(0, 180)}{post.caption.length > 180 ? "…" : ""}</td><td><span className={`pill ${post.status === "PUBLICADO" ? "ok" : post.status === "FALLIDO" ? "err" : post.status === "PROGRAMADO" ? "warn" : "info"}`}>{presentAdminValue(post.status)}</span>{post.error && <div className="muted">{post.error}</div>}</td><td>{post.scheduledAt ? new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(new Date(post.scheduledAt)) : "Borrador"}</td><td><div className="card-actions">{["BORRADOR","PROGRAMADO","FALLIDO","SIMULADO"].includes(post.status) && <><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "update")}>Editar</button><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "reschedule")}>Reprogramar</button><button className="btn-sm" type="button" disabled={busy === post.id} onClick={() => postAction(post, "publish")}>Publicar</button><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "duplicate")}>Duplicar</button><button className="btn-sm danger" type="button" disabled={busy === post.id} onClick={() => postAction(post, "cancel")}>Cancelar</button></>}</div></td></tr>)}</tbody></table></div>}</section>
-    <section className="panel"><h2>Recurrencia semanal</h2><p className="muted">Las horas se interpretan siempre en America/Guayaquil. Cada ocurrencia tiene una clave única para evitar duplicados.</p>{usableAccounts.length === 0 ? <p className="muted">No hay una cuenta disponible para crear recurrencias.</p> : <form onSubmit={createSchedule}><div className="form-row"><select name="accountId" aria-label="Cuenta para la recurrencia">{usableAccounts.map((account) => <option key={account.id} value={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="name" aria-label="Nombre de la recurrencia" placeholder="Nombre de la recurrencia" required /><select name="weekday" aria-label="Día de la semana">{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select><input name="localTime" aria-label="Hora local de la recurrencia" type="time" required /></div><div className="form-row"><input name="mediaUrl" aria-label="Contenido multimedia recurrente" type="url" placeholder="Contenido multimedia (opcional)" /><input name="linkUrl" aria-label="Enlace recurrente" type="url" placeholder="Enlace (opcional)" /></div><div className="form-row"><textarea name="caption" aria-label="Texto recurrente" rows={3} placeholder="Texto recurrente" required /></div><button type="submit" className="btn-sm" disabled={busy === "schedule"}>Crear recurrencia</button></form>}{schedules.length > 0 ? <div className="table-wrap"><table className="data"><thead><tr><th>Nombre</th><th>Cuenta</th><th>Día y hora</th><th>Próxima ejecución</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{schedules.map((schedule) => <tr key={schedule.id}><td>{schedule.name}</td><td>{schedule.account}</td><td>{weekdays[schedule.weekday]} · {schedule.localTime}</td><td>{new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(new Date(schedule.nextRunAt))}</td><td><span className={`pill ${schedule.isActive ? "ok" : ""}`}>{schedule.isActive ? "Activa" : "Inactiva"}</span></td><td><div className="card-actions"><button type="button" className="btn-sm ghost" disabled={busy === schedule.id} onClick={() => scheduleAction(schedule, "update")}>Editar</button><button type="button" className="btn-sm ghost" disabled={busy === schedule.id} onClick={() => scheduleAction(schedule, schedule.isActive ? "pause" : "resume")}>{schedule.isActive ? "Pausar" : "Reactivar"}</button><button type="button" className="btn-sm danger" disabled={busy === schedule.id || !schedule.isActive} onClick={() => scheduleAction(schedule, "archive")}>Archivar</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="calendar" title="Sin recurrencias" description="Crea un calendario semanal para automatizar contenidos." />}</section>
+    <section className="panel"><h2>Cuentas sociales</h2><p className="muted">Las cuentas no almacenan credenciales desde este formulario. Preview fuerza SIMULATED y nunca publica contenido real.</p>
+      <form onSubmit={registerAccount}><div className="form-row"><select name="platform" aria-label="Red social">{platforms.map((platform) => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</select><input name="displayName" aria-label="Nombre visible de la cuenta" placeholder="Nombre visible" required /><input name="externalId" aria-label="Identificador externo" placeholder="ID externo (opcional)" /><button type="submit" className="btn-sm" disabled={busy === "account-new"}>Guardar cuenta</button></div></form>
+      {accounts.length ? <div className="table-wrap"><table className="data"><thead><tr><th>Red/cuenta</th><th>Estado verificable</th><th>Acciones</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.id}><td><strong>{presentAdminValue(account.platform)} · {account.displayName}</strong><div className="muted">{account.externalId || "Sin ID externo"}</div><details><summary>Editar datos locales</summary><form onSubmit={(event) => editAccount(event, account)}><input name="displayName" defaultValue={account.displayName} required /><input name="externalId" defaultValue={account.externalId ?? ""} placeholder="ID externo" /><button type="submit" className="btn-sm" disabled={busy === account.id}>Guardar</button></form></details></td><td><span className={`pill ${account.connectionStatus === "READY" ? "ok" : account.connectionStatus === "ERROR" ? "err" : "info"}`}>{accountState(account)}</span>{account.connectionCheckedAt && <div className="muted">Comprobada: {new Date(account.connectionCheckedAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}</div>}{account.connectionError && <div className="muted">{account.connectionError}</div>}</td><td><div className="card-actions"><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => verify(account)}>Comprobar estado</button><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => accountToggle(account)}>{account.isActive ? "Desactivar" : "Activar"}</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="social" title="Sin cuentas" description="Registra una cuenta para organizar contenido en simulación." />}
+    </section>
+
+    <section className="panel"><h2>Nueva publicación</h2>{usableAccounts.length === 0 ? <p className="muted">No hay cuentas disponibles.</p> : <form onSubmit={createPost}><div className="form-row"><select name="accountId">{usableAccounts.map((account) => <option value={account.id} key={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="linkUrl" type="url" placeholder="Enlace (opcional)" /><input name="scheduledAt" type="datetime-local" aria-label="Fecha Ecuador" /></div><div className="form-row"><label className="btn-sm ghost">{busy === "upload" ? "Preparando…" : "Subir imagen o video"}<input type="file" accept="image/*,video/*" hidden onChange={upload} /></label><input name="mediaUrl" type="url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="URL multimedia" /></div><textarea name="caption" rows={4} placeholder="Texto de la publicación" required /><button type="submit" className="btn-sm" disabled={busy === "post-new"}>Crear publicación</button></form>}</section>
+
+    <section className="panel"><h2>Publicaciones</h2>{posts.length === 0 ? <AdminEmptyState icon="social" title="No hay publicaciones" description="Crea el primer borrador." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Cuenta/contenido</th><th>Estado verificable</th><th>Programación</th><th>Acciones</th></tr></thead><tbody>{posts.map((post) => <tr key={post.id}><td><strong>{post.account}</strong><p>{post.caption.slice(0, 180)}{post.caption.length > 180 ? "…" : ""}</p><details><summary>Editar borrador</summary><form onSubmit={(event) => editPost(event, post)}><textarea name="caption" rows={4} defaultValue={post.caption} required /><input name="mediaUrl" type="url" defaultValue={post.mediaUrl ?? ""} placeholder="URL multimedia" /><input name="linkUrl" type="url" defaultValue={post.linkUrl ?? ""} placeholder="Enlace" /><input name="scheduledAt" type="datetime-local" defaultValue={post.scheduledAt ? isoToEcuadorLocalInput(post.scheduledAt) : ""} /><button type="submit" className="btn-sm" disabled={busy === post.id}>Guardar borrador</button></form></details></td><td><span className={`pill ${post.status === "PUBLICADO" ? "ok" : ["FALLIDO"].includes(post.status) ? "err" : post.status === "PROGRAMADO" ? "warn" : "info"}`}>{presentAdminValue(post.status)}</span>{post.externalPostId && <div className="muted">ID proveedor: {post.externalPostId}</div>}{post.providerPostUrl && <a href={post.providerPostUrl} target="_blank" rel="noreferrer">Ver en proveedor ↗</a>}{(post.error || post.errorCode) && <div className="muted">{post.errorCode ? `${post.errorCode}: ` : ""}{post.error}</div>}</td><td>{post.scheduledAt ? new Date(post.scheduledAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" }) : "Borrador"}</td><td><div className="card-actions">{["BORRADOR","PROGRAMADO","FALLIDO","SIMULADO"].includes(post.status) && <><button className="btn-sm" type="button" disabled={busy === post.id} onClick={() => postAction(post, post.status === "FALLIDO" ? "retry" : "publish")}>{post.status === "FALLIDO" ? "Reintentar" : "Procesar"}</button><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "duplicate")}>Duplicar</button><button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "cancel")}>Cancelar</button></>}<button className="btn-sm ghost" type="button" disabled={busy === post.id} onClick={() => postAction(post, "archive")}>Archivar local</button>{["BORRADOR","SIMULADO","FALLIDO","CANCELADO","ARCHIVADO"].includes(post.status) && !post.externalPostId && <button className="btn-sm danger" type="button" disabled={busy === post.id} onClick={() => postAction(post, "delete")}>Eliminar local</button>}</div></td></tr>)}</tbody></table></div>}</section>
+
+    <section className="panel"><h2>Recurrencia semanal</h2><p className="muted">Zona horaria fija: America/Guayaquil. Cada ocurrencia utiliza una clave idempotente.</p>{usableAccounts.length > 0 && <form onSubmit={createSchedule}><div className="form-row"><select name="accountId">{usableAccounts.map((account) => <option key={account.id} value={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="name" placeholder="Nombre" required /><select name="weekday">{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select><input name="localTime" type="time" required /></div><textarea name="caption" rows={3} placeholder="Contenido recurrente" required /><div className="form-row"><input name="mediaUrl" type="url" placeholder="URL multimedia" /><input name="linkUrl" type="url" placeholder="Enlace" /><button type="submit" className="btn-sm" disabled={busy === "schedule-new"}>Crear recurrencia</button></div></form>}{schedules.length ? <div className="table-wrap"><table className="data"><thead><tr><th>Recurrencia</th><th>Próxima ejecución</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{schedules.map((schedule) => <tr key={schedule.id}><td><strong>{schedule.name}</strong><div className="muted">{schedule.account} · {weekdays[schedule.weekday]} {schedule.localTime}</div><details><summary>Editar recurrencia</summary><form onSubmit={(event) => editSchedule(event, schedule)}><input name="name" defaultValue={schedule.name} required /><select name="weekday" defaultValue={schedule.weekday}>{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select><input name="localTime" type="time" defaultValue={schedule.localTime} required /><textarea name="caption" rows={3} defaultValue={schedule.caption} required /><input name="mediaUrl" type="url" defaultValue={schedule.mediaUrl ?? ""} /><input name="linkUrl" type="url" defaultValue={schedule.linkUrl ?? ""} /><button type="submit" className="btn-sm" disabled={busy === schedule.id}>Guardar</button></form></details></td><td>{new Date(schedule.nextRunAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}</td><td><span className={`pill ${schedule.isActive ? "ok" : "info"}`}>{schedule.isActive ? "Activa" : "Inactiva"}</span></td><td><div className="card-actions"><button className="btn-sm ghost" type="button" disabled={busy === schedule.id} onClick={() => scheduleStatus(schedule, schedule.isActive ? "pause" : "resume")}>{schedule.isActive ? "Pausar" : "Reactivar"}</button><button className="btn-sm danger" type="button" disabled={busy === schedule.id} onClick={() => scheduleStatus(schedule, "archive")}>Archivar</button></div></td></tr>)}</tbody></table></div> : null}</section>
   </>;
 }

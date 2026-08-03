@@ -18,6 +18,10 @@ export interface PublishInput {
 export interface PublishResult {
   ok: boolean;
   externalPostId?: string;
+  providerPostUrl?: string;
+  accepted?: boolean;
+  providerResponse?: Record<string, string | number | boolean | null>;
+  errorCode?: string;
   error?: string;
 }
 

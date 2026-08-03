@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
-import { publishPost } from "@/lib/social/orchestrator";
+import { canDeleteLocalSocialPost, publishPost } from "@/lib/social/orchestrator";
 import { writeAudit } from "@/lib/audit";
 
 const schema = z.object({
-  action: z.enum(["update", "reschedule", "cancel", "duplicate", "retry"]),
+  action: z.enum(["update", "reschedule", "cancel", "duplicate", "retry", "archive"]),
   caption: z.string().trim().min(1).max(10000).optional(),
   mediaUrl: z.string().url().nullable().optional(),
   linkUrl: z.string().url().nullable().optional(),
@@ -23,7 +24,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const post = await prisma.socialPost.findUnique({ where: { id } });
   if (!post) return NextResponse.json({ error: "No se encontró la publicación." }, { status: 404 });
 
-  if (parsed.data.action === "cancel") {
+  if (parsed.data.action === "archive") {
+    if (parsed.data.confirm !== true) return NextResponse.json({ error: "Debes confirmar el archivo local." }, { status: 422 });
+    if (post.status === "PUBLICANDO") return NextResponse.json({ error: "No se puede archivar mientras el proveedor procesa la publicación." }, { status: 409 });
+    await prisma.socialPost.update({ where: { id }, data: { status: "ARCHIVADO", archivedAt: new Date() } });
+  } else if (parsed.data.action === "cancel") {
     if (parsed.data.confirm !== true) {
       return NextResponse.json({ error: "Debes confirmar explícitamente la cancelación." }, { status: 422 });
     }
@@ -71,6 +76,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         scheduledAt,
         cancelledAt: null,
         error: null,
+        errorCode: null,
+        errorMessage: null,
+        providerResponse: Prisma.JsonNull,
         status: scheduledAt ? "PROGRAMADO" : "BORRADOR",
       },
     });
@@ -82,4 +90,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     entityId: id,
   });
   return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  if (auth.error) return auth.error;
+  const body = await request.json().catch(() => null);
+  if (body?.confirm !== "DELETE_LOCAL_DRAFT") return NextResponse.json({ error: "Falta la confirmación de eliminación local." }, { status: 422 });
+  const { id } = await params;
+  const post = await prisma.socialPost.findUnique({ where: { id } });
+  if (!post) return NextResponse.json({ error: "No se encontró la publicación." }, { status: 404 });
+  if (!canDeleteLocalSocialPost(post.status, post.externalPostId)) {
+    return NextResponse.json({ error: "Este registro tiene evidencia o estado de proveedor. Archívalo localmente; no se eliminará contenido externo." }, { status: 409 });
+  }
+  await prisma.$transaction([
+    prisma.socialPost.delete({ where: { id } }),
+    prisma.auditLog.create({ data: { actorId: auth.session?.userId ?? null, actorEmail: auth.session?.email ?? null, action: "SOCIAL_POST_DELETED_LOCAL", entityType: "SocialPost", entityId: id, result: "SUCCESS", metadata: { previousStatus: post.status, externalDeletion: false } } }),
+  ]);
+  return NextResponse.json({ ok: true, deletedLocally: true, providerDeleted: false });
 }

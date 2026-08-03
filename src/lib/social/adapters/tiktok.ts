@@ -118,9 +118,9 @@ export class TikTokAdapter implements SocialAdapter {
       }
       const id = data.data?.publish_id;
       if (!id) return { ok: false, error: `TikTok: sin publish_id` };
-      return { ok: true, externalPostId: id };
+      return { ok: true, accepted: true, externalPostId: id, providerResponse: { publishIdReceived: true, privacy: this.config.privacy || "SELF_ONLY" } };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: false, errorCode: "TIKTOK_REQUEST_FAILED", error: (err as Error).message };
     }
   }
 }

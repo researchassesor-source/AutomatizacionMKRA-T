@@ -19,8 +19,8 @@ export default async function SocialPage() {
     prisma.socialSchedule.findMany({ orderBy: { nextRunAt: "asc" }, include: { account: true } }),
   ]);
   return <main className="container admin-shell"><AdminNav /><AdminPageHeader eyebrow="Contenido y campañas" title="Redes sociales" description="Coordina cuentas, publicaciones y calendarios de contenido desde un solo lugar." /><RedesManager
-    accounts={accounts.map((item) => ({ id: item.id, platform: item.platform, displayName: item.displayName, isActive: item.isActive, connectorState: socialConnectionState(item.platform) }))}
-    posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, account: `${item.account.platform} · ${item.account.displayName}`, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.error }))}
+    accounts={accounts.map((item) => ({ id: item.id, platform: item.platform, displayName: item.displayName, externalId: item.externalId, isActive: item.isActive, connectorState: socialConnectionState(item.platform), connectionStatus: item.connectionStatus, connectionCheckedAt: item.connectionCheckedAt?.toISOString() ?? null, connectionError: item.connectionError }))}
+    posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, account: `${item.account.platform} · ${item.account.displayName}`, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, errorCode: item.errorCode, providerPostUrl: item.providerPostUrl, externalPostId: item.externalPostId }))}
     schedules={schedules.map((item) => ({ id: item.id, name: item.name, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, weekday: item.weekday, localTime: item.localTime, isActive: item.isActive, nextRunAt: item.nextRunAt.toISOString(), account: `${item.account.platform} · ${item.account.displayName}` }))}
   /></main>;
 }

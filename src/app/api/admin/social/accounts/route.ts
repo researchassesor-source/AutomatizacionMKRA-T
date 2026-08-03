@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
-import { getAdapter } from "@/lib/social/orchestrator";
+import { getAdapter, socialConnectionState } from "@/lib/social/orchestrator";
 
 export const dynamic = "force-dynamic";
 
@@ -41,11 +41,12 @@ export async function POST(request: Request) {
         externalId: parsed.data.externalId ?? "",
       },
     },
-    update: { displayName: parsed.data.displayName, isActive: true },
+    update: { displayName: parsed.data.displayName, isActive: true, connectionStatus: socialConnectionState(parsed.data.platform) === "SIMULATION" ? "SIMULATION" : "UNKNOWN" },
     create: {
       platform: parsed.data.platform,
       displayName: parsed.data.displayName,
       externalId: parsed.data.externalId ?? "",
+      connectionStatus: socialConnectionState(parsed.data.platform) === "SIMULATION" ? "SIMULATION" : "UNKNOWN",
     },
   });
 

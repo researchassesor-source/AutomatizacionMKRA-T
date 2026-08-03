@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import type { PostStatus } from "@prisma/client";
 import { MetaAdapter } from "./adapters/meta";
 import { TikTokAdapter } from "./adapters/tiktok";
 import type { Platform, SocialAdapter } from "./types";
@@ -46,13 +47,25 @@ export function isSocialAccountUsable(platform: Platform): boolean {
   return ["SIMULATION", "READY"].includes(socialConnectionState(platform));
 }
 
+export function canDeleteLocalSocialPost(status: PostStatus, externalPostId?: string | null) {
+  return !externalPostId && ["BORRADOR", "SIMULADO", "FALLIDO", "CANCELADO", "ARCHIVADO"].includes(status);
+}
+
 export async function verifyPlatformConnection(platform: Platform) {
   if (isSocialSimulation()) {
-    return { ok: false, error: "La conexión real está desactivada en este entorno." };
+    return { ok: true, simulated: true, state: "SIMULATION" as const, message: "Preview no consulta proveedores reales." };
   }
   const adapter = adapters[platform];
   if (adapter instanceof MetaAdapter || adapter instanceof TikTokAdapter) return adapter.verifyConnection();
   return { ok: false, error: `La conexión aún no está disponible para ${platform}.` };
+}
+
+export function socialConnectionErrorState(error: string | undefined) {
+  const normalized = error?.toLowerCase() ?? "";
+  if (/expir|caduc/.test(normalized)) return "EXPIRED" as const;
+  if (/permission|permiso|scope|acceso/.test(normalized)) return "MISSING_PERMISSION" as const;
+  if (/disconnect|desconect|deactiv|revoc/.test(normalized)) return "DISCONNECTED" as const;
+  return "ERROR" as const;
 }
 
 export function nextGuayaquilOccurrence(weekday: number, localTime: string, after = new Date()) {
@@ -139,7 +152,7 @@ export async function publishPost(postId: string) {
   if (isSocialSimulation()) {
     await prisma.socialPost.update({
       where: { id: post.id },
-      data: { status: "SIMULADO", publishStartedAt: null, error: null },
+      data: { status: "SIMULADO", publishStartedAt: null, error: null, errorCode: null, errorMessage: null, providerResponse: { mode: "simulation", externalRequestPerformed: false } },
     });
     return { ok: true, simulated: true };
   }
@@ -162,17 +175,24 @@ export async function publishPost(postId: string) {
     where: { id: post.id },
     data: result.ok
       ? {
-          status: "PUBLICADO",
-          publishedAt: new Date(),
+          status: result.accepted ? "ACEPTADO" : "PUBLICADO",
+          publishedAt: result.accepted ? null : new Date(),
           publishStartedAt: null,
           externalPostId: result.externalPostId,
+          providerPostUrl: result.providerPostUrl,
+          providerResponse: result.providerResponse as Prisma.InputJsonValue | undefined,
           error: null,
+          errorCode: null,
+          errorMessage: null,
         }
       : {
           status: "FALLIDO",
           publishStartedAt: null,
           retryCount: { increment: 1 },
           error: result.error?.slice(0, 500) ?? "No se pudo publicar.",
+          errorCode: result.errorCode?.slice(0, 120) ?? "PROVIDER_ERROR",
+          errorMessage: result.error?.slice(0, 500) ?? "No se pudo publicar.",
+          providerResponse: result.providerResponse as Prisma.InputJsonValue | undefined,
         },
   });
   return result;

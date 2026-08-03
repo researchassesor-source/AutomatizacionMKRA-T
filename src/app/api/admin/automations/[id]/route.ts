@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { nextFixedRuleExecution } from "@/lib/automation-schedule";
+import { automationRuleFields } from "@/lib/automation-rule-schema";
 import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
-import { automationRuleFields } from "../route";
 
 const updateSchema = automationRuleFields.partial().extend({ confirm: z.literal(true) });
 
@@ -21,9 +21,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!course) return NextResponse.json({ error: "El curso seleccionado no existe." }, { status: 422 });
   const trigger = parsed.data.trigger ?? current.trigger;
   const offsetMinutes = parsed.data.offsetMinutes ?? current.offsetMinutes;
+  const channel = parsed.data.channel ?? current.channel;
+  const subject = parsed.data.subject !== undefined ? parsed.data.subject : current.subject;
+  if (channel === "EMAIL" && !subject) return NextResponse.json({ error: "El asunto es obligatorio para correo." }, { status: 422 });
+  const campaignId = parsed.data.campaignId !== undefined ? parsed.data.campaignId : current.campaignId;
+  const campaign = campaignId ? await prisma.campaign.findUnique({ where: { id: campaignId } }) : null;
+  if (campaignId && (!campaign || (campaign.courseId && campaign.courseId !== course.id))) {
+    return NextResponse.json({ error: "La campaña no corresponde al curso." }, { status: 422 });
+  }
   const { confirm: _confirm, ...data } = parsed.data;
   const nextExecutionAt = nextFixedRuleExecution({ trigger, offsetMinutes, startsAt: course.startsAt, endsAt: course.endsAt });
-  const rule = await prisma.automationRule.update({ where: { id }, data: { ...data, campaignId: data.campaignId === "" ? null : data.campaignId, nextExecutionAt } });
+  const rule = await prisma.automationRule.update({ where: { id }, data: { ...data, campaignId, nextExecutionAt } });
   if (["PAUSED", "ARCHIVED"].includes(rule.status)) {
     await prisma.outboundMessage.updateMany({ where: { automationRuleId: id, status: "PROGRAMADO" }, data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: "AUTOMATION_DISABLED", errorMessage: "La automatización fue pausada o archivada." } });
   }

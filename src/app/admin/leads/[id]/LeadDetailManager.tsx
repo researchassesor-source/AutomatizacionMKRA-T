@@ -24,6 +24,7 @@ type LeadDetail = {
   referrer: string | null;
   consent: boolean;
   consentAt: string | null;
+  classification: string;
   isArchived: boolean;
   assignedToId: string | null;
   lostReason: string | null;
@@ -74,6 +75,7 @@ export function LeadDetailManager({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const canEdit = role === "ADMIN" || role === "VENTAS";
+  const canDeleteTest = role === "ADMIN" && ["TEST", "DEMO"].includes(lead.classification);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -82,18 +84,21 @@ export function LeadDetailManager({
     const stage = String(data.get("stage"));
     const lostReason = String(data.get("lostReason") || "").trim();
     const sensitiveStageChange = stage !== lead.stage && ["CLIENTE", "PERDIDO"].includes(stage);
+    const classification = String(data.get("classification"));
+    const classificationChange = classification !== lead.classification;
     if (stage === "PERDIDO" && !lostReason) { setBusy(false); setMessage("Indica el motivo de pérdida."); return; }
-    if (sensitiveStageChange && !window.confirm(stage === "CLIENTE" ? "¿Confirmas el cierre como cliente? Esto no emite certificados." : "¿Confirmas el cierre como perdido?")) { setBusy(false); return; }
+    if ((sensitiveStageChange || classificationChange) && !window.confirm(classificationChange ? `¿Confirmas clasificar este contacto como ${classification}? TEST y DEMO quedan excluidos de automatizaciones.` : stage === "CLIENTE" ? "¿Confirmas el cierre como cliente? Esto no emite certificados." : "¿Confirmas el cierre como perdido?")) { setBusy(false); return; }
     const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "PATCH", {
       firstName: data.get("firstName"),
       lastName: data.get("lastName"),
       email: data.get("email"),
       phone: data.get("phone"),
       stage,
+      classification,
       assignedToId: data.get("assignedToId") || null,
       lostReason: lostReason || null,
       nextActionAt: data.get("nextActionAt") ? ecuadorLocalDateTimeToIso(String(data.get("nextActionAt"))) : null,
-      confirm: sensitiveStageChange,
+      confirm: sensitiveStageChange || classificationChange,
     });
     setBusy(false);
     setMessage(result.ok ? "Contacto actualizado." : result.data.error);
@@ -106,6 +111,17 @@ export function LeadDetailManager({
     const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "PATCH", { isArchived: !lead.isArchived, confirm: true });
     setMessage(result.ok ? `Contacto ${lead.isArchived ? "restaurado" : "archivado"}.` : result.data.error);
     router.refresh();
+  }
+
+  async function deleteTest() {
+    if (!canDeleteTest) return;
+    const confirmation = window.prompt(`Esta acción elimina el contacto de prueba y sus datos relacionados. Escribe exactamente: ${lead.fullName}`);
+    if (confirmation !== lead.fullName) { setMessage("La confirmación no coincide. No se eliminó ningún dato."); return; }
+    setBusy(true);
+    const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "DELETE", { mode: "delete-test", confirmName: confirmation });
+    setBusy(false);
+    if (result.ok) router.replace("/admin/leads?classification=TEST");
+    else setMessage(result.data.error);
   }
 
   async function addNote(event: React.FormEvent<HTMLFormElement>) {
@@ -166,6 +182,7 @@ export function LeadDetailManager({
         {lead.phone && <a className="btn-sm" href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Abrir WhatsApp ↗</a>}
         {lead.email && <a className="btn-sm ghost" href={`mailto:${lead.email}`}>Abrir correo</a>}
         {canEdit && <button type="button" className="btn-sm ghost" onClick={archive}>{lead.isArchived ? "Restaurar" : "Archivar"}</button>}
+        {canDeleteTest && <button type="button" className="btn-sm danger" disabled={busy} onClick={deleteTest}>Eliminar registro de prueba</button>}
         {message && <span className="result-line" role="status">{message}</span>}
       </div>
 
@@ -178,6 +195,7 @@ export function LeadDetailManager({
             <select name="stage" aria-label="Etapa comercial" defaultValue={lead.stage} disabled={!canEdit}>{["NUEVO","INSCRITO","EN_CURSO","CERTIFICADO","OPORTUNIDAD","CLIENTE","PERDIDO"].map((stage) => <option key={stage} value={stage}>{presentAdminValue(stage)}</option>)}</select>
             <select name="assignedToId" aria-label="Responsable" defaultValue={lead.assignedToId ?? ""} disabled={!canEdit}><option value="">Sin responsable</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>
           </div>
+          <div className="form-row"><label className="field"><span>Clasificación</span><select name="classification" aria-label="Clasificación del registro" defaultValue={lead.classification} disabled={!canEdit}><option value="REAL">Real</option><option value="TEST">Prueba técnica</option><option value="DEMO">Demostración</option><option value="UNKNOWN">Por clasificar</option></select></label></div>
           <div className="form-row"><input name="lostReason" aria-label="Motivo de pérdida" defaultValue={lead.lostReason ?? ""} placeholder="Motivo de pérdida" disabled={!canEdit} /><input name="nextActionAt" aria-label="Próxima acción" type="datetime-local" defaultValue={lead.nextActionAt ? isoToEcuadorLocalInput(lead.nextActionAt) : ""} disabled={!canEdit} /></div>
           {canEdit && <button type="submit" className="btn-sm" disabled={busy}>Guardar cambios</button>}
           <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Campaña</dt><dd>{lead.utmCampaign ?? "—"}</dd><dt>Medio</dt><dd>{lead.utmMedium ?? "—"}</dd><dt>Contenido UTM</dt><dd>{lead.utmContent ?? "—"}</dd><dt>Término UTM</dt><dd>{lead.utmTerm ?? "—"}</dd><dt>Landing</dt><dd>{lead.landingUrl ? <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir landing ↗</a> : "—"}</dd><dt>Referrer</dt><dd>{lead.referrer ? <a href={lead.referrer} target="_blank" rel="noreferrer">Abrir referrer ↗</a> : "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>

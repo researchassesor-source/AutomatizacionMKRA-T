@@ -47,6 +47,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     utmContent: lead.utmContent, utmTerm: lead.utmTerm,
     landingUrl: lead.landingUrl, referrer: lead.referrer, consent: lead.consent,
     consentAt: lead.consentAt?.toISOString() ?? null, isArchived: lead.isArchived,
+    classification: lead.classification,
     assignedToId: lead.assignedToId, lostReason: lead.lostReason,
     nextActionAt: lead.nextActionAt?.toISOString() ?? null, score: lead.score,
   };

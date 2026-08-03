@@ -56,6 +56,7 @@ export function NewContactForm({
           courseId: data.get("courseId"),
           source: data.get("source"),
           assignedToId: data.get("assignedToId"),
+          classification: data.get("classification"),
           consent: data.get("consent") === "on",
         }),
       });
@@ -136,6 +137,16 @@ export function NewContactForm({
                 <option value="">Sin asignar</option>
                 {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
               </select>
+            </label>
+            <label className="field">
+              <span>Clasificación del registro</span>
+              <select name="classification" defaultValue="UNKNOWN" required>
+                <option value="UNKNOWN">Por clasificar</option>
+                <option value="REAL">Real</option>
+                <option value="TEST">Prueba técnica</option>
+                <option value="DEMO">Demostración</option>
+              </select>
+              <small>TEST y DEMO nunca ingresan a automatizaciones.</small>
             </label>
           </div>
 

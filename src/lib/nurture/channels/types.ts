@@ -13,7 +13,12 @@ export interface SendInput {
 export interface SendResult {
   ok: boolean;
   error?: string;
+  errorCode?: string;
   simulated?: boolean;
+  providerName?: string;
+  providerMessageId?: string;
+  acceptedAt?: Date;
+  providerResponse?: Record<string, string | number | boolean | null>;
 }
 
 export interface MessageChannelAdapter {

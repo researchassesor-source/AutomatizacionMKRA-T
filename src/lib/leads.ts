@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rescoreLead } from "@/lib/scoring";
 import { writeAudit } from "@/lib/audit";
+import { scheduleEnrollmentAutomations } from "@/lib/nurture/engine";
 import {
   normalizeEcuadorPhone,
   normalizeEmail,
@@ -40,6 +41,7 @@ export const manualContactInputSchema = z.object({
   courseId: optionalAdminId,
   source: z.string().trim().max(120, "El origen es demasiado largo.").optional().or(z.literal("")),
   assignedToId: optionalAdminId,
+  classification: z.enum(["REAL", "TEST", "DEMO", "UNKNOWN"]).default("UNKNOWN"),
   consent: z.literal(true, { errorMap: () => ({ message: "Debes confirmar la autorización de tratamiento de datos." }) }),
 });
 
@@ -190,6 +192,7 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
                 consentAt: now,
                 consentPolicyVersion: "2026-08-course-capture-v1",
                 consentPurpose: "Gestionar la inscripción y contactar sobre el curso solicitado",
+                classification: existing.classification === "UNKNOWN" ? "REAL" : existing.classification,
                 source: captureSource,
                 utmSource: input.utmSource ?? existing.utmSource,
                 utmMedium: input.utmMedium ?? existing.utmMedium,
@@ -214,6 +217,7 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
                 consentAt: now,
                 consentPolicyVersion: "2026-08-course-capture-v1",
                 consentPurpose: "Gestionar la inscripción y contactar sobre el curso solicitado",
+                classification: "REAL",
                 source: captureSource,
                 utmSource: input.utmSource,
                 utmMedium: input.utmMedium,
@@ -229,6 +233,20 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
         const existingEnrollment = await tx.enrollment.findUnique({
           where: { leadId_courseId: { leadId: lead.id, courseId: course.id } },
         });
+        const campaign = input.utmCampaign
+          ? await tx.campaign.findFirst({
+              where: {
+                status: "ACTIVE",
+                OR: [{ code: input.utmCampaign }, { utmCampaign: input.utmCampaign }],
+                AND: [
+                  { OR: [{ courseId: null }, { courseId: course.id }] },
+                  { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+                  { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+                ],
+              },
+              orderBy: { updatedAt: "desc" },
+            })
+          : null;
         const attribution = enrollmentAttribution(input, captureSource);
         const enrollment = existingEnrollment
           ? await tx.enrollment.update({
@@ -242,6 +260,7 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
                 utmTerm: attribution.utmTerm ?? existingEnrollment.utmTerm,
                 landingUrl: attribution.landingUrl ?? existingEnrollment.landingUrl,
                 referrer: attribution.referrer ?? existingEnrollment.referrer,
+                campaignId: campaign?.id ?? existingEnrollment.campaignId,
               },
               include: { course: true },
             })
@@ -250,6 +269,7 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
                 leadId: lead.id,
                 courseId: course.id,
                 status: "INTERESADO",
+                campaignId: campaign?.id,
                 ...attribution,
               },
               include: { course: true },
@@ -270,6 +290,7 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
           landingUrl: input.landingUrl ?? null,
           referrer: input.referrer ?? null,
           deduplicated: Boolean(existing),
+          campaignId: campaign?.id ?? existingEnrollment?.campaignId ?? null,
         };
         await tx.leadEvent.create({
           data: {
@@ -363,6 +384,19 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
     console.error("[leads] No se pudo preparar el seguimiento.");
   }
   await writeCaptureAudits(result, input, context);
+  try {
+    await scheduleEnrollmentAutomations(result.enrollment.id);
+  } catch {
+    console.error("[leads] No se pudo programar la automatización del curso.");
+    await writeAudit({
+      actorEmail: "automation",
+      action: "AUTOMATION_SCHEDULING_FAILED",
+      entityType: "Enrollment",
+      entityId: result.enrollment.id,
+      result: "FAILURE",
+      metadata: { requestId: context.requestId, courseId: result.enrollment.courseId },
+    });
+  }
 
   const duplicate = !result.enrollmentCreated;
   return {

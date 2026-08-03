@@ -9,11 +9,13 @@ const mocks = vi.hoisted(() => ({
   },
   rescoreLead: vi.fn(async () => undefined),
   writeAudit: vi.fn(async (_input: { action: string }) => undefined),
+  scheduleEnrollmentAutomations: vi.fn(async () => ({ enqueued: 2 })),
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/scoring", () => ({ rescoreLead: mocks.rescoreLead }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
+vi.mock("@/lib/nurture/engine", () => ({ scheduleEnrollmentAutomations: mocks.scheduleEnrollmentAutomations }));
 
 import { captureLead, leadInputSchema } from "./leads";
 
@@ -75,6 +77,7 @@ beforeEach(() => {
   transactionQueue = Promise.resolve();
   mocks.writeAudit.mockClear();
   mocks.rescoreLead.mockClear();
+  mocks.scheduleEnrollmentAutomations.mockClear();
   mocks.prisma.leadEvent.findFirst.mockImplementation(({ where }: any) => (
     Promise.resolve(includedEvent(where.idempotencyKey))
   ));
@@ -133,6 +136,7 @@ beforeEach(() => {
         return { count: data.length };
       }),
     },
+    campaign: { findFirst: vi.fn(async () => null) },
   };
   mocks.prisma.$transaction.mockImplementation((callback: any) => {
     const run = transactionQueue.then(() => callback(tx));
@@ -146,6 +150,7 @@ describe("captura transaccional de contactos", () => {
     const result = await captureLead(input(), { requestId: "request-new" });
     expect(result).toMatchObject({ created: true, enrollmentCreated: true, duplicate: false });
     expect(leads).toHaveLength(1);
+    expect(leads[0].classification).toBe("REAL");
     expect(enrollments).toHaveLength(1);
     expect(enrollments[0]).toMatchObject({
       status: "INTERESADO",
@@ -176,6 +181,7 @@ describe("captura transaccional de contactos", () => {
       "CONSENT_RECORDED",
       "FORM_SUBMIT_SUCCESS",
     ]));
+    expect(mocks.scheduleEnrollmentAutomations).toHaveBeenCalledWith("enrollment-1");
   });
 
   it("reutiliza mismo contacto y curso sin degradar un estado avanzado", async () => {

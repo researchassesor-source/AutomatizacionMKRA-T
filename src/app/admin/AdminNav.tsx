@@ -39,6 +39,7 @@ const navigation: Array<{ label: string; links: AdminLink[] }> = [
   {
     label: "Automatización",
     links: [
+      { href: "/admin/automatizaciones", label: "Campañas y reglas", icon: "calendar", roles: ["ADMIN", "MARKETING"] },
       { href: "/admin/mensajes", label: "Mensajes", icon: "messages", roles: ["ADMIN", "MARKETING", "VENTAS"] },
       { href: "/admin/redes", label: "Redes", icon: "social", roles: ["ADMIN", "MARKETING"] },
     ],

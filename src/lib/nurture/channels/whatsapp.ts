@@ -44,12 +44,21 @@ export class WhatsAppChannel implements MessageChannelAdapter {
           text: { body: input.body },
         }),
       });
+      const data = await res.json().catch(() => ({})) as { messages?: Array<{ id?: string }> };
       if (!res.ok) {
-        return { ok: false, error: `El proveedor de WhatsApp respondió ${res.status}.` };
+        return {
+          ok: false,
+          errorCode: `HTTP_${res.status}`,
+          error: `El proveedor de WhatsApp respondió ${res.status}.`,
+          providerName: "whatsapp_cloud",
+          providerResponse: { httpStatus: res.status },
+        };
       }
-      return { ok: true };
+      const providerMessageId = data.messages?.[0]?.id;
+      if (!providerMessageId) return { ok: false, errorCode: "MISSING_PROVIDER_ID", error: "WhatsApp aceptó la solicitud sin devolver un identificador.", providerName: "whatsapp_cloud" };
+      return { ok: true, providerName: "whatsapp_cloud", providerMessageId, acceptedAt: new Date(), providerResponse: { httpStatus: res.status, idReceived: true } };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: false, errorCode: "NETWORK_ERROR", error: (err as Error).message, providerName: "whatsapp_cloud" };
     }
   }
 }

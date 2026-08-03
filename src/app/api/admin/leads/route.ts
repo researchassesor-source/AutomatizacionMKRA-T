@@ -55,6 +55,7 @@ export async function POST(request: Request) {
         consentAt: now,
         consentPolicyVersion: "2026-07",
         consentPurpose: "Información de cursos y seguimiento comercial",
+        classification: input.classification,
         stage: "NUEVO",
       },
     });
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
       data: {
         leadId: lead.id,
         type: "manual_contact_created",
-        payload: { courseId: course?.id ?? null, source: input.source || null },
+        payload: { courseId: course?.id ?? null, source: input.source || null, classification: input.classification },
       },
     });
     return lead;
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
     action: "LEAD_CREATED_MANUALLY",
     entityType: "Lead",
     entityId: result.id,
-    metadata: { courseInterestId: course?.id ?? null },
+    metadata: { courseInterestId: course?.id ?? null, classification: input.classification },
   });
 
   return NextResponse.json({ ok: true, id: result.id }, { status: 201 });

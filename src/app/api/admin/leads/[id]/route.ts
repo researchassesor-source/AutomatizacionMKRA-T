@@ -11,6 +11,7 @@ const updateSchema = z.object({
   email: z.union([z.literal(""), z.string().trim().email().max(254)]).transform((value) => value.toLowerCase()).optional(),
   phone: z.string().trim().max(30).optional(),
   stage: z.enum(["NUEVO", "INSCRITO", "EN_CURSO", "CERTIFICADO", "OPORTUNIDAD", "CLIENTE", "PERDIDO"]).optional(),
+  classification: z.enum(["REAL", "TEST", "DEMO", "UNKNOWN"]).optional(),
   assignedToId: z.string().nullable().optional(),
   isArchived: z.boolean().optional(),
   lostReason: z.string().trim().max(500).nullable().optional(),
@@ -30,7 +31,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     && parsed.data.stage !== current.stage
     && ["CLIENTE", "PERDIDO"].includes(parsed.data.stage);
   const changesArchive = parsed.data.isArchived !== undefined && parsed.data.isArchived !== current.isArchived;
-  if ((changesSensitiveStage || changesArchive) && parsed.data.confirm !== true) {
+  const changesClassification = parsed.data.classification !== undefined && parsed.data.classification !== current.classification;
+  if ((changesSensitiveStage || changesArchive || changesClassification) && parsed.data.confirm !== true) {
     return NextResponse.json({ error: "Debes confirmar explícitamente esta acción." }, { status: 422 });
   }
   if (parsed.data.stage === "PERDIDO" && !parsed.data.lostReason) {
@@ -69,6 +71,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       lastName: parsed.data.lastName,
       email: parsed.data.email,
       stage: parsed.data.stage,
+      classification: parsed.data.classification,
       assignedToId: parsed.data.assignedToId,
       isArchived: parsed.data.isArchived,
       lostReason: parsed.data.stage && parsed.data.stage !== "PERDIDO" ? null : parsed.data.lostReason,
@@ -85,7 +88,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   await writeAudit({
     session: auth.session,
-    action: archivedChanged ? (updated.isArchived ? "LEAD_ARCHIVED" : "LEAD_RESTORED") : "LEAD_UPDATED",
+    action: archivedChanged
+      ? (updated.isArchived ? "LEAD_ARCHIVED" : "LEAD_RESTORED")
+      : changesClassification ? "LEAD_CLASSIFICATION_CHANGED" : "LEAD_UPDATED",
     entityType: "Lead",
     entityId: id,
   });
@@ -99,19 +104,25 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const lead = await prisma.lead.findUnique({ where: { id } });
   if (!lead) return NextResponse.json({ error: "No se encontró el contacto." }, { status: 404 });
   const body = await request.json().catch(() => ({}));
-  if (body?.confirmName !== lead.fullName) {
+  if (body?.mode !== "delete-test" || body?.confirmName !== lead.fullName) {
     return NextResponse.json({ error: "La confirmación no coincide con el nombre del contacto." }, { status: 422 });
   }
-  await prisma.lead.update({
-    where: { id },
-    data: { isArchived: true, archivedAt: lead.archivedAt ?? new Date() },
-  });
-  await writeAudit({
-    session: auth.session,
-    action: "LEAD_ARCHIVED",
-    entityType: "Lead",
-    entityId: id,
-    metadata: { confirmed: true, requestedOperation: "DELETE", preservedHistory: true },
-  });
-  return NextResponse.json({ ok: true, archived: true, preservedHistory: true });
+  if (!["TEST", "DEMO"].includes(lead.classification)) {
+    return NextResponse.json({ error: "Solo los registros TEST o DEMO pueden eliminarse definitivamente." }, { status: 409 });
+  }
+  await prisma.$transaction([
+    prisma.lead.delete({ where: { id } }),
+    prisma.auditLog.create({
+      data: {
+        actorId: auth.session?.userId ?? null,
+        actorEmail: auth.session?.email ?? null,
+        action: "LEAD_TEST_DELETED",
+        entityType: "Lead",
+        entityId: id,
+        result: "SUCCESS",
+        metadata: { classification: lead.classification, confirmed: true, cascadedRelatedData: true },
+      },
+    }),
+  ]);
+  return NextResponse.json({ ok: true, deleted: true });
 }

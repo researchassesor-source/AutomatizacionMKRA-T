@@ -25,7 +25,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const advancedFiltersActive = Boolean(filters.campaign || filters.source || filters.content || filters.term || filters.from || filters.to);
   const hasFilters = Boolean(
     filters.q || filters.stage || filters.course || filters.assignedTo || advancedFiltersActive
-    || (filters.sort && filters.sort !== "newest") || filters.archived === "true",
+    || filters.classification || (filters.sort && filters.sort !== "newest") || filters.archived === "true",
   );
   const where: Prisma.LeadWhereInput = {
     isArchived: filters.archived === "true",
@@ -37,6 +37,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       { phone: { contains: filters.q } },
     ] } : {}),
     ...(filters.stage ? { stage: filters.stage as Prisma.EnumLeadStageFilter } : {}),
+    ...(filters.classification ? { classification: filters.classification as Prisma.EnumLeadClassificationFilter } : {}),
     ...(filters.course ? { OR: [
       { courseId: filters.course },
       { enrollments: { some: { courseId: filters.course } } },
@@ -101,6 +102,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               <span>Responsable</span>
               <select name="assignedTo" defaultValue={filters.assignedTo ?? ""}><option value="">Todos los responsables</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>
             </label>
+            <label className="filter-field">
+              <span>Clasificación</span>
+              <select name="classification" defaultValue={filters.classification ?? ""}><option value="">Todas</option>{["REAL","TEST","DEMO","UNKNOWN"].map((value) => <option key={value} value={value}>{presentAdminValue(value)}</option>)}</select>
+            </label>
           </div>
 
           <details className="advanced-filters" open={advancedFiltersActive}>
@@ -137,11 +142,12 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             : canCreate ? <NewContactForm courses={activeCourses} users={users} /> : null}
         /> : (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>Contacto</th><th>WhatsApp</th><th>Etapa</th><th>Cursos</th><th>Origen</th><th>Responsable</th><th>Fecha</th></tr></thead>
+            <thead><tr><th>Contacto</th><th>WhatsApp</th><th>Etapa</th><th>Clasificación</th><th>Cursos</th><th>Origen</th><th>Responsable</th><th>Fecha</th></tr></thead>
             <tbody>{leads.map((lead) => <tr key={lead.id}>
               <td><Link href={`/admin/leads/${lead.id}`}><strong>{lead.fullName}</strong></Link>{lead.email ? <div className="muted">{lead.email}</div> : null}</td>
               <td><a href={lead.phone ? `https://wa.me/${lead.phone.replace(/\D/g, "")}` : undefined}>{lead.phone ?? "—"}</a></td>
               <td><span className="pill info">{presentAdminValue(lead.stage)}</span><div className="muted">Puntaje {lead.score}</div></td>
+              <td><span className={`pill ${lead.classification === "REAL" ? "ok" : lead.classification === "UNKNOWN" ? "warn" : "info"}`}>{presentAdminValue(lead.classification)}</span></td>
               <td>{[
                 ...lead.enrollments.map((item) => item.course.title),
                 ...(lead.course && !lead.enrollments.some((item) => item.courseId === lead.courseId) ? [`${lead.course.title} (interés)`] : []),

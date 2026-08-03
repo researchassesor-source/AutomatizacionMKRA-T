@@ -40,12 +40,20 @@ export class EmailChannel implements MessageChannelAdapter {
           html: input.body,
         }),
       });
+      const data = await res.json().catch(() => ({})) as { id?: string };
       if (!res.ok) {
-        return { ok: false, error: `El proveedor de correo respondió ${res.status}.` };
+        return {
+          ok: false,
+          errorCode: `HTTP_${res.status}`,
+          error: `El proveedor de correo respondió ${res.status}.`,
+          providerName: "resend",
+          providerResponse: { httpStatus: res.status },
+        };
       }
-      return { ok: true };
+      if (!data.id) return { ok: false, errorCode: "MISSING_PROVIDER_ID", error: "El proveedor aceptó la solicitud sin devolver un identificador.", providerName: "resend" };
+      return { ok: true, providerName: "resend", providerMessageId: data.id, acceptedAt: new Date(), providerResponse: { httpStatus: res.status, idReceived: true } };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: false, errorCode: "NETWORK_ERROR", error: (err as Error).message, providerName: "resend" };
     }
   }
 }

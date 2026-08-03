@@ -24,6 +24,7 @@ function officialRows(): CrmCatalogCourse[] {
     modality: course.modality,
     isFree: course.isFree,
     isPublished: course.isPublished,
+    acceptsRegistrations: course.acceptsRegistrations,
     relations: noRelations,
   }));
 }
@@ -56,6 +57,7 @@ describe("auditoría del catálogo", () => {
       modality: null,
       isFree: false,
       isPublished: true,
+      acceptsRegistrations: false,
       relations: { ...noRelations, enrollments: 2, audits: 3 },
     });
     const report = buildCourseCatalogReport(rows);
@@ -78,6 +80,7 @@ describe("auditoría del catálogo", () => {
       modality: null,
       isFree: false,
       isPublished: false,
+      acceptsRegistrations: false,
       relations: { ...noRelations, enrollments: 2 },
     });
     const report = buildCourseCatalogReport(rows);

@@ -56,7 +56,7 @@ describe("integraciones seguras", () => {
   it("el modelo separa una inscripción por contacto y curso", () => {
     const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
     expect(schema).toContain("@@unique([leadId, courseId])");
-    expect(schema).toContain("financeInscripcionId     String?           @unique");
+    expect(schema).toMatch(/financeInscripcionId\s+String\?\s+@unique/);
   });
   it("Moodle exige la identidad única de la inscripción", () => {
     const base = {
@@ -77,8 +77,8 @@ describe("integraciones seguras", () => {
   });
   it("el esquema protege las claves idempotentes relevantes", () => {
     const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
-    expect(schema).toContain("idempotencyKey String?     @unique");
-    expect(schema).toContain("occurrenceKey    String?         @unique");
+    expect(schema).toMatch(/idempotencyKey\s+String\?\s+@unique/);
+    expect(schema).toMatch(/occurrenceKey\s+String\?\s+@unique/);
     expect(schema).toContain("@@unique([leadId, enrollmentId, sequenceKey, stepKey])");
   });
 });

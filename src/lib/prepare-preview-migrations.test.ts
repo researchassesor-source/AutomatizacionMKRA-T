@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BASELINE_MIGRATION,
   BASELINE_TABLE_COLUMNS,
+  COURSE_CAPTURE_MIGRATION,
+  COURSE_CAPTURE_REQUIRED_COLUMNS,
   COURSE_SCHEDULE_MIGRATION,
   COURSE_SCHEDULE_REQUIRED_COLUMNS,
   INCREMENTAL_REQUIRED_COLUMNS,
@@ -54,7 +56,7 @@ function finalSnapshot(migrations: Migration[] = REPOSITORY_MIGRATIONS.map((name
   const release = releaseSnapshot(migrations);
   return {
     ...release,
-    columns: [...release.columns, ...COURSE_SCHEDULE_REQUIRED_COLUMNS],
+    columns: [...release.columns, ...COURSE_SCHEDULE_REQUIRED_COLUMNS, ...COURSE_CAPTURE_REQUIRED_COLUMNS],
   };
 }
 
@@ -94,6 +96,18 @@ describe("prepare-preview-migrations", () => {
 
   it("acepta baseline y release registrados con course_schedule_fields pendiente", async () => {
     const test = harness(releaseSnapshot());
+    await expect(test.run()).resolves.toEqual({ mode: "migrations-pending" });
+    expect(test.resolveBaseline).not.toHaveBeenCalled();
+  });
+
+  it("acepta course_schedule_fields registrada con la campana de captacion pendiente", async () => {
+    const migrations = [BASELINE_MIGRATION, RELEASE_MIGRATION, COURSE_SCHEDULE_MIGRATION]
+      .map((name) => ({ name, applied: true }));
+    const release = releaseSnapshot(migrations);
+    const test = harness({
+      ...release,
+      columns: [...release.columns, ...COURSE_SCHEDULE_REQUIRED_COLUMNS],
+    });
     await expect(test.run()).resolves.toEqual({ mode: "migrations-pending" });
     expect(test.resolveBaseline).not.toHaveBeenCalled();
   });
@@ -184,6 +198,16 @@ describe("prepare-preview-migrations", () => {
     });
   }
 
+  for (const requiredColumn of COURSE_CAPTURE_REQUIRED_COLUMNS) {
+    it(`rechaza un esquema final sin ${requiredColumn}`, async () => {
+      const snapshot = finalSnapshot();
+      snapshot.columns = snapshot.columns.filter((column) => column !== requiredColumn);
+      const test = harness(snapshot);
+      await expect(test.run()).rejects.toThrow("esquema final");
+      expect(test.resolveBaseline).not.toHaveBeenCalled();
+    });
+  }
+
   it("reconoce dinámicamente todas las carpetas de migración del repositorio", () => {
     const testDirectory = dirname(fileURLToPath(import.meta.url));
     const migrationsDirectory = resolve(testDirectory, "../../prisma/migrations");
@@ -193,6 +217,7 @@ describe("prepare-preview-migrations", () => {
       .sort((left, right) => left.localeCompare(right));
     expect(REPOSITORY_MIGRATIONS).toEqual(migrationDirectories);
     expect(REPOSITORY_MIGRATIONS).toContain(COURSE_SCHEDULE_MIGRATION);
+    expect(REPOSITORY_MIGRATIONS).toContain(COURSE_CAPTURE_MIGRATION);
   });
 
   it("solo ejecuta migrate resolve para el esquema baseline sin historial", async () => {

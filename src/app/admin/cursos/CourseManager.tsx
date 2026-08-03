@@ -22,6 +22,7 @@ export type CourseRow = {
   endsAt: string | null;
   isFree: boolean;
   isPublished: boolean;
+  acceptsRegistrations: boolean;
   isLeadMagnet: boolean;
   hasCertificate: boolean;
   displayOrder: number;
@@ -43,6 +44,7 @@ const emptyCourse: Omit<CourseRow, "id"> = {
   endsAt: null,
   isFree: false,
   isPublished: false,
+  acceptsRegistrations: false,
   isLeadMagnet: false,
   hasCertificate: false,
   displayOrder: 0,
@@ -101,6 +103,7 @@ export function CourseManager({
       displayOrder: Number(data.get("displayOrder") || 0),
       isFree: data.get("isFree") === "on",
       isPublished: data.get("isPublished") === "on",
+      acceptsRegistrations: data.get("acceptsRegistrations") === "on",
       isLeadMagnet: data.get("isLeadMagnet") === "on",
       hasCertificate: data.get("hasCertificate") === "on",
     };
@@ -146,6 +149,7 @@ export function CourseManager({
           displayOrder: course.displayOrder,
           isFree: course.isFree,
           isPublished: nextPublished,
+          acceptsRegistrations: course.acceptsRegistrations,
           isLeadMagnet: course.isLeadMagnet,
           hasCertificate: course.hasCertificate,
           confirm: !nextPublished,
@@ -190,6 +194,7 @@ export function CourseManager({
           <div className="toolbar">
             {[
               ["isPublished", "Publicado", current.isPublished],
+              ["acceptsRegistrations", "Acepta registros", current.acceptsRegistrations],
               ["isFree", "Gratuito", current.isFree],
               ["isLeadMagnet", "Recurso de captación", current.isLeadMagnet],
               ["hasCertificate", "Incluye certificado", current.hasCertificate],
@@ -215,7 +220,7 @@ export function CourseManager({
                   <td>{course.category?.trim() || "Sin categoría"}</td>
                   <td>{course.modality ?? "—"}<div className="muted">{course.duration ?? "Duración sin definir"}</div></td>
                   <td>{course.isFree ? "Gratuito" : course.price === null ? "—" : `$${course.price}`}</td>
-                  <td><span className={`pill ${course.isPublished ? "ok" : ""}`}>{course.isPublished ? "Activo" : "Inactivo"}</span></td>
+                  <td><span className={`pill ${course.isPublished ? "ok" : ""}`}>{course.isPublished ? "Activo" : "Inactivo"}</span><div className="muted">{course.acceptsRegistrations ? "Registro abierto" : "Registro cerrado"}</div></td>
                   <td><a href={course.officialCourseUrl} target="_blank" rel="noreferrer">Ver página ↗</a></td>
                   <td>{canEdit && <div className="card-actions"><button className="btn-sm ghost" type="button" onClick={() => { setEditing(course); setCreating(false); }}>Editar</button><button className={`btn-sm ${course.isPublished ? "danger" : "ghost"}`} type="button" disabled={busy} onClick={() => togglePublication(course)}>{course.isPublished ? "Desactivar" : "Activar"}</button></div>}</td>
                 </tr>

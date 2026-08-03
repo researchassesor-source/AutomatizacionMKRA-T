@@ -19,9 +19,9 @@ model AdminUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  assignedLeads     Lead[]       @relation("LeadAssignee")
+  assignedLeads     Lead[]     @relation("LeadAssignee")
   notes             LeadNote[]
-  assignedFollowUps FollowUp[]   @relation("FollowUpAssignee")
+  assignedFollowUps FollowUp[] @relation("FollowUpAssignee")
   auditLogs         AuditLog[]
 
   @@index([role, isActive])
@@ -36,28 +36,29 @@ enum AdminRole {
 }
 
 model Course {
-  id                String   @id @default(cuid())
-  slug              String   @unique
-  title             String
-  subtitle          String?
-  description       String?
-  category          String?
-  officialCourseUrl String   @default("https://ra-training.com/courses-1/")
-  moodleCourseUrl   String?
-  imageUrl          String?
-  price             Decimal? @db.Decimal(10, 2)
-  duration          String?
-  modality          String?
-  startsAt          DateTime?
-  endsAt            DateTime?
-  isFree            Boolean  @default(false)
-  isPublished       Boolean  @default(false)
-  isLeadMagnet      Boolean  @default(false)
-  hasCertificate    Boolean  @default(false)
-  displayOrder      Int      @default(0)
-  benefits          Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                   String    @id @default(cuid())
+  slug                 String    @unique
+  title                String
+  subtitle             String?
+  description          String?
+  category             String?
+  officialCourseUrl    String    @default("https://ra-training.com/courses-1/")
+  moodleCourseUrl      String?
+  imageUrl             String?
+  price                Decimal?  @db.Decimal(10, 2)
+  duration             String?
+  modality             String?
+  startsAt             DateTime?
+  endsAt               DateTime?
+  isFree               Boolean   @default(false)
+  isPublished          Boolean   @default(false)
+  acceptsRegistrations Boolean   @default(false)
+  isLeadMagnet         Boolean   @default(false)
+  hasCertificate       Boolean   @default(false)
+  displayOrder         Int       @default(0)
+  benefits             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   // Relacion historica. Se conserva temporalmente para compatibilidad.
   legacyLeads Lead[]
@@ -69,38 +70,40 @@ model Course {
 }
 
 model Lead {
-  id                    String    @id @default(cuid())
-  firstName             String?
-  lastName              String?
-  fullName              String
-  email                 String
-  phone                 String?
-  source                String?
-  utmSource             String?
-  utmMedium             String?
-  utmCampaign           String?
-  landingUrl            String?
-  referrer              String?
-  consent               Boolean   @default(false)
-  consentAt             DateTime?
-  consentPolicyVersion  String?
-  consentPurpose        String?
-  stage                 LeadStage @default(NUEVO)
-  assignedToId          String?
-  isArchived            Boolean   @default(false)
-  archivedAt            DateTime?
-  lostReason            String?
-  nextActionAt          DateTime?
-  score                 Int       @default(0)
-  scoreBreakdown        Json?
-  scoredAt              DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  firstName            String?
+  lastName             String?
+  fullName             String
+  email                String
+  phone                String?
+  source               String?
+  utmSource            String?
+  utmMedium            String?
+  utmCampaign          String?
+  utmContent           String?
+  utmTerm              String?
+  landingUrl           String?
+  referrer             String?
+  consent              Boolean   @default(false)
+  consentAt            DateTime?
+  consentPolicyVersion String?
+  consentPurpose       String?
+  stage                LeadStage @default(NUEVO)
+  assignedToId         String?
+  isArchived           Boolean   @default(false)
+  archivedAt           DateTime?
+  lostReason           String?
+  nextActionAt         DateTime?
+  score                Int       @default(0)
+  scoreBreakdown       Json?
+  scoredAt             DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   // Campos historicos: no se eliminan hasta completar la migracion productiva.
-  courseId              String?
-  financeInscripcionId  String?
-  course                Course?   @relation(fields: [courseId], references: [id])
+  courseId             String?
+  financeInscripcionId String?
+  course               Course? @relation(fields: [courseId], references: [id])
 
   assignedTo  AdminUser?        @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   enrollments Enrollment[]
@@ -114,6 +117,8 @@ model Lead {
   @@index([score])
   @@index([phone])
   @@index([utmCampaign])
+  @@index([utmContent])
+  @@index([utmTerm])
   @@index([assignedToId])
   @@map("leads")
 }
@@ -129,25 +134,28 @@ enum LeadStage {
 }
 
 model Enrollment {
-  id                       String            @id @default(cuid())
-  leadId                   String
-  courseId                 String
-  status                   EnrollmentStatus @default(INTERESADO)
-  source                   String?
-  utmSource                String?
-  utmMedium                String?
-  utmCampaign              String?
-  landingUrl               String?
-  moodleEnrollmentId       String?
-  moodleCompletionDate     DateTime?
-  financeInscripcionId     String?           @unique
-  financeStatus            FinanceStatus     @default(NO_ENVIADO)
-  certificateStatus        CertificateStatus @default(DESCONOCIDO)
-  handoffAttempts          Int               @default(0)
-  lastHandoffError         String?
-  lastHandoffAt            DateTime?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id                   String            @id @default(cuid())
+  leadId               String
+  courseId             String
+  status               EnrollmentStatus  @default(INTERESADO)
+  source               String?
+  utmSource            String?
+  utmMedium            String?
+  utmCampaign          String?
+  utmContent           String?
+  utmTerm              String?
+  landingUrl           String?
+  referrer             String?
+  moodleEnrollmentId   String?
+  moodleCompletionDate DateTime?
+  financeInscripcionId String?           @unique
+  financeStatus        FinanceStatus     @default(NO_ENVIADO)
+  certificateStatus    CertificateStatus @default(DESCONOCIDO)
+  handoffAttempts      Int               @default(0)
+  lastHandoffError     String?
+  lastHandoffAt        DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   lead     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
   course   Course            @relation(fields: [courseId], references: [id])
@@ -184,12 +192,12 @@ enum CertificateStatus {
 }
 
 model LeadNote {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   leadId    String
   authorId  String?
   content   String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   lead   Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
   author AdminUser? @relation(fields: [authorId], references: [id], onDelete: SetNull)
@@ -235,13 +243,13 @@ enum FollowUpStatus {
 }
 
 model LeadEvent {
-  id             String      @id @default(cuid())
+  id             String   @id @default(cuid())
   leadId         String
   enrollmentId   String?
   type           String
   payload        Json?
-  idempotencyKey String?     @unique
-  createdAt      DateTime    @default(now())
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
 
   lead       Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
   enrollment Enrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
@@ -252,7 +260,7 @@ model LeadEvent {
 }
 
 model AuditLog {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   actorId    String?
   actorEmail String?
   action     String
@@ -260,7 +268,7 @@ model AuditLog {
   entityId   String?
   result     String
   metadata   Json?
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime @default(now())
 
   actor AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
@@ -271,7 +279,7 @@ model AuditLog {
 }
 
 model OutboundMessage {
-  id           String        @id @default(cuid())
+  id           String         @id @default(cuid())
   leadId       String
   enrollmentId String?
   templateId   String?
@@ -279,26 +287,26 @@ model OutboundMessage {
   toAddress    String
   subject      String?
   body         String
-  status       MessageStatus @default(PROGRAMADO)
+  status       MessageStatus  @default(PROGRAMADO)
   scheduledAt  DateTime
   sentAt       DateTime?
   cancelledAt  DateTime?
   error        String?
   sequenceKey  String?
   stepKey      String?
-  attempts     Int           @default(0)
-  isSimulation Boolean       @default(false)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  attempts     Int            @default(0)
+  isSimulation Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   lead       Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
   enrollment Enrollment?      @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
   template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
+  @@unique([leadId, enrollmentId, sequenceKey, stepKey])
   @@index([status, scheduledAt])
   @@index([leadId])
   @@index([enrollmentId])
-  @@unique([leadId, enrollmentId, sequenceKey, stepKey])
   @@map("outbound_messages")
 }
 
@@ -362,24 +370,24 @@ enum SocialPlatform {
 }
 
 model SocialPost {
-  id               String         @id @default(cuid())
+  id               String     @id @default(cuid())
   accountId        String
   caption          String
   mediaUrl         String?
   linkUrl          String?
-  status           PostStatus     @default(BORRADOR)
+  status           PostStatus @default(BORRADOR)
   scheduledAt      DateTime?
   publishStartedAt DateTime?
   publishedAt      DateTime?
   cancelledAt      DateTime?
   externalPostId   String?
   error            String?
-  retryCount       Int            @default(0)
+  retryCount       Int        @default(0)
   scheduleId       String?
-  occurrenceKey    String?         @unique
+  occurrenceKey    String?    @unique
   duplicatedFromId String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   account        SocialAccount   @relation(fields: [accountId], references: [id])
   schedule       SocialSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
@@ -402,20 +410,20 @@ enum PostStatus {
 }
 
 model SocialSchedule {
-  id          String        @id @default(cuid())
-  accountId   String
-  name        String
-  caption     String
-  mediaUrl    String?
-  linkUrl     String?
-  weekday     Int
-  localTime   String
-  timezone    String        @default("America/Guayaquil")
-  isActive    Boolean       @default(true)
-  nextRunAt   DateTime
-  lastRunAt   DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id        String    @id @default(cuid())
+  accountId String
+  name      String
+  caption   String
+  mediaUrl  String?
+  linkUrl   String?
+  weekday   Int
+  localTime String
+  timezone  String    @default("America/Guayaquil")
+  isActive  Boolean   @default(true)
+  nextRunAt DateTime
+  lastRunAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   account SocialAccount @relation(fields: [accountId], references: [id])
   posts   SocialPost[]

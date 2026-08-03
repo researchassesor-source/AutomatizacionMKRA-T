@@ -47,6 +47,7 @@ async function loadCourseCatalogReportWith(database: CatalogDatabase) {
       modality: course.modality,
       isFree: course.isFree,
       isPublished: course.isPublished,
+      acceptsRegistrations: course.acceptsRegistrations,
       relations: {
         interests: course._count.legacyLeads,
         enrollments: course._count.enrollments,

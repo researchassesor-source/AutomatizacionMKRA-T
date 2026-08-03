@@ -22,7 +22,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const session = await currentAdminSession();
   const canCreate = session?.role === "ADMIN" || session?.role === "VENTAS";
   const canExport = session.role === "ADMIN" || session.role === "VENTAS";
-  const advancedFiltersActive = Boolean(filters.campaign || filters.source || filters.from || filters.to);
+  const advancedFiltersActive = Boolean(filters.campaign || filters.source || filters.content || filters.term || filters.from || filters.to);
   const hasFilters = Boolean(
     filters.q || filters.stage || filters.course || filters.assignedTo || advancedFiltersActive
     || (filters.sort && filters.sort !== "newest") || filters.archived === "true",
@@ -42,6 +42,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       { enrollments: { some: { courseId: filters.course } } },
     ] } : {}),
     ...(filters.campaign ? { utmCampaign: { contains: filters.campaign, mode: "insensitive" } } : {}),
+    ...(filters.content ? { utmContent: { contains: filters.content, mode: "insensitive" } } : {}),
+    ...(filters.term ? { utmTerm: { contains: filters.term, mode: "insensitive" } } : {}),
     ...(filters.source ? { AND: [{ OR: [{ source: { contains: filters.source, mode: "insensitive" } }, { utmSource: { contains: filters.source, mode: "insensitive" } }] }] } : {}),
     ...(filters.assignedTo ? { assignedToId: filters.assignedTo } : {}),
     ...(filters.from || filters.to ? { createdAt: { ...(filters.from ? { gte: new Date(`${filters.from}T00:00:00-05:00`) } : {}), ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59-05:00`) } : {}) } } : {}),
@@ -109,6 +111,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <div className="advanced-filter-grid">
               <label className="filter-field"><span>Campaña</span><input name="campaign" defaultValue={filters.campaign} /></label>
               <label className="filter-field"><span>Origen</span><input name="source" defaultValue={filters.source} /></label>
+              <label className="filter-field"><span>Contenido UTM</span><input name="content" defaultValue={filters.content} /></label>
+              <label className="filter-field"><span>Término UTM</span><input name="term" defaultValue={filters.term} /></label>
               <label className="filter-field"><span>Registrado desde</span><input name="from" type="date" defaultValue={filters.from} /></label>
               <label className="filter-field"><span>Registrado hasta</span><input name="to" type="date" defaultValue={filters.to} /></label>
             </div>

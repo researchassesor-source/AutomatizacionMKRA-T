@@ -136,6 +136,7 @@ async function main() {
     duration: "1 hora",
     isFree: false,
     isPublished: true,
+    acceptsRegistrations: true,
     isLeadMagnet: false,
     hasCertificate: true,
     displayOrder: 9999,
@@ -237,6 +238,10 @@ async function main() {
     utmSource: "release-smoke",
     utmMedium: "local",
     utmCampaign: "rc-validation",
+    utmContent: "form-release-smoke",
+    utmTerm: "qa-course",
+    landingUrl: "https://ra-training.com/cursos/prueba-release/",
+    referrer: "https://ra-training.com/courses-1/",
   };
   const publicCreated = await expectStatus("/api/leads", 201, { method: "POST", body: JSON.stringify(publicInput) });
   const publicLeadId = String(publicCreated.data?.leadId ?? "");

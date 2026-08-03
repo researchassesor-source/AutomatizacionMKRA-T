@@ -8,6 +8,7 @@ import { PrismaClient } from "@prisma/client";
 export const BASELINE_MIGRATION = "20260728000000_baseline_b1ca4fe";
 export const RELEASE_MIGRATION = "20260728010000_crm_release_candidate";
 export const COURSE_SCHEDULE_MIGRATION = "20260729010000_course_schedule_fields";
+export const COURSE_CAPTURE_MIGRATION = "20260803010000_course_capture_campaign";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIRECTORY = resolve(SCRIPT_DIRECTORY, "../prisma/migrations");
@@ -87,6 +88,15 @@ export const COURSE_SCHEDULE_REQUIRED_COLUMNS = Object.freeze([
   "courses.endsAt",
 ]);
 
+export const COURSE_CAPTURE_REQUIRED_COLUMNS = Object.freeze([
+  "courses.acceptsRegistrations",
+  "leads.utmContent",
+  "leads.utmTerm",
+  "enrollments.utmContent",
+  "enrollments.utmTerm",
+  "enrollments.referrer",
+]);
+
 const PREVIEW_FLAG = "PREVIEW_DATABASE_MIGRATIONS_ENABLED";
 const DIRECT_URL = "POSTGRES_URL_NON_POOLING";
 const HISTORY_TABLE = "_prisma_migrations";
@@ -122,28 +132,40 @@ function exactBaselineSchema(tables, columns) {
   });
 }
 
-function completeIncrementalSchema(tables, columns, { requireSchedule, allowAdditionalTables = false }) {
+function hasExactlyRequiredStageColumns(columns, requiredColumns, required) {
+  const presentCount = requiredColumns.filter((column) => columns.has(column)).length;
+  return required ? presentCount === requiredColumns.length : presentCount === 0;
+}
+
+function completeIncrementalSchema(
+  tables,
+  columns,
+  { requireSchedule, requireCourseCapture, allowAdditionalTables = false },
+) {
   const businessTables = [...tables].filter((table) => table !== HISTORY_TABLE);
   if (!allowAdditionalTables && !businessTables.every((table) => FINAL_TABLES.has(table))) return false;
   if (![...FINAL_TABLES].every((table) => tables.has(table))) return false;
   const baselineColumnsRemain = Object.entries(BASELINE_TABLE_COLUMNS)
     .every(([table, expected]) => expected.every((column) => columns.has(`${table}.${column}`)));
   if (!baselineColumnsRemain || !INCREMENTAL_REQUIRED_COLUMNS.every((column) => columns.has(column))) return false;
-  const scheduleColumnCount = COURSE_SCHEDULE_REQUIRED_COLUMNS
-    .filter((column) => columns.has(column)).length;
-  return requireSchedule
-    ? scheduleColumnCount === COURSE_SCHEDULE_REQUIRED_COLUMNS.length
-    : scheduleColumnCount === 0;
+  return hasExactlyRequiredStageColumns(columns, COURSE_SCHEDULE_REQUIRED_COLUMNS, requireSchedule)
+    && hasExactlyRequiredStageColumns(columns, COURSE_CAPTURE_REQUIRED_COLUMNS, requireCourseCapture);
 }
 
 function validateRepositoryMigrations(repositoryMigrations) {
   const baselineIndex = repositoryMigrations.indexOf(BASELINE_MIGRATION);
   const releaseIndex = repositoryMigrations.indexOf(RELEASE_MIGRATION);
   const scheduleIndex = repositoryMigrations.indexOf(COURSE_SCHEDULE_MIGRATION);
-  if (baselineIndex !== 0 || releaseIndex <= baselineIndex || scheduleIndex <= releaseIndex) {
+  const captureIndex = repositoryMigrations.indexOf(COURSE_CAPTURE_MIGRATION);
+  if (
+    baselineIndex !== 0
+    || releaseIndex <= baselineIndex
+    || scheduleIndex <= releaseIndex
+    || captureIndex <= scheduleIndex
+  ) {
     fail("el repositorio no contiene la secuencia de migraciones obligatoria en orden lógico.");
   }
-  return { releaseIndex, scheduleIndex };
+  return { releaseIndex, scheduleIndex, captureIndex };
 }
 
 function validateMigrationHistory(migrations, repositoryMigrations) {
@@ -171,7 +193,7 @@ function validateMigrationHistory(migrations, repositoryMigrations) {
 }
 
 export function classifyPreviewDatabase(snapshot, repositoryMigrations = REPOSITORY_MIGRATIONS) {
-  const { releaseIndex, scheduleIndex } = validateRepositoryMigrations(repositoryMigrations);
+  const { releaseIndex, scheduleIndex, captureIndex } = validateRepositoryMigrations(repositoryMigrations);
   const tables = new Set(snapshot.tables);
   const columns = new Set(snapshot.columns);
   const migrations = snapshot.migrations ?? [];
@@ -195,18 +217,25 @@ export function classifyPreviewDatabase(snapshot, repositoryMigrations = REPOSIT
   }
 
   const scheduleApplied = appliedCount > scheduleIndex;
+  const courseCaptureApplied = appliedCount > captureIndex;
   const appliedMigrations = repositoryMigrations.slice(0, appliedCount);
   const additionalSchemaMigrationsApplied = appliedMigrations.some((migration) => ![
     BASELINE_MIGRATION,
     RELEASE_MIGRATION,
     COURSE_SCHEDULE_MIGRATION,
+    COURSE_CAPTURE_MIGRATION,
   ].includes(migration));
   const compatible = completeIncrementalSchema(tables, columns, {
     requireSchedule: scheduleApplied,
+    requireCourseCapture: courseCaptureApplied,
     allowAdditionalTables: additionalSchemaMigrationsApplied,
   });
   if (!compatible) {
-    const stage = scheduleApplied ? "final" : "incremental previo a course_schedule_fields";
+    const stage = courseCaptureApplied
+      ? "final"
+      : scheduleApplied
+        ? "incremental previo a course_capture_campaign"
+        : "incremental previo a course_schedule_fields";
     fail(`el historial no coincide con el esquema ${stage}.`);
   }
 

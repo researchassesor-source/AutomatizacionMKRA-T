@@ -52,6 +52,7 @@ export const courseInputSchema = z.object({
   endsAt: z.union([z.literal(""), z.string().datetime()]).optional(),
   isFree: z.boolean().default(false),
   isPublished: z.boolean().default(false),
+  acceptsRegistrations: z.boolean().default(false),
   isLeadMagnet: z.boolean().default(false),
   hasCertificate: z.boolean().default(false),
   displayOrder: z.number().int().min(0).max(10000).default(0),

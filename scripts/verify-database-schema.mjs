@@ -1,6 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import {
+  COURSE_CAPTURE_REQUIRED_COLUMNS,
+  COURSE_SCHEDULE_REQUIRED_COLUMNS,
+  REPOSITORY_MIGRATIONS,
+} from "./prepare-preview-migrations.mjs";
 
 const REQUIRED_TABLES = [
   "_prisma_migrations",
@@ -14,9 +19,11 @@ const REQUIRED_TABLES = [
   "outbound_messages",
 ];
 
-const REQUIRED_MIGRATIONS = [
-  "20260728000000_baseline_b1ca4fe",
-  "20260728010000_crm_release_candidate",
+const REQUIRED_COLUMNS = [
+  "courses.category",
+  "admin_users.id",
+  ...COURSE_SCHEDULE_REQUIRED_COLUMNS,
+  ...COURSE_CAPTURE_REQUIRED_COLUMNS,
 ];
 
 export async function verifyDatabaseSchema(prisma) {
@@ -24,10 +31,6 @@ export async function verifyDatabaseSchema(prisma) {
     SELECT table_name
     FROM information_schema.tables
     WHERE table_schema = 'public'
-      AND table_name IN (
-        '_prisma_migrations', 'admin_users', 'audit_logs', 'courses',
-        'enrollments', 'follow_ups', 'lead_notes', 'leads', 'outbound_messages'
-      )
   `;
   const tableNames = new Set(tables.map((row) => row.table_name));
   const missingTables = REQUIRED_TABLES.filter((name) => !tableNames.has(name));
@@ -37,29 +40,25 @@ export async function verifyDatabaseSchema(prisma) {
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND (
-        (table_name = 'courses' AND column_name = 'category') OR
-        (table_name = 'admin_users' AND column_name = 'id')
-      )
   `;
   const columnNames = new Set(columns.map((row) => `${row.table_name}.${row.column_name}`));
-  const missingColumns = ["courses.category", "admin_users.id"].filter((name) => !columnNames.has(name));
+  const missingColumns = REQUIRED_COLUMNS.filter((name) => !columnNames.has(name));
   if (missingColumns.length) throw new Error(`Faltan columnas críticas: ${missingColumns.join(", ")}.`);
 
   const migrations = await prisma.$queryRaw`
     SELECT migration_name, finished_at, rolled_back_at
     FROM "_prisma_migrations"
-    WHERE migration_name IN (
-      '20260728000000_baseline_b1ca4fe',
-      '20260728010000_crm_release_candidate'
-    )
   `;
-  const applied = new Set(
-    migrations
-      .filter((row) => row.finished_at !== null && row.rolled_back_at === null)
-      .map((row) => row.migration_name),
-  );
-  const missingMigrations = REQUIRED_MIGRATIONS.filter((name) => !applied.has(name));
+  const failedMigrations = migrations.filter((row) => row.finished_at === null || row.rolled_back_at !== null);
+  if (failedMigrations.length) {
+    throw new Error("Existe una migracion fallida, revertida o incompleta.");
+  }
+  const applied = new Set(migrations.map((row) => row.migration_name));
+  const unknownMigrations = [...applied].filter((name) => !REPOSITORY_MIGRATIONS.includes(name));
+  if (unknownMigrations.length) {
+    throw new Error(`Existen migraciones ajenas al repositorio: ${unknownMigrations.join(", ")}.`);
+  }
+  const missingMigrations = REPOSITORY_MIGRATIONS.filter((name) => !applied.has(name));
   if (missingMigrations.length) {
     throw new Error(`Faltan migraciones aplicadas: ${missingMigrations.join(", ")}.`);
   }

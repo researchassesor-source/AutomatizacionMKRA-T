@@ -250,7 +250,7 @@ async function main() {
     body: JSON.stringify({
       firstName: "Contacto",
       lastName: "Inactivo",
-      email: "",
+      email: `inactive-${suffix}@example.test`,
       phone: publicPhone,
       courseSlug: historicalSlugs[0],
       consent: true,
@@ -264,7 +264,7 @@ async function main() {
     body: JSON.stringify({
       firstName: "Contacto",
       lastName: "Activo",
-      email: "",
+      email: `active-${suffix}@example.test`,
       phone: publicPhone,
       courseSlug: seedCourses[0].slug,
       consent: true,

@@ -18,6 +18,8 @@ type LeadDetail = {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
   landingUrl: string | null;
   referrer: string | null;
   consent: boolean;
@@ -36,6 +38,14 @@ type Enrollment = {
   certificateStatus: string;
   financeInscripcionId: string | null;
   moodleCompletionDate: string | null;
+  source: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  landingUrl: string | null;
+  referrer: string | null;
   course: { title: string; officialCourseUrl: string; moodleCourseUrl: string | null };
 };
 
@@ -170,7 +180,7 @@ export function LeadDetailManager({
           </div>
           <div className="form-row"><input name="lostReason" aria-label="Motivo de pérdida" defaultValue={lead.lostReason ?? ""} placeholder="Motivo de pérdida" disabled={!canEdit} /><input name="nextActionAt" aria-label="Próxima acción" type="datetime-local" defaultValue={lead.nextActionAt ? isoToEcuadorLocalInput(lead.nextActionAt) : ""} disabled={!canEdit} /></div>
           {canEdit && <button type="submit" className="btn-sm" disabled={busy}>Guardar cambios</button>}
-          <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Campaña</dt><dd>{lead.utmCampaign ?? "—"}</dd><dt>Medio</dt><dd>{lead.utmMedium ?? "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>
+          <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Campaña</dt><dd>{lead.utmCampaign ?? "—"}</dd><dt>Medio</dt><dd>{lead.utmMedium ?? "—"}</dd><dt>Contenido UTM</dt><dd>{lead.utmContent ?? "—"}</dd><dt>Término UTM</dt><dd>{lead.utmTerm ?? "—"}</dd><dt>Landing</dt><dd>{lead.landingUrl ? <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir landing ↗</a> : "—"}</dd><dt>Referrer</dt><dd>{lead.referrer ? <a href={lead.referrer} target="_blank" rel="noreferrer">Abrir referrer ↗</a> : "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>
         </form>
 
         <section>
@@ -187,7 +197,7 @@ export function LeadDetailManager({
           <label className="field"><span>Estado inicial</span><select name="status" defaultValue="INSCRITO"><option value="INSCRITO">Inscrito</option><option value="INTERESADO">Interesado</option></select></label>
           <button type="submit" className="btn-sm" disabled={busy}>Crear inscripción</button>
         </form> : null}
-        {enrollments.length === 0 ? <AdminEmptyState icon="courses" title="Sin inscripciones" description="Este contacto todavía no está asociado a un curso." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Curso</th><th>Inscripción</th><th>Finance</th><th>Certificado</th><th>Acciones</th></tr></thead><tbody>{enrollments.map((item) => <tr key={item.id}><td><a href={item.course.officialCourseUrl} target="_blank" rel="noreferrer">{item.course.title} ↗</a></td><td><span className="pill info">{presentAdminValue(item.status)}</span></td><td><span className="pill">{presentAdminValue(item.financeStatus)}</span>{item.financeInscripcionId && <div className="muted">{item.financeInscripcionId}</div>}</td><td>{presentAdminValue(item.certificateStatus)}</td><td>{role === "ADMIN" && item.status !== "COMPLETADO" && <button type="button" className="btn-sm ghost" disabled={busy} onClick={() => complete(item.id)}>Marcar curso completado</button>}{item.course.moodleCourseUrl && <a className="btn-sm ghost" href={item.course.moodleCourseUrl} target="_blank" rel="noreferrer">Abrir campus ↗</a>}</td></tr>)}</tbody></table></div>}
+        {enrollments.length === 0 ? <AdminEmptyState icon="courses" title="Sin inscripciones" description="Este contacto todavía no está asociado a un curso." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Curso</th><th>Inscripción</th><th>Atribución</th><th>Finance</th><th>Certificado</th><th>Acciones</th></tr></thead><tbody>{enrollments.map((item) => <tr key={item.id}><td><a href={item.course.officialCourseUrl} target="_blank" rel="noreferrer">{item.course.title} ↗</a></td><td><span className="pill info">{presentAdminValue(item.status)}</span></td><td>{item.utmSource ?? item.source ?? "Orgánico"}<div className="muted">{[item.utmCampaign, item.utmContent, item.utmTerm].filter(Boolean).join(" · ")}</div>{item.landingUrl ? <a className="muted" href={item.landingUrl} target="_blank" rel="noreferrer">Landing ↗</a> : null}</td><td><span className="pill">{presentAdminValue(item.financeStatus)}</span>{item.financeInscripcionId && <div className="muted">{item.financeInscripcionId}</div>}</td><td>{presentAdminValue(item.certificateStatus)}</td><td>{role === "ADMIN" && item.status !== "COMPLETADO" && <button type="button" className="btn-sm ghost" disabled={busy} onClick={() => complete(item.id)}>Marcar curso completado</button>}{item.course.moodleCourseUrl && <a className="btn-sm ghost" href={item.course.moodleCourseUrl} target="_blank" rel="noreferrer">Abrir campus ↗</a>}</td></tr>)}</tbody></table></div>}
       </section>
     </>
   );

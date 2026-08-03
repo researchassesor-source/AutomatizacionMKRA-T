@@ -98,6 +98,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .sub, .muted { color: var(--muted); }
 .lead-form { position: sticky; top: 102px; }
 .lead-form h2 { margin: 4px 0; }
+.course-landing .grid > * { min-width: 0; }
+.lead-form-course { margin: 18px 0 8px; color: var(--brand-primary-hover); line-height: 1.35; }
+.lead-form-facts { display: grid; gap: 4px; margin: 0 0 20px; padding: 12px 12px 12px 30px; border-radius: 10px; background: var(--primary-50); color: #40546b; font-size: .78rem; }
 .field-row, .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 .field { margin-bottom: 15px; }
 .field label { display: block; margin-bottom: 6px; color: #243b53; font-size: .84rem; font-weight: 750; }
@@ -107,11 +110,17 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 .field textarea, .form-row textarea { min-height: 100px; resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus, .form-row input:focus, .form-row select:focus, .form-row textarea:focus { border-color: var(--brand-primary); box-shadow: 0 0 0 3px rgba(17,72,153,.13); outline: 0; }
+.field input[aria-invalid="true"] { border-color: var(--danger); }
+.field small.field-error, .field-error { color: var(--danger); font-size: .78rem; font-weight: 700; }
 .checkbox { display: flex; gap: 10px; align-items: flex-start; margin: 18px 0; color: var(--muted); font-size: .84rem; }
 .checkbox input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--brand-primary); }
+.lead-consent { min-height: 44px; margin-bottom: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.lead-consent.has-error { border-color: #fecaca; background: #fff7f7; }
+.lead-consent a { font-weight: 750; }
 .honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .form-error { margin: 12px 0 0; color: var(--danger); font-size: .86rem; font-weight: 650; }
 .form-success { color: var(--success); }
+.form-status { min-height: 28px; }
 
 .btn, .btn-sm, .nav-logout, .menu-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 10px; background: var(--brand-primary); color: #fff; font-weight: 750; text-decoration: none; cursor: pointer; transition: background .15s, transform .15s, box-shadow .15s; }
 .btn { width: 100%; min-height: 48px; padding: 11px 18px; }
@@ -572,6 +581,13 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .sales-toolbar-panel { display: flex; align-items: center; gap: 10px; }
 .segmented-tabs { margin: 0 0 18px; padding-bottom: 2px; overflow-x: auto; }
 .center-narrow { width: min(620px, calc(100% - 40px)); margin: 72px auto; text-align: center; }
+.confirmation-page { min-height: calc(100svh - 220px); padding-block: 36px; }
+.confirmation-card { padding: clamp(24px, 5vw, 48px); border: 1px solid var(--border); border-radius: 20px; background: #fff; box-shadow: var(--shadow); }
+.confirmation-card h1 { margin: 16px 0 10px; color: var(--brand-primary-hover); font-size: clamp(2rem, 6vw, 3rem); line-height: 1.05; }
+.confirmation-card .lead { margin: 0 auto; }
+.confirmation-course { margin: 22px 0 0; color: #40546b; }
+.confirmation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 26px 0 16px; }
+.confirmation-help { display: block; margin-top: 18px; font-weight: 700; }
 .wa-float { position: fixed; right: 22px; bottom: 22px; z-index: 30; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: #16a34a; color: #fff; box-shadow: 0 12px 30px rgba(22,163,74,.3); transition: transform .15s ease, box-shadow .15s ease; }
 .wa-float:hover { transform: scale(1.08); box-shadow: 0 15px 34px rgba(22,163,74,.38); }
 
@@ -620,18 +636,21 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 }
 
 @media (max-width: 700px) {
-  .container { width: min(100% - 24px, 1180px); }
+  .container { width: min(1180px, calc(100% - 24px)); }
   .site-header-inner { min-height: 64px; }
   .app-logo small { display: none; }
   .app-logo strong { font-size: .86rem; }
   .app-logo img { width: 44px; height: 44px; border-radius: 12px; }
   .site-nav { gap: 10px; font-size: .82rem; }
   .public-hero { padding: 52px 0; }
+  .course-landing { padding-top: 34px; }
+  .course-landing .grid { gap: 28px; }
+  .lead-form.card { padding: 21px; }
   .public-hero-grid { gap: 28px; }
   .section-heading, .footer-inner, .page-header { align-items: flex-start; flex-direction: column; }
   .course-list { grid-template-columns: 1fr; }
   .login-page { overflow: auto; }
-  .login-shell { width: min(100% - 32px, 560px); min-height: 100svh; grid-template-columns: 1fr; align-content: center; padding-block: 32px; }
+  .login-shell { width: min(560px, calc(100% - 32px)); min-height: 100svh; grid-template-columns: 1fr; align-content: center; padding-block: 32px; }
   .login-identity { align-items: center; padding: 18px 16px 30px; text-align: center; }
   .login-logo-wrap { width: 92px; height: 92px; margin-bottom: 14px; }
   .login-logo-wrap img { object-position: center; }
@@ -671,6 +690,9 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 }
 
 @media (max-width: 520px) {
+  .confirmation-page { width: 100%; padding: 12px; }
+  .confirmation-card { width: 100%; margin: 18px auto; padding: 24px 18px; }
+  .confirmation-actions { grid-template-columns: 1fr; }
   .stat-grid { gap: 10px; }
   .stat { min-height: 130px; padding: 15px; }
   .stat .n { margin-top: 15px; font-size: 1.6rem; }

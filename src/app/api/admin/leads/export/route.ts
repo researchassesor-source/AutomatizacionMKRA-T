@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     take: 5000,
   });
   const rows = [
-    ["Nombres", "Apellidos", "Correo", "WhatsApp", "Etapa", "Cursos", "Responsable", "Fecha"].map(csv).join(","),
+    ["Nombres", "Apellidos", "Correo", "WhatsApp", "Etapa", "Cursos", "Origen", "UTM source", "UTM medium", "UTM campaign", "UTM content", "UTM term", "Landing", "Referrer", "Responsable", "Fecha"].map(csv).join(","),
     ...leads.map((lead) =>
       [
         lead.firstName,
@@ -26,6 +26,14 @@ export async function GET(request: Request) {
         lead.phone,
         lead.stage,
         lead.enrollments.map((item) => item.course.title).join(" | "),
+        lead.source,
+        lead.utmSource,
+        lead.utmMedium,
+        lead.utmCampaign,
+        lead.utmContent,
+        lead.utmTerm,
+        lead.landingUrl,
+        lead.referrer,
         lead.assignedTo?.name,
         lead.createdAt.toISOString(),
       ].map(csv).join(","),

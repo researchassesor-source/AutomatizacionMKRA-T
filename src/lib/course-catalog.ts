@@ -21,6 +21,7 @@ export type CrmCatalogCourse = {
   modality: string | null;
   isFree: boolean;
   isPublished: boolean;
+  acceptsRegistrations: boolean;
   relations: CourseRelations;
 };
 
@@ -60,6 +61,7 @@ const comparableFields = [
   "modality",
   "isFree",
   "isPublished",
+  "acceptsRegistrations",
 ] as const;
 
 function normalized(value: unknown): string | number | boolean | null {
@@ -128,4 +130,3 @@ export function canApplyCourseCatalog(env: NodeJS.ProcessEnv = process.env): boo
   if (env.VERCEL_ENV === "preview" || env.VERCEL_ENV === "development") return true;
   return env.NODE_ENV !== "production";
 }
-

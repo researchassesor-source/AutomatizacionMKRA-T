@@ -44,6 +44,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     id: lead.id, firstName: lead.firstName, lastName: lead.lastName, fullName: lead.fullName,
     email: lead.email, phone: lead.phone, stage: lead.stage, source: lead.source,
     utmSource: lead.utmSource, utmMedium: lead.utmMedium, utmCampaign: lead.utmCampaign,
+    utmContent: lead.utmContent, utmTerm: lead.utmTerm,
     landingUrl: lead.landingUrl, referrer: lead.referrer, consent: lead.consent,
     consentAt: lead.consentAt?.toISOString() ?? null, isArchived: lead.isArchived,
     assignedToId: lead.assignedToId, lostReason: lead.lostReason,
@@ -53,6 +54,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     id: item.id, status: item.status, financeStatus: item.financeStatus,
     certificateStatus: item.certificateStatus, financeInscripcionId: item.financeInscripcionId,
     moodleCompletionDate: item.moodleCompletionDate?.toISOString() ?? null,
+    source: item.source, utmSource: item.utmSource, utmMedium: item.utmMedium,
+    utmCampaign: item.utmCampaign, utmContent: item.utmContent, utmTerm: item.utmTerm,
+    landingUrl: item.landingUrl, referrer: item.referrer,
     course: { title: item.course.title, officialCourseUrl: item.course.officialCourseUrl, moodleCourseUrl: item.course.moodleCourseUrl },
   }));
   return (

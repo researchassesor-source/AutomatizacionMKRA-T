@@ -9,6 +9,9 @@ import {
   COURSE_CAPTURE_REQUIRED_COLUMNS,
   COURSE_SCHEDULE_MIGRATION,
   COURSE_SCHEDULE_REQUIRED_COLUMNS,
+  CRM_AUTOMATION_MIGRATION,
+  CRM_AUTOMATION_REQUIRED_COLUMNS,
+  CRM_AUTOMATION_TABLES,
   INCREMENTAL_REQUIRED_COLUMNS,
   INCREMENTAL_TABLES,
   preparePreviewMigrations,
@@ -56,7 +59,8 @@ function finalSnapshot(migrations: Migration[] = REPOSITORY_MIGRATIONS.map((name
   const release = releaseSnapshot(migrations);
   return {
     ...release,
-    columns: [...release.columns, ...COURSE_SCHEDULE_REQUIRED_COLUMNS, ...COURSE_CAPTURE_REQUIRED_COLUMNS],
+    tables: [...release.tables, ...CRM_AUTOMATION_TABLES],
+    columns: [...release.columns, ...COURSE_SCHEDULE_REQUIRED_COLUMNS, ...COURSE_CAPTURE_REQUIRED_COLUMNS, ...CRM_AUTOMATION_REQUIRED_COLUMNS],
   };
 }
 
@@ -208,6 +212,14 @@ describe("prepare-preview-migrations", () => {
     });
   }
 
+  for (const requiredColumn of CRM_AUTOMATION_REQUIRED_COLUMNS.slice(0, 5)) {
+    it(`rechaza un esquema de automatización sin ${requiredColumn}`, async () => {
+      const snapshot = finalSnapshot();
+      snapshot.columns = snapshot.columns.filter((column) => column !== requiredColumn);
+      await expect(harness(snapshot).run()).rejects.toThrow("automatización CRM");
+    });
+  }
+
   it("reconoce dinámicamente todas las carpetas de migración del repositorio", () => {
     const testDirectory = dirname(fileURLToPath(import.meta.url));
     const migrationsDirectory = resolve(testDirectory, "../../prisma/migrations");
@@ -218,6 +230,7 @@ describe("prepare-preview-migrations", () => {
     expect(REPOSITORY_MIGRATIONS).toEqual(migrationDirectories);
     expect(REPOSITORY_MIGRATIONS).toContain(COURSE_SCHEDULE_MIGRATION);
     expect(REPOSITORY_MIGRATIONS).toContain(COURSE_CAPTURE_MIGRATION);
+    expect(REPOSITORY_MIGRATIONS).toContain(CRM_AUTOMATION_MIGRATION);
   });
 
   it("solo ejecuta migrate resolve para el esquema baseline sin historial", async () => {

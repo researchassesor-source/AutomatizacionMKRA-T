@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   COURSE_CAPTURE_REQUIRED_COLUMNS,
   COURSE_SCHEDULE_REQUIRED_COLUMNS,
+  CRM_AUTOMATION_REQUIRED_COLUMNS,
+  CRM_AUTOMATION_TABLES,
   REPOSITORY_MIGRATIONS,
 } from "../../scripts/prepare-preview-migrations.mjs";
 import { verifyDatabaseSchema } from "../../scripts/verify-database-schema.mjs";
@@ -16,12 +18,14 @@ const requiredTables = [
   "lead_notes",
   "leads",
   "outbound_messages",
+  ...CRM_AUTOMATION_TABLES,
 ];
 const requiredColumns = [
   "courses.category",
   "admin_users.id",
   ...COURSE_SCHEDULE_REQUIRED_COLUMNS,
   ...COURSE_CAPTURE_REQUIRED_COLUMNS,
+  ...CRM_AUTOMATION_REQUIRED_COLUMNS,
 ];
 
 function prismaSnapshot(options: {

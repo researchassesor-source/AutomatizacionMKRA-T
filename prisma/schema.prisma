@@ -36,41 +36,61 @@ enum AdminRole {
 }
 
 model Course {
-  id                   String    @id @default(cuid())
-  slug                 String    @unique
+  id                   String            @id @default(cuid())
+  slug                 String            @unique
   title                String
   subtitle             String?
   description          String?
   category             String?
-  officialCourseUrl    String    @default("https://ra-training.com/courses-1/")
+  officialCourseUrl    String            @default("https://ra-training.com/courses-1/")
   moodleCourseUrl      String?
   imageUrl             String?
-  price                Decimal?  @db.Decimal(10, 2)
+  price                Decimal?          @db.Decimal(10, 2)
   duration             String?
   modality             String?
   startsAt             DateTime?
   endsAt               DateTime?
-  isFree               Boolean   @default(false)
-  isPublished          Boolean   @default(false)
-  acceptsRegistrations Boolean   @default(false)
-  isLeadMagnet         Boolean   @default(false)
-  hasCertificate       Boolean   @default(false)
-  displayOrder         Int       @default(0)
+  isFree               Boolean           @default(false)
+  isPublished          Boolean           @default(false)
+  acceptsRegistrations Boolean           @default(false)
+  isLeadMagnet         Boolean           @default(false)
+  hasCertificate       Boolean           @default(false)
+  displayOrder         Int               @default(0)
   benefits             Json?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  externalId           String?
+  externalSource       String?
+  officialSlug         String?
+  crmSlug              String?           @unique
+  officialUrl          String?
+  lastSyncedAt         DateTime?
+  sourceUpdatedAt      DateTime?
+  syncStatus           CatalogSyncStatus @default(NEVER_SYNCED)
+  syncError            String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   // Relacion historica. Se conserva temporalmente para compatibilidad.
-  legacyLeads Lead[]
-  enrollments Enrollment[]
+  legacyLeads     Lead[]
+  enrollments     Enrollment[]
+  campaigns       Campaign[]
+  automationRules AutomationRule[]
 
+  @@unique([externalSource, externalId])
   @@index([isPublished, displayOrder])
   @@index([category])
+  @@index([syncStatus])
   @@map("courses")
 }
 
+enum CatalogSyncStatus {
+  NEVER_SYNCED
+  SYNCED
+  CONFLICT
+  ERROR
+}
+
 model Lead {
-  id                   String    @id @default(cuid())
+  id                   String             @id @default(cuid())
   firstName            String?
   lastName             String?
   fullName             String
@@ -84,21 +104,22 @@ model Lead {
   utmTerm              String?
   landingUrl           String?
   referrer             String?
-  consent              Boolean   @default(false)
+  consent              Boolean            @default(false)
   consentAt            DateTime?
   consentPolicyVersion String?
   consentPurpose       String?
-  stage                LeadStage @default(NUEVO)
+  classification       LeadClassification @default(UNKNOWN)
+  stage                LeadStage          @default(NUEVO)
   assignedToId         String?
-  isArchived           Boolean   @default(false)
+  isArchived           Boolean            @default(false)
   archivedAt           DateTime?
   lostReason           String?
   nextActionAt         DateTime?
-  score                Int       @default(0)
+  score                Int                @default(0)
   scoreBreakdown       Json?
   scoredAt             DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   // Campos historicos: no se eliminan hasta completar la migracion productiva.
   courseId             String?
@@ -113,6 +134,7 @@ model Lead {
   followUps   FollowUp[]
 
   @@index([stage, isArchived])
+  @@index([classification, isArchived])
   @@index([email])
   @@index([score])
   @@index([phone])
@@ -121,6 +143,13 @@ model Lead {
   @@index([utmTerm])
   @@index([assignedToId])
   @@map("leads")
+}
+
+enum LeadClassification {
+  REAL
+  TEST
+  DEMO
+  UNKNOWN
 }
 
 enum LeadStage {
@@ -137,6 +166,7 @@ model Enrollment {
   id                   String            @id @default(cuid())
   leadId               String
   courseId             String
+  campaignId           String?
   status               EnrollmentStatus  @default(INTERESADO)
   source               String?
   utmSource            String?
@@ -159,13 +189,46 @@ model Enrollment {
 
   lead     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
   course   Course            @relation(fields: [courseId], references: [id])
+  campaign Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   events   LeadEvent[]
   messages OutboundMessage[]
 
   @@unique([leadId, courseId])
   @@index([courseId, status])
+  @@index([campaignId])
   @@index([financeStatus])
   @@map("enrollments")
+}
+
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  code        String         @unique
+  courseId    String?
+  status      CampaignStatus @default(DRAFT)
+  source      String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  course          Course?          @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  enrollments     Enrollment[]
+  automationRules AutomationRule[]
+
+  @@index([status, startsAt])
+  @@index([courseId])
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
 }
 
 enum EnrollmentStatus {
@@ -279,34 +342,51 @@ model AuditLog {
 }
 
 model OutboundMessage {
-  id           String         @id @default(cuid())
-  leadId       String
-  enrollmentId String?
-  templateId   String?
-  channel      MessageChannel
-  toAddress    String
-  subject      String?
-  body         String
-  status       MessageStatus  @default(PROGRAMADO)
-  scheduledAt  DateTime
-  sentAt       DateTime?
-  cancelledAt  DateTime?
-  error        String?
-  sequenceKey  String?
-  stepKey      String?
-  attempts     Int            @default(0)
-  isSimulation Boolean        @default(false)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  leadId            String
+  enrollmentId      String?
+  templateId        String?
+  channel           MessageChannel
+  toAddress         String
+  subject           String?
+  body              String
+  status            MessageStatus  @default(PROGRAMADO)
+  scheduledAt       DateTime
+  sentAt            DateTime?
+  acceptedAt        DateTime?
+  deliveredAt       DateTime?
+  bouncedAt         DateTime?
+  failedAt          DateTime?
+  cancelledAt       DateTime?
+  error             String?
+  errorCode         String?
+  errorMessage      String?
+  providerName      String?
+  providerMessageId String?
+  providerResponse  Json?
+  sequenceKey       String?
+  stepKey           String?
+  attempts          Int            @default(0)
+  attemptCount      Int            @default(0)
+  lastAttemptAt     DateTime?
+  nextAttemptAt     DateTime?
+  isSimulation      Boolean        @default(false)
+  automationRuleId  String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  lead       Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  enrollment Enrollment?      @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
-  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  lead           Lead                   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  enrollment     Enrollment?            @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  template       MessageTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  automationRule AutomationRule?        @relation(fields: [automationRuleId], references: [id], onDelete: SetNull)
+  providerEvents MessageProviderEvent[]
 
   @@unique([leadId, enrollmentId, sequenceKey, stepKey])
   @@index([status, scheduledAt])
   @@index([leadId])
   @@index([enrollmentId])
+  @@index([automationRuleId])
+  @@index([providerMessageId])
   @@map("outbound_messages")
 }
 
@@ -318,11 +398,71 @@ enum MessageChannel {
 enum MessageStatus {
   PROGRAMADO
   ENVIANDO
+  ACEPTADO
   ENVIADO
+  ENTREGADO
+  REBOTADO
   SIMULADO
   FALLIDO
   CANCELADO
   OMITIDO
+}
+
+model MessageProviderEvent {
+  id              String    @id @default(cuid())
+  messageId       String
+  provider        String
+  providerEventId String?
+  type            String
+  payload         Json?
+  occurredAt      DateTime?
+  receivedAt      DateTime  @default(now())
+
+  message OutboundMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerEventId])
+  @@index([messageId, receivedAt])
+  @@map("message_provider_events")
+}
+
+model AutomationRule {
+  id                 String            @id @default(cuid())
+  courseId           String
+  campaignId         String?
+  name               String
+  trigger            AutomationTrigger
+  offsetMinutes      Int               @default(0)
+  channel            MessageChannel
+  subject            String?
+  body               String
+  status             AutomationStatus  @default(DRAFT)
+  enrollmentStatuses Json?
+  lastExecutedAt     DateTime?
+  nextExecutionAt    DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  course   Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  campaign Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  messages OutboundMessage[]
+
+  @@index([status, nextExecutionAt])
+  @@index([courseId, trigger])
+  @@index([campaignId])
+  @@map("automation_rules")
+}
+
+enum AutomationTrigger {
+  ON_REGISTRATION
+  BEFORE_COURSE
+  AFTER_COURSE
+}
+
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
 }
 
 model MessageTemplate {
@@ -344,14 +484,18 @@ model MessageTemplate {
 }
 
 model SocialAccount {
-  id          String         @id @default(cuid())
-  platform    SocialPlatform
-  displayName String
-  externalId  String?
-  accessToken String?
-  isActive    Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id                  String                 @id @default(cuid())
+  platform            SocialPlatform
+  displayName         String
+  externalId          String?
+  accessToken         String?
+  isActive            Boolean                @default(true)
+  connectionStatus    SocialConnectionStatus @default(UNKNOWN)
+  connectionCheckedAt DateTime?
+  connectionError     String?
+  tokenExpiresAt      DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
   posts     SocialPost[]
   schedules SocialSchedule[]
@@ -359,6 +503,16 @@ model SocialAccount {
   @@unique([platform, externalId])
   @@index([isActive])
   @@map("social_accounts")
+}
+
+enum SocialConnectionStatus {
+  UNKNOWN
+  SIMULATION
+  READY
+  EXPIRED
+  DISCONNECTED
+  MISSING_PERMISSION
+  ERROR
 }
 
 enum SocialPlatform {
@@ -370,24 +524,31 @@ enum SocialPlatform {
 }
 
 model SocialPost {
-  id               String     @id @default(cuid())
-  accountId        String
-  caption          String
-  mediaUrl         String?
-  linkUrl          String?
-  status           PostStatus @default(BORRADOR)
-  scheduledAt      DateTime?
-  publishStartedAt DateTime?
-  publishedAt      DateTime?
-  cancelledAt      DateTime?
-  externalPostId   String?
-  error            String?
-  retryCount       Int        @default(0)
-  scheduleId       String?
-  occurrenceKey    String?    @unique
-  duplicatedFromId String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  accountId         String
+  caption           String
+  mediaUrl          String?
+  linkUrl           String?
+  status            PostStatus @default(BORRADOR)
+  scheduledAt       DateTime?
+  publishStartedAt  DateTime?
+  publishedAt       DateTime?
+  cancelledAt       DateTime?
+  externalPostId    String?
+  providerPostUrl   String?
+  providerResponse  Json?
+  error             String?
+  errorCode         String?
+  errorMessage      String?
+  retryCount        Int        @default(0)
+  archivedAt        DateTime?
+  deletedLocallyAt  DateTime?
+  providerDeletedAt DateTime?
+  scheduleId        String?
+  occurrenceKey     String?    @unique
+  duplicatedFromId  String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   account        SocialAccount   @relation(fields: [accountId], references: [id])
   schedule       SocialSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
@@ -403,10 +564,42 @@ enum PostStatus {
   BORRADOR
   PROGRAMADO
   PUBLICANDO
+  ACEPTADO
   PUBLICADO
   SIMULADO
   FALLIDO
   CANCELADO
+  ARCHIVADO
+  ELIMINADO_LOCAL
+  ELIMINADO_PROVEEDOR
+}
+
+model CatalogSyncRun {
+  id          String            @id @default(cuid())
+  source      String
+  status      CatalogSyncStatus @default(NEVER_SYNCED)
+  discovered  Int               @default(0)
+  created     Int               @default(0)
+  updated     Int               @default(0)
+  conflicts   Int               @default(0)
+  errors      Int               @default(0)
+  error       String?
+  metadata    Json?
+  startedAt   DateTime          @default(now())
+  completedAt DateTime?
+
+  @@index([source, startedAt])
+  @@map("catalog_sync_runs")
+}
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
 }
 
 model SocialSchedule {

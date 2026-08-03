@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import {
   COURSE_CAPTURE_REQUIRED_COLUMNS,
   COURSE_SCHEDULE_REQUIRED_COLUMNS,
+  CRM_AUTOMATION_REQUIRED_COLUMNS,
+  CRM_AUTOMATION_TABLES,
   REPOSITORY_MIGRATIONS,
 } from "./prepare-preview-migrations.mjs";
 
@@ -17,6 +19,7 @@ const REQUIRED_TABLES = [
   "lead_notes",
   "leads",
   "outbound_messages",
+  ...CRM_AUTOMATION_TABLES,
 ];
 
 const REQUIRED_COLUMNS = [
@@ -24,6 +27,7 @@ const REQUIRED_COLUMNS = [
   "admin_users.id",
   ...COURSE_SCHEDULE_REQUIRED_COLUMNS,
   ...COURSE_CAPTURE_REQUIRED_COLUMNS,
+  ...CRM_AUTOMATION_REQUIRED_COLUMNS,
 ];
 
 export async function verifyDatabaseSchema(prisma) {

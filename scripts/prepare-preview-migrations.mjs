@@ -9,6 +9,7 @@ export const BASELINE_MIGRATION = "20260728000000_baseline_b1ca4fe";
 export const RELEASE_MIGRATION = "20260728010000_crm_release_candidate";
 export const COURSE_SCHEDULE_MIGRATION = "20260729010000_course_schedule_fields";
 export const COURSE_CAPTURE_MIGRATION = "20260803010000_course_capture_campaign";
+export const CRM_AUTOMATION_MIGRATION = "20260803130000_crm_automation_foundation";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIRECTORY = resolve(SCRIPT_DIRECTORY, "../prisma/migrations");
@@ -97,11 +98,33 @@ export const COURSE_CAPTURE_REQUIRED_COLUMNS = Object.freeze([
   "enrollments.referrer",
 ]);
 
+export const CRM_AUTOMATION_TABLES = Object.freeze([
+  "automation_rules",
+  "campaigns",
+  "catalog_sync_runs",
+  "message_provider_events",
+  "rate_limit_buckets",
+]);
+
+export const CRM_AUTOMATION_REQUIRED_COLUMNS = Object.freeze([
+  "leads.classification",
+  "courses.externalId", "courses.externalSource", "courses.officialSlug", "courses.crmSlug",
+  "courses.officialUrl", "courses.lastSyncedAt", "courses.sourceUpdatedAt", "courses.syncStatus", "courses.syncError",
+  "enrollments.campaignId",
+  "outbound_messages.automationRuleId", "outbound_messages.providerMessageId", "outbound_messages.providerResponse",
+  "outbound_messages.acceptedAt", "outbound_messages.deliveredAt", "outbound_messages.bouncedAt",
+  "outbound_messages.failedAt", "outbound_messages.errorCode", "outbound_messages.errorMessage",
+  "outbound_messages.attemptCount", "outbound_messages.lastAttemptAt", "outbound_messages.nextAttemptAt",
+  "social_accounts.connectionStatus", "social_accounts.connectionCheckedAt", "social_accounts.connectionError",
+  "social_posts.providerPostUrl", "social_posts.providerResponse", "social_posts.errorCode", "social_posts.errorMessage",
+  "automation_rules.id", "campaigns.id", "catalog_sync_runs.id", "message_provider_events.id", "rate_limit_buckets.key",
+]);
+
 const PREVIEW_FLAG = "PREVIEW_DATABASE_MIGRATIONS_ENABLED";
 const DIRECT_URL = "POSTGRES_URL_NON_POOLING";
 const HISTORY_TABLE = "_prisma_migrations";
 const BASELINE_TABLES = Object.keys(BASELINE_TABLE_COLUMNS);
-const FINAL_TABLES = new Set([...BASELINE_TABLES, ...INCREMENTAL_TABLES]);
+const CORE_FINAL_TABLES = new Set([...BASELINE_TABLES, ...INCREMENTAL_TABLES]);
 const require = createRequire(import.meta.url);
 const PRISMA_CLI = require.resolve("prisma/build/index.js");
 
@@ -140,16 +163,19 @@ function hasExactlyRequiredStageColumns(columns, requiredColumns, required) {
 function completeIncrementalSchema(
   tables,
   columns,
-  { requireSchedule, requireCourseCapture, allowAdditionalTables = false },
+  { requireSchedule, requireCourseCapture, requireAutomation, allowAdditionalTables = false },
 ) {
   const businessTables = [...tables].filter((table) => table !== HISTORY_TABLE);
-  if (!allowAdditionalTables && !businessTables.every((table) => FINAL_TABLES.has(table))) return false;
-  if (![...FINAL_TABLES].every((table) => tables.has(table))) return false;
+  const expectedTables = new Set([...CORE_FINAL_TABLES, ...(requireAutomation ? CRM_AUTOMATION_TABLES : [])]);
+  if (!allowAdditionalTables && !businessTables.every((table) => expectedTables.has(table))) return false;
+  if (![...expectedTables].every((table) => tables.has(table))) return false;
+  if (!requireAutomation && CRM_AUTOMATION_TABLES.some((table) => tables.has(table))) return false;
   const baselineColumnsRemain = Object.entries(BASELINE_TABLE_COLUMNS)
     .every(([table, expected]) => expected.every((column) => columns.has(`${table}.${column}`)));
   if (!baselineColumnsRemain || !INCREMENTAL_REQUIRED_COLUMNS.every((column) => columns.has(column))) return false;
   return hasExactlyRequiredStageColumns(columns, COURSE_SCHEDULE_REQUIRED_COLUMNS, requireSchedule)
-    && hasExactlyRequiredStageColumns(columns, COURSE_CAPTURE_REQUIRED_COLUMNS, requireCourseCapture);
+    && hasExactlyRequiredStageColumns(columns, COURSE_CAPTURE_REQUIRED_COLUMNS, requireCourseCapture)
+    && hasExactlyRequiredStageColumns(columns, CRM_AUTOMATION_REQUIRED_COLUMNS, requireAutomation);
 }
 
 function validateRepositoryMigrations(repositoryMigrations) {
@@ -157,15 +183,17 @@ function validateRepositoryMigrations(repositoryMigrations) {
   const releaseIndex = repositoryMigrations.indexOf(RELEASE_MIGRATION);
   const scheduleIndex = repositoryMigrations.indexOf(COURSE_SCHEDULE_MIGRATION);
   const captureIndex = repositoryMigrations.indexOf(COURSE_CAPTURE_MIGRATION);
+  const automationIndex = repositoryMigrations.indexOf(CRM_AUTOMATION_MIGRATION);
   if (
     baselineIndex !== 0
     || releaseIndex <= baselineIndex
     || scheduleIndex <= releaseIndex
     || captureIndex <= scheduleIndex
+    || automationIndex <= captureIndex
   ) {
     fail("el repositorio no contiene la secuencia de migraciones obligatoria en orden lógico.");
   }
-  return { releaseIndex, scheduleIndex, captureIndex };
+  return { releaseIndex, scheduleIndex, captureIndex, automationIndex };
 }
 
 function validateMigrationHistory(migrations, repositoryMigrations) {
@@ -193,7 +221,7 @@ function validateMigrationHistory(migrations, repositoryMigrations) {
 }
 
 export function classifyPreviewDatabase(snapshot, repositoryMigrations = REPOSITORY_MIGRATIONS) {
-  const { releaseIndex, scheduleIndex, captureIndex } = validateRepositoryMigrations(repositoryMigrations);
+  const { releaseIndex, scheduleIndex, captureIndex, automationIndex } = validateRepositoryMigrations(repositoryMigrations);
   const tables = new Set(snapshot.tables);
   const columns = new Set(snapshot.columns);
   const migrations = snapshot.migrations ?? [];
@@ -218,21 +246,26 @@ export function classifyPreviewDatabase(snapshot, repositoryMigrations = REPOSIT
 
   const scheduleApplied = appliedCount > scheduleIndex;
   const courseCaptureApplied = appliedCount > captureIndex;
+  const automationApplied = appliedCount > automationIndex;
   const appliedMigrations = repositoryMigrations.slice(0, appliedCount);
   const additionalSchemaMigrationsApplied = appliedMigrations.some((migration) => ![
     BASELINE_MIGRATION,
     RELEASE_MIGRATION,
     COURSE_SCHEDULE_MIGRATION,
     COURSE_CAPTURE_MIGRATION,
+    CRM_AUTOMATION_MIGRATION,
   ].includes(migration));
   const compatible = completeIncrementalSchema(tables, columns, {
     requireSchedule: scheduleApplied,
     requireCourseCapture: courseCaptureApplied,
+    requireAutomation: automationApplied,
     allowAdditionalTables: additionalSchemaMigrationsApplied,
   });
   if (!compatible) {
-    const stage = courseCaptureApplied
-      ? "final"
+    const stage = automationApplied
+      ? "final de automatización CRM"
+      : courseCaptureApplied
+        ? "incremental previo a crm_automation_foundation"
       : scheduleApplied
         ? "incremental previo a course_capture_campaign"
         : "incremental previo a course_schedule_fields";

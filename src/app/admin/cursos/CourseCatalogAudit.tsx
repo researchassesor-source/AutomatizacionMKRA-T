@@ -97,8 +97,8 @@ export function CourseCatalogAudit({
       <div className="panel-header">
         <div className="panel-heading">
           <div>
-            <h2 id="catalog-audit-title">Comparación con el catálogo oficial</h2>
-            <p>Fuente normalizada: ra-training.com · Los registros históricos se conservan desactivados.</p>
+            <h2 id="catalog-audit-title">Comparación con referencia local</h2>
+            <p>Datos versionados en el repositorio; no es una lectura en vivo de WordPress. Los registros históricos se conservan.</p>
           </div>
         </div>
         <div className="card-actions">
@@ -107,7 +107,7 @@ export function CourseCatalogAudit({
           </button>
           {pending > 0 ? (
             <button className="btn-sm" type="button" disabled={busy || !canApply} onClick={applyCatalog}>
-              {operation === "importing" ? "Importando…" : "Importar catálogo"}
+              {operation === "importing" ? "Aplicando…" : "Aplicar referencia local"}
             </button>
           ) : null}
         </div>

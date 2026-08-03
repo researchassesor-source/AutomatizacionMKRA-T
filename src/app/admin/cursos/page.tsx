@@ -8,6 +8,8 @@ import { CourseManager, type CourseRow } from "./CourseManager";
 import { CourseCatalogAudit } from "./CourseCatalogAudit";
 import { loadCourseCatalogReport } from "@/lib/course-catalog-server";
 import { canApplyCourseCatalog } from "@/lib/course-catalog";
+import { wordpressCatalogConfigured } from "@/lib/wordpress-catalog";
+import { WordPressCatalogSync } from "./WordPressCatalogSync";
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +24,14 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
   if (filters.category) queryWithoutCreate.set("category", filters.category);
   const closeHref = `/admin/cursos?${queryWithoutCreate}`;
   const createHref = `${closeHref}&new=true`;
-  const [courses, catalogReport] = await Promise.all([prisma.course.findMany({
+  const [courses, catalogReport, latestSyncRun] = await Promise.all([prisma.course.findMany({
     where: {
       ...(filters.q ? { OR: [{ title: { contains: filters.q, mode: "insensitive" } }, { slug: { contains: filters.q, mode: "insensitive" } }] } : {}),
       ...(status === "active" ? { isPublished: true } : status === "inactive" ? { isPublished: false } : {}),
       ...(filters.category ? { category: filters.category } : {}),
     },
     orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
-  }), session.role === "ADMIN" ? loadCourseCatalogReport() : Promise.resolve(null)]);
+  }), session.role === "ADMIN" ? loadCourseCatalogReport() : Promise.resolve(null), session.role === "ADMIN" ? prisma.catalogSyncRun.findFirst({ where: { source: "wordpress" }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null)]);
   const categories = await prisma.course.findMany({ distinct: ["category"], select: { category: true }, where: { category: { not: null } } });
   const rows: CourseRow[] = courses.map((course) => ({ ...course, price: course.price === null ? null : Number(course.price), startsAt: course.startsAt?.toISOString() ?? null, endsAt: course.endsAt?.toISOString() ?? null }));
   return (
@@ -52,7 +54,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         </AdminFilterPanel>
       </form>
       {catalogReport ? (
-        <CourseCatalogAudit initialReport={catalogReport} canApply={canApplyCourseCatalog()} />
+        <><WordPressCatalogSync configured={wordpressCatalogConfigured()} latestRun={latestSyncRun ? { ...latestSyncRun, startedAt: latestSyncRun.startedAt.toISOString(), completedAt: latestSyncRun.completedAt?.toISOString() ?? null } : null} /><CourseCatalogAudit initialReport={catalogReport} canApply={canApplyCourseCatalog()} /></>
       ) : (
         <section className="panel admin-notice" aria-label="Permisos del catálogo oficial">
           La comparación e importación del catálogo oficial está disponible únicamente para administradores.

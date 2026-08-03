@@ -1,9 +1,11 @@
-# Integración de cursos
+# Integracion de cursos
 
-El catálogo general se centraliza en `NEXT_PUBLIC_COURSE_CATALOG_URL`, con fallback a `https://ra-training.com/courses-1/`.
+El catalogo general usa `NEXT_PUBLIC_COURSE_CATALOG_URL`, con fallback a `https://ra-training.com/courses-1/`. La relacion entre pagina oficial y formulario CRM se define exclusivamente en `src/data/course-capture-mapping.ts`; no se infieren slugs por similitud.
 
-Cada curso admite una URL oficial específica. El panel solo acepta destinos HTTPS de `ra-training.com`; la URL de Moodle solo acepta `moodle.ra-training.com`. El navegador nunca envía la URL de redirección: el servidor la obtiene del curso guardado después de crear o reutilizar la inscripción.
+Cada curso puede registrar una URL oficial HTTPS de `ra-training.com`. Los formularios publicos solo se exponen cuando el registro existe, esta publicado y tiene `acceptsRegistrations=true`.
 
-El formulario registra nombres, apellidos, correo, WhatsApp ecuatoriano normalizado, curso, consentimiento, UTM, origen y referrer. Incluye honeypot, tiempo mínimo, rate limiting e idempotencia.
+El formulario exige nombre, apellidos, correo, WhatsApp ecuatoriano normalizado y consentimiento. Captura cinco UTMs, fuente, landing y referrer. Incluye validacion cliente/servidor, honeypot, tiempo minimo, limite de payload, rate limiting, idempotencia, deduplicacion transaccional, CORS explicito y auditoria.
 
-Los cursos sin página individual confirmada usan el catálogo general. No se inventan rutas.
+`GET /course-cta.js` conecta las nueve paginas individuales mapeadas conservando el componente visual del CTA y su tracking. Los dos cursos sin pagina individual permanecen enlazados al catalogo solo como referencia; no se inventan URLs.
+
+Consulta `COURSE_CAPTURE_CAMPAIGN.md` antes de cualquier cambio en WordPress, Preview o Produccion.

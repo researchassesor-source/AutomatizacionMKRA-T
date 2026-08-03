@@ -12,7 +12,7 @@ Cada deployment Preview obtiene una rama de Neon independiente mediante Preview 
 6. aplica migraciones pendientes con `prisma migrate deploy`;
 7. exige que `prisma migrate status` apruebe;
 8. genera Prisma Client;
-9. verifica en modo de solo lectura las tablas críticas, `courses.category` y ambas migraciones aplicadas;
+9. verifica en modo de solo lectura las tablas críticas, todas las carpetas de migración versionadas y las columnas de catálogo, agenda y captación;
 10. ejecuta `next build`.
 
 Cualquier error detiene el deployment. El flujo no contiene `seed`, `db push`, `migrate dev` ni `migrate reset`.
@@ -27,12 +27,13 @@ El preparador admite únicamente estos estados:
 
 1. **Base vacía:** no ejecuta `migrate resolve`; `migrate deploy` aplica baseline e incremental.
 2. **Baseline histórico exacto sin historial:** comprueba las seis tablas históricas y todas sus columnas, rechaza cualquier estructura incremental o desconocida y registra únicamente `20260728000000_baseline_b1ca4fe`.
-3. **Baseline ya registrado:** no repite resolve; deja que deploy aplique el incremental.
-4. **Baseline e incremental registrados:** no resuelve nada; deploy es un no-op y `migrate status` confirma el estado.
-5. **Esquema parcial, ambiguo o con historial desconocido:** detiene el build antes de resolve y deploy.
-6. **Producción:** el preparador no se ejecuta y además rechaza una invocación directa.
+3. **Baseline ya registrado:** no repite resolve; deja que deploy aplique las migraciones incrementales.
+4. **Secuencia parcial válida:** reconoce baseline, release y agenda aplicados en orden; `migrate deploy` aplica las migraciones posteriores pendientes.
+5. **Todas las migraciones registradas:** exige también las columnas finales y confirma el estado sin ejecutar `migrate resolve`.
+6. **Esquema parcial, ambiguo o con historial desconocido:** detiene el build antes de resolve y deploy.
+7. **Producción:** el preparador no se ejecuta y además rechaza una invocación directa.
 
-La migración `20260728010000_crm_release_candidate` nunca se marca como aplicada automáticamente. Debe ejecutarse realmente mediante `prisma migrate deploy`. `migrate resolve` solo es seguro cuando la estructura coincide exactamente con el esquema de `b1ca4fe`, no existen tablas o columnas incrementales y el historial no contiene entradas inesperadas.
+Solo `20260728000000_baseline_b1ca4fe` puede marcarse automáticamente. `20260728010000_crm_release_candidate`, `20260729010000_course_schedule_fields`, `20260803010000_course_capture_campaign` y cualquier migración futura deben ejecutarse realmente mediante `prisma migrate deploy`. Los nombres válidos se descubren desde `prisma/migrations`; cualquier registro ajeno, fallido, revertido, incompleto o fuera de orden bloquea el build.
 
 ## Variables de Preview
 

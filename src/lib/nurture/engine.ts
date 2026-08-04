@@ -1,4 +1,5 @@
 import { Prisma, type MessageChannel } from "@prisma/client";
+import { automationRuleCanRun, courseAcceptsAutomations } from "@/lib/automation-eligibility";
 import { calculateAutomationSchedule, supportsEnrollmentStatus } from "@/lib/automation-schedule";
 import { writeAudit } from "@/lib/audit";
 import { prisma } from "@/lib/db";
@@ -103,10 +104,14 @@ export async function scheduleEnrollmentAutomations(
   if (!isAutomationEligibleContact(enrollment.lead.classification, enrollment.lead.consent)) {
     return { enqueued: 0, reason: "CONTACT_EXCLUDED" };
   }
+  if (!courseAcceptsAutomations(enrollment.course)) {
+    return { enqueued: 0, reason: "COURSE_NOT_ELIGIBLE" };
+  }
   const vars = templateVariables(enrollment.lead, enrollment.course);
   let enqueued = 0;
   let skipped = 0;
   for (const rule of enrollment.course.automationRules) {
+    if (!automationRuleCanRun(enrollment.course, rule)) { skipped++; continue; }
     if (rule.campaignId && rule.campaignId !== enrollment.campaignId) { skipped++; continue; }
     if (!supportsEnrollmentStatus(rule.enrollmentStatuses, enrollment.status)) { skipped++; continue; }
     const scheduledAt = calculateAutomationSchedule({
@@ -161,6 +166,7 @@ export async function processDueAutomationRules(now = new Date()) {
       status: "ACTIVE",
       trigger: { in: ["BEFORE_COURSE", "AFTER_COURSE"] },
       nextExecutionAt: { lte: now, gte: new Date(now.getTime() - 24 * 60 * 60_000) },
+      course: { isPublished: true, acceptsRegistrations: true },
     },
     select: { id: true, courseId: true },
     take: 25,

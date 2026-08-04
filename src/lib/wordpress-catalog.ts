@@ -1,15 +1,31 @@
 import { z } from "zod";
+import { automationRuleCanRun } from "@/lib/automation-eligibility";
 import { writeAudit } from "@/lib/audit";
-import { prisma } from "@/lib/db";
 import type { AdminSession } from "@/lib/auth/session";
+import { prisma } from "@/lib/db";
 
 const SOURCE = "wordpress";
+const RUN_LOCK_TIMEOUT_MINUTES = 15;
+
+export const WORDPRESS_CRM_SLUG_BY_ID = {
+  "2231": "ia-apoyo-tareas-estudiantiles",
+  "2235": "ia-planificacion-educativa",
+  "2237": "ia-planificacion-recursos-educativos",
+  "2287": "comunicacion-estrategica-digital",
+  "2288": "procedimientos-parlamentarios",
+  "2289": "mecanismos-de-participacion-ciudadana-y-control-social",
+  "2292": "habilidades-blandas-profesionales",
+  "2294": "redaccion-elaboracion-oficios",
+  "2239": "ia-generativa-claude-basico",
+} as const satisfies Record<string, string>;
+
 const wordpressCourseSchema = z.object({
   id: z.union([z.number().int().positive(), z.string().min(1)]),
   slug: z.string().min(1).max(300),
   link: z.string().url(),
   modified_gmt: z.string().optional(),
   modified: z.string().optional(),
+  status: z.string().min(1).max(40).default("publish"),
   title: z.union([z.string(), z.object({ rendered: z.string() })]),
   acf: z.record(z.unknown()).optional(),
 });
@@ -21,10 +37,91 @@ export type WordPressCourse = {
   title: string;
   crmSlug: string | null;
   sourceUpdatedAt: Date | null;
+  sourceStatus: string;
+};
+
+export type CourseIdentity = {
+  id: string;
+  slug: string;
+  crmSlug: string | null;
+  externalId: string | null;
+  externalSource: string | null;
+};
+
+export type WordPressMappingDecision =
+  | { kind: "link"; courseId: string; crmSlug: string }
+  | { kind: "create"; crmSlug: string }
+  | { kind: "conflict"; reason: string; courseId?: string };
+
+type ConflictItem = {
+  externalId: string;
+  officialSlug: string;
+  title: string;
+  reason: string;
 };
 
 function plainTitle(value: string) {
-  return value.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&#8211;|&ndash;/g, "–").replace(/&#8217;|&rsquo;/g, "’").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#8211;|&ndash;/g, "–")
+    .replace(/&#8217;|&rsquo;/g, "’")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isSafeCrmSlug(value: string) {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+export function isPlaceholderWordPressCourse(course: Pick<WordPressCourse, "officialSlug" | "title">) {
+  return /^proximamente(?:-\d+)?$/i.test(course.officialSlug)
+    || /^pr[oó]ximamente$/i.test(course.title.trim());
+}
+
+function courseBySlug(courses: CourseIdentity[], slug: string) {
+  return courses.filter((course) => course.slug === slug || course.crmSlug === slug);
+}
+
+function decideTargetCourse(courses: CourseIdentity[], crmSlug: string): WordPressMappingDecision {
+  const candidates = courseBySlug(courses, crmSlug);
+  if (candidates.length > 1) return { kind: "conflict", reason: "CRM_SLUG_AMBIGUOUS" };
+  const candidate = candidates[0];
+  if (!candidate) return { kind: "create", crmSlug };
+  if (candidate.externalSource && candidate.externalSource !== SOURCE) {
+    return { kind: "conflict", reason: "COURSE_LINKED_TO_ANOTHER_SOURCE", courseId: candidate.id };
+  }
+  return { kind: "link", courseId: candidate.id, crmSlug };
+}
+
+export function resolveWordPressCourseMapping(
+  source: WordPressCourse,
+  courses: CourseIdentity[],
+): WordPressMappingDecision {
+  const linked = courses.find((course) => course.externalSource === SOURCE && course.externalId === source.externalId);
+  if (linked) return { kind: "link", courseId: linked.id, crmSlug: linked.crmSlug ?? linked.slug };
+
+  const explicitSlug = WORDPRESS_CRM_SLUG_BY_ID[source.externalId as keyof typeof WORDPRESS_CRM_SLUG_BY_ID];
+  if (explicitSlug) return decideTargetCourse(courses, explicitSlug);
+  if (source.crmSlug) {
+    if (!isSafeCrmSlug(source.crmSlug)) return { kind: "conflict", reason: "INVALID_EXPLICIT_CRM_SLUG" };
+    return decideTargetCourse(courses, source.crmSlug);
+  }
+
+  const exact = courseBySlug(courses, source.officialSlug);
+  if (exact.length === 1) {
+    const candidate = exact[0];
+    if (candidate.externalSource && candidate.externalSource !== SOURCE) {
+      return { kind: "conflict", reason: "COURSE_LINKED_TO_ANOTHER_SOURCE", courseId: candidate.id };
+    }
+    return { kind: "link", courseId: candidate.id, crmSlug: candidate.crmSlug ?? candidate.slug };
+  }
+  if (exact.length > 1) return { kind: "conflict", reason: "OFFICIAL_SLUG_AMBIGUOUS" };
+  if (isPlaceholderWordPressCourse(source)) return { kind: "conflict", reason: "PLACEHOLDER_WITHOUT_EXPLICIT_MAPPING" };
+  if (!isSafeCrmSlug(source.officialSlug)) return { kind: "conflict", reason: "INVALID_OFFICIAL_SLUG" };
+  return { kind: "create", crmSlug: source.officialSlug };
 }
 
 export function normalizeWordPressCourse(input: unknown): WordPressCourse {
@@ -35,7 +132,15 @@ export function normalizeWordPressCourse(input: unknown): WordPressCourse {
   const sourceUpdatedAt = modified && !Number.isNaN(new Date(`${modified}${modified.endsWith("Z") ? "" : "Z"}`).getTime())
     ? new Date(`${modified}${modified.endsWith("Z") ? "" : "Z"}`)
     : null;
-  return { externalId: String(parsed.id), officialSlug: parsed.slug, officialUrl: parsed.link, title: plainTitle(renderedTitle), crmSlug, sourceUpdatedAt };
+  return {
+    externalId: String(parsed.id),
+    officialSlug: parsed.slug,
+    officialUrl: parsed.link,
+    title: plainTitle(renderedTitle),
+    crmSlug,
+    sourceUpdatedAt,
+    sourceStatus: parsed.status,
+  };
 }
 
 export function wordpressCatalogConfigured() {
@@ -52,6 +157,9 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
   if (!configured) throw new Error("WORDPRESS_API_URL_MISSING");
   const endpoint = new URL(configured);
   if (endpoint.protocol !== "https:") throw new Error("WORDPRESS_API_REQUIRES_HTTPS");
+  if (endpoint.hostname !== "ra-training.com" || endpoint.pathname !== "/wp-json/wp/v2/cursos") {
+    throw new Error("WORDPRESS_API_ENDPOINT_NOT_ALLOWED");
+  }
   const user = process.env.WORDPRESS_API_USER?.trim();
   const password = process.env.WORDPRESS_API_APP_PASSWORD?.trim();
   if (Boolean(user) !== Boolean(password)) throw new Error("WORDPRESS_API_CREDENTIALS_INCOMPLETE");
@@ -62,7 +170,7 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
   for (let page = 1; page <= Math.min(totalPages, 20); page++) {
     endpoint.searchParams.set("per_page", "100");
     endpoint.searchParams.set("page", String(page));
-    endpoint.searchParams.set("_fields", "id,slug,link,modified_gmt,modified,title,acf");
+    endpoint.searchParams.set("_fields", "id,slug,link,modified_gmt,modified,status,title,acf");
     const response = await fetcher(endpoint, { method: "GET", headers, cache: "no-store", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`WORDPRESS_API_HTTP_${response.status}`);
     const payload = await response.json();
@@ -78,42 +186,264 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
   return courses;
 }
 
+function sameDate(left: Date | null, right: Date | null) {
+  return left?.getTime() === right?.getTime();
+}
+
+async function synchronizeSourceCourse(source: WordPressCourse, syncedAt: Date) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(68294113)::text AS lock_result`;
+    const courses = await tx.course.findMany({
+      select: { id: true, slug: true, crmSlug: true, externalId: true, externalSource: true },
+    });
+    const decision = resolveWordPressCourseMapping(source, courses);
+    if (decision.kind === "conflict") {
+      if (decision.courseId) {
+        await tx.course.update({
+          where: { id: decision.courseId },
+          data: { syncStatus: "CONFLICT", syncError: decision.reason, lastSyncedAt: syncedAt },
+        });
+      }
+      return { outcome: "conflict" as const, courseId: decision.courseId, reason: decision.reason };
+    }
+
+    if (decision.kind === "create") {
+      const created = await tx.course.create({
+        data: {
+          slug: decision.crmSlug,
+          crmSlug: decision.crmSlug,
+          title: source.title,
+          officialCourseUrl: source.officialUrl,
+          officialUrl: source.officialUrl,
+          officialSlug: source.officialSlug,
+          externalSource: SOURCE,
+          externalId: source.externalId,
+          sourceUpdatedAt: source.sourceUpdatedAt,
+          lastSyncedAt: syncedAt,
+          syncStatus: "SYNCED",
+          syncError: null,
+          isPublished: source.sourceStatus === "publish",
+          acceptsRegistrations: false,
+        },
+      });
+      return { outcome: "created" as const, courseId: created.id };
+    }
+
+    const existing = await tx.course.findUniqueOrThrow({ where: { id: decision.courseId } });
+    if (existing.externalSource === SOURCE && existing.externalId && existing.externalId !== source.externalId) {
+      await tx.course.update({
+        where: { id: existing.id },
+        data: { syncStatus: "CONFLICT", syncError: "COURSE_ALREADY_LINKED_TO_ANOTHER_WORDPRESS_ID", lastSyncedAt: syncedAt },
+      });
+      return { outcome: "conflict" as const, courseId: existing.id, reason: "COURSE_ALREADY_LINKED_TO_ANOTHER_WORDPRESS_ID" };
+    }
+    const expectedSourceUpdatedAt = source.sourceUpdatedAt ?? existing.sourceUpdatedAt;
+    const changed = existing.title !== source.title
+      || existing.officialCourseUrl !== source.officialUrl
+      || existing.officialUrl !== source.officialUrl
+      || existing.officialSlug !== source.officialSlug
+      || existing.externalSource !== SOURCE
+      || existing.externalId !== source.externalId
+      || existing.crmSlug !== decision.crmSlug
+      || !sameDate(existing.sourceUpdatedAt, expectedSourceUpdatedAt)
+      || existing.isPublished !== (source.sourceStatus === "publish")
+      || existing.syncStatus !== "SYNCED"
+      || existing.syncError !== null;
+    await tx.course.update({
+      where: { id: existing.id },
+      data: {
+        title: source.title,
+        officialCourseUrl: source.officialUrl,
+        officialUrl: source.officialUrl,
+        officialSlug: source.officialSlug,
+        externalSource: SOURCE,
+        externalId: source.externalId,
+        crmSlug: decision.crmSlug,
+        sourceUpdatedAt: expectedSourceUpdatedAt,
+        lastSyncedAt: syncedAt,
+        syncStatus: "SYNCED",
+        syncError: null,
+        isPublished: source.sourceStatus === "publish",
+      },
+    });
+    return { outcome: changed ? "updated" as const : "unchanged" as const, courseId: existing.id };
+  }, { isolationLevel: "Serializable", maxWait: 5_000, timeout: 20_000 });
+}
+
+async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, conflictCourseIds: Set<string>, syncedAt: Date) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(68294113)::text AS lock_result`;
+    const courses = await tx.course.findMany({
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        isPublished: true,
+        acceptsRegistrations: true,
+        startsAt: true,
+        endsAt: true,
+      },
+    });
+    const historicalCourses = courses.filter((course) => !currentCourseIds.has(course.id));
+    for (const course of historicalCourses) {
+      await tx.course.update({
+        where: { id: course.id },
+        data: {
+          isPublished: false,
+          acceptsRegistrations: false,
+          lastSyncedAt: syncedAt,
+          syncStatus: conflictCourseIds.has(course.id) ? "CONFLICT" : "HISTORICAL",
+          syncError: conflictCourseIds.has(course.id) ? undefined : null,
+        },
+      });
+    }
+
+    const activeRules = await tx.automationRule.findMany({
+      where: { status: "ACTIVE" },
+      select: {
+        id: true,
+        trigger: true,
+        channel: true,
+        subject: true,
+        body: true,
+        course: {
+          select: { id: true, isPublished: true, acceptsRegistrations: true, startsAt: true, endsAt: true },
+        },
+      },
+    });
+    const pauseRuleIds = activeRules.filter((rule) => {
+      const courseState = currentCourseIds.has(rule.course.id)
+        ? rule.course
+        : { ...rule.course, isPublished: false, acceptsRegistrations: false };
+      return !automationRuleCanRun(courseState, rule);
+    }).map((rule) => rule.id);
+    if (pauseRuleIds.length) {
+      await tx.automationRule.updateMany({
+        where: { id: { in: pauseRuleIds } },
+        data: { status: "PAUSED", nextExecutionAt: null },
+      });
+      await tx.outboundMessage.updateMany({
+        where: { automationRuleId: { in: pauseRuleIds }, status: "PROGRAMADO" },
+        data: {
+          status: "CANCELADO",
+          cancelledAt: syncedAt,
+          errorCode: "COURSE_NOT_ELIGIBLE",
+          errorMessage: "La automatización se pausó porque el curso no está vigente, no acepta registros o no tiene fecha/plantilla válida.",
+        },
+      });
+    }
+
+    const currentCourses = await tx.course.findMany({
+      where: { id: { in: [...currentCourseIds] } },
+      select: { id: true, isPublished: true, acceptsRegistrations: true },
+    });
+    const [activeRuleCount, pausedRuleCount] = await Promise.all([
+      tx.automationRule.count({ where: { status: "ACTIVE" } }),
+      tx.automationRule.count({ where: { status: "PAUSED" } }),
+    ]);
+    return {
+      current: currentCourses.length,
+      open: currentCourses.filter((course) => course.isPublished && course.acceptsRegistrations).length,
+      closed: currentCourses.filter((course) => !course.isPublished || !course.acceptsRegistrations).length,
+      historical: historicalCourses.length,
+      historicalCourses: historicalCourses.map((course) => ({ id: course.id, slug: course.slug, title: course.title })),
+      activeRules: activeRuleCount,
+      pausedRules: pausedRuleCount,
+      rulesPausedThisRun: pauseRuleIds.length,
+    };
+  }, { isolationLevel: "Serializable", maxWait: 5_000, timeout: 30_000 });
+}
+
 export async function synchronizeWordPressCatalog(session: AdminSession, fetcher: typeof fetch = fetch) {
-  if (process.env.VERCEL_ENV === "production") throw new Error("WORDPRESS_SYNC_PREVIEW_ONLY");
+  const runningSince = new Date(Date.now() - RUN_LOCK_TIMEOUT_MINUTES * 60_000);
+  const running = await prisma.catalogSyncRun.findFirst({
+    where: { source: SOURCE, completedAt: null, startedAt: { gte: runningSince } },
+    select: { id: true },
+  });
+  if (running) throw new Error("WORDPRESS_SYNC_ALREADY_RUNNING");
   const run = await prisma.catalogSyncRun.create({ data: { source: SOURCE } });
   try {
     const sourceCourses = await fetchWordPressCourses(fetcher);
-    let created = 0; let updated = 0; let conflicts = 0; const errors = 0;
-    await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(68294113)::text AS lock_result`;
-      for (const source of sourceCourses) {
-        const existing = await tx.course.findUnique({ where: { externalSource_externalId: { externalSource: SOURCE, externalId: source.externalId } } });
-        if (existing) {
-          await tx.course.update({ where: { id: existing.id }, data: { officialSlug: source.officialSlug, officialUrl: source.officialUrl, lastSyncedAt: new Date(), sourceUpdatedAt: source.sourceUpdatedAt, syncStatus: "SYNCED", syncError: null } });
-          updated++;
-          continue;
-        }
-        if (!source.crmSlug) {
+    const syncedAt = new Date();
+    let created = 0;
+    let updated = 0;
+    let unchanged = 0;
+    let conflicts = 0;
+    let errors = 0;
+    const currentCourseIds = new Set<string>();
+    const conflictCourseIds = new Set<string>();
+    const conflictItems: ConflictItem[] = [];
+    const errorItems: Array<{ externalId: string; code: string }> = [];
+
+    for (const source of sourceCourses) {
+      try {
+        const result = await synchronizeSourceCourse(source, syncedAt);
+        if (result.outcome === "created") created++;
+        if (result.outcome === "updated") updated++;
+        if (result.outcome === "unchanged") unchanged++;
+        if (result.outcome === "conflict") {
           conflicts++;
-          continue;
+          if (result.courseId) conflictCourseIds.add(result.courseId);
+          conflictItems.push({ externalId: source.externalId, officialSlug: source.officialSlug, title: source.title, reason: result.reason });
+        } else {
+          currentCourseIds.add(result.courseId);
         }
-        const slugConflict = await tx.course.findFirst({ where: { OR: [{ slug: source.crmSlug }, { crmSlug: source.crmSlug }] }, select: { id: true } });
-        if (slugConflict) {
-          await tx.course.update({ where: { id: slugConflict.id }, data: { syncStatus: "CONFLICT", syncError: `Requiere vinculación explícita con WordPress ID ${source.externalId}.` } });
-          conflicts++;
-          continue;
-        }
-        await tx.course.create({ data: { slug: source.crmSlug, crmSlug: source.crmSlug, title: source.title, officialCourseUrl: source.officialUrl, officialUrl: source.officialUrl, officialSlug: source.officialSlug, externalSource: SOURCE, externalId: source.externalId, sourceUpdatedAt: source.sourceUpdatedAt, lastSyncedAt: new Date(), syncStatus: "SYNCED", isPublished: false, acceptsRegistrations: false } });
-        created++;
+      } catch (error) {
+        errors++;
+        errorItems.push({ externalId: source.externalId, code: safeWordPressErrorCode(error) });
       }
-      await tx.catalogSyncRun.update({ where: { id: run.id }, data: { status: conflicts || errors ? "CONFLICT" : "SYNCED", discovered: sourceCourses.length, created, updated, conflicts, errors, completedAt: new Date(), metadata: { externalSource: SOURCE, missingItemsDeleted: 0, internalFieldsOverwritten: false } } });
+    }
+
+    const reconciliation = errors === 0
+      ? await reconcileCatalogAndAutomations(currentCourseIds, conflictCourseIds, syncedAt)
+      : {
+        current: currentCourseIds.size,
+        open: 0,
+        closed: 0,
+        historical: 0,
+        historicalCourses: [],
+        activeRules: await prisma.automationRule.count({ where: { status: "ACTIVE" } }),
+        pausedRules: await prisma.automationRule.count({ where: { status: "PAUSED" } }),
+        rulesPausedThisRun: 0,
+      };
+    const status = errors ? "ERROR" : conflicts ? "CONFLICT" : "SYNCED";
+    const metadata = {
+      externalSource: SOURCE,
+      sourceStatuses: sourceCourses.map((course) => ({ externalId: course.externalId, status: course.sourceStatus })),
+      unchanged,
+      ...reconciliation,
+      conflictItems,
+      errorItems,
+      missingItemsDeleted: 0,
+      internalFieldsOverwritten: false,
+      reconciliationSkipped: errors > 0,
+    };
+    await prisma.catalogSyncRun.update({
+      where: { id: run.id },
+      data: {
+        status,
+        discovered: sourceCourses.length,
+        created,
+        updated,
+        conflicts,
+        errors,
+        completedAt: new Date(),
+        metadata,
+      },
     });
-    await writeAudit({ session, action: "WORDPRESS_CATALOG_SYNCED", entityType: "CatalogSyncRun", entityId: run.id, metadata: { discovered: sourceCourses.length, created, updated, conflicts, errors, readOnly: true } });
-    return { runId: run.id, discovered: sourceCourses.length, created, updated, conflicts, errors };
+    await writeAudit({
+      session,
+      action: "WORDPRESS_CATALOG_SYNCED",
+      entityType: "CatalogSyncRun",
+      entityId: run.id,
+      result: errors ? "FAILURE" : "SUCCESS",
+      metadata: { discovered: sourceCourses.length, created, updated, unchanged, conflicts, errors, ...reconciliation, readOnlySource: true },
+    });
+    return { runId: run.id, discovered: sourceCourses.length, created, updated, unchanged, conflicts, errors, ...reconciliation };
   } catch (error) {
     const code = safeWordPressErrorCode(error);
     await prisma.catalogSyncRun.update({ where: { id: run.id }, data: { status: "ERROR", errors: 1, error: code, completedAt: new Date() } });
-    await writeAudit({ session, action: "WORDPRESS_CATALOG_SYNC_FAILED", entityType: "CatalogSyncRun", entityId: run.id, result: "FAILURE", metadata: { code, readOnly: true } });
+    await writeAudit({ session, action: "WORDPRESS_CATALOG_SYNC_FAILED", entityType: "CatalogSyncRun", entityId: run.id, result: "FAILURE", metadata: { code, readOnlySource: true } });
     throw error;
   }
 }

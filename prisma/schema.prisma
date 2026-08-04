@@ -87,6 +87,7 @@ enum CatalogSyncStatus {
   SYNCED
   CONFLICT
   ERROR
+  HISTORICAL
 }
 
 model Lead {

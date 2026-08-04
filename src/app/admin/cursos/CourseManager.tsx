@@ -210,6 +210,7 @@ export function CourseManager({
         </form>
       )}
       <div className="panel">
+        <div className="panel-header"><div><h2>Administración de cursos</h2><p>Edita la información interna, publicación y disponibilidad de registro de cada curso.</p></div></div>
         {courses.length === 0 ? <AdminEmptyState icon="courses" title="No hay cursos con estos filtros" description="Ajusta los criterios o crea un nuevo curso si tienes permisos." /> : (
           <div className="table-wrap">
             <table className="data course-admin-table">

@@ -17,6 +17,7 @@ describe("catálogo WordPress de solo lectura", () => {
 
   it("normaliza ID externo, slug oficial y crmSlug explícito", () => {
     expect(normalizeWordPressCourse(source)).toMatchObject({ externalId: "81", officialSlug: "curso-oficial", crmSlug: "curso-crm", title: "Curso & Taller", sourceStatus: "publish" });
+    expect(normalizeWordPressCourse({ ...source, acf: [] }).crmSlug).toBeNull();
   });
 
   it("exige endpoint HTTPS y solo ejecuta GET", async () => {

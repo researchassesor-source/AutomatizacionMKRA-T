@@ -27,7 +27,7 @@ const wordpressCourseSchema = z.object({
   modified: z.string().optional(),
   status: z.string().min(1).max(40).default("publish"),
   title: z.union([z.string(), z.object({ rendered: z.string() })]),
-  acf: z.record(z.unknown()).optional(),
+  acf: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional(),
 });
 
 export type WordPressCourse = {
@@ -127,7 +127,9 @@ export function resolveWordPressCourseMapping(
 export function normalizeWordPressCourse(input: unknown): WordPressCourse {
   const parsed = wordpressCourseSchema.parse(input);
   const renderedTitle = typeof parsed.title === "string" ? parsed.title : parsed.title.rendered;
-  const crmSlug = typeof parsed.acf?.crm_slug === "string" && parsed.acf.crm_slug.trim() ? parsed.acf.crm_slug.trim() : null;
+  const crmSlug = parsed.acf && !Array.isArray(parsed.acf) && typeof parsed.acf.crm_slug === "string" && parsed.acf.crm_slug.trim()
+    ? parsed.acf.crm_slug.trim()
+    : null;
   const modified = parsed.modified_gmt ?? parsed.modified;
   const sourceUpdatedAt = modified && !Number.isNaN(new Date(`${modified}${modified.endsWith("Z") ? "" : "Z"}`).getTime())
     ? new Date(`${modified}${modified.endsWith("Z") ? "" : "Z"}`)

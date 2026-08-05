@@ -2,7 +2,8 @@ import { z } from "zod";
 
 const safePersonName = /^[\p{L}\p{M}\s.'-]+$/u;
 const containsLetter = /\p{L}/u;
-const safeTracking = /^[\p{L}\p{N} ._\-:/+]{0,120}$/u;
+const safeTracking = /^[\p{L}\p{N} ._\-:/+]+$/u;
+const safeClickId = /^[A-Za-z0-9._~-]+$/;
 
 export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -54,23 +55,55 @@ const requiredPhone = z
     }
   });
 
-const optionalTracking = z.preprocess(
-  (value) => typeof value === "string" && value.trim() ? value.trim() : undefined,
-  z
-    .string()
-    .max(120, "El parámetro de campaña es demasiado largo.")
-    .refine((value) => safeTracking.test(value), "Parámetro de campaña no válido.")
-    .optional(),
-);
+function optionalSanitizedString(maxLength: number, pattern: RegExp) {
+  return z.preprocess(
+    (value) => {
+      if (typeof value !== "string") return undefined;
+
+      const normalized = value.trim();
+
+      if (
+        !normalized
+        || normalized.length > maxLength
+        || !pattern.test(normalized)
+      ) {
+        return undefined;
+      }
+
+      return normalized;
+    },
+    z.string().optional(),
+  );
+}
+
+function sanitizePageUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+
+  const normalized = value.trim();
+
+  if (!normalized || normalized.length > 500) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(normalized);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return undefined;
+    }
+
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+const optionalTracking = optionalSanitizedString(120, safeTracking);
+const optionalClickId = optionalSanitizedString(512, safeClickId);
 
 const optionalPageUrl = z.preprocess(
-  (value) => typeof value === "string" && value.trim() ? value.trim() : undefined,
-  z
-    .string()
-    .max(500, "La URL de atribución es demasiado larga.")
-    .url("La URL de atribución no es válida.")
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "La URL de atribución no es válida.")
-    .optional(),
+  sanitizePageUrl,
+  z.string().optional(),
 );
 
 export const publicLeadFieldsSchema = z.object({
@@ -96,9 +129,9 @@ export const leadInputSchema = publicLeadFieldsSchema.extend({
   utmCampaign: optionalTracking,
   utmContent: optionalTracking,
   utmTerm: optionalTracking,
-  fbclid: optionalTracking,
-  gclid: optionalTracking,
-  ttclid: optionalTracking,
+  fbclid: optionalClickId,
+  gclid: optionalClickId,
+  ttclid: optionalClickId,
   landingUrl: optionalPageUrl,
   referrer: optionalPageUrl,
   website: z.string().max(200).optional().or(z.literal("")),
@@ -116,9 +149,9 @@ export const leadActivitySchema = z.object({
   utmCampaign: optionalTracking,
   utmContent: optionalTracking,
   utmTerm: optionalTracking,
-  fbclid: optionalTracking,
-  gclid: optionalTracking,
-  ttclid: optionalTracking,
+  fbclid: optionalClickId,
+  gclid: optionalClickId,
+  ttclid: optionalClickId,
   landingUrl: optionalPageUrl,
   referrer: optionalPageUrl,
 });

@@ -69,12 +69,41 @@ describe("captacion de contactos", () => {
       referrer: "https://facebook.com/",
     });
   });
-  it("rechaza parametros UTM peligrosos", () => expect(leadInputSchema.safeParse({ ...valid, utmCampaign: "<script>" }).success).toBe(false));
-  it("limita longitud de nombres, correo y UTMs", () => {
-    expect(leadInputSchema.safeParse({ ...valid, firstName: "A".repeat(81) }).success).toBe(false);
-    expect(leadInputSchema.safeParse({ ...valid, email: `${"a".repeat(250)}@example.test` }).success).toBe(false);
-    expect(leadInputSchema.safeParse({ ...valid, utmContent: "a".repeat(121) }).success).toBe(false);
+  it("ignora parametros UTM peligrosos sin bloquear la captura", () => {
+  const parsed = leadInputSchema.parse({
+    ...valid,
+    utmCampaign: "<script>",
   });
+
+  expect(parsed.utmCampaign).toBeUndefined();
+  expect(parsed.firstName).toBe("Ana María");
+  expect(parsed.email).toBe("ana@example.com");
+});
+
+it("limita nombres y correo, pero ignora UTMs excesivas", () => {
+  expect(
+    leadInputSchema.safeParse({
+      ...valid,
+      firstName: "A".repeat(81),
+    }).success,
+  ).toBe(false);
+
+  expect(
+    leadInputSchema.safeParse({
+      ...valid,
+      email: `${"a".repeat(250)}@example.test`,
+    }).success,
+  ).toBe(false);
+
+  const parsed = leadInputSchema.parse({
+    ...valid,
+    utmContent: "a".repeat(121),
+  });
+
+  expect(parsed.utmContent).toBeUndefined();
+  expect(parsed.courseSlug).toBe("curso-prueba");
+  expect(parsed.phone).toBe("+593982716252");
+});
   it("exige un slug de curso valido", () => {
     expect(leadInputSchema.safeParse({ ...valid, courseSlug: "" }).success).toBe(false);
     expect(leadInputSchema.safeParse({ ...valid, courseSlug: "<script>" }).success).toBe(false);

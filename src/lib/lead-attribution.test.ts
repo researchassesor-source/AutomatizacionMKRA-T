@@ -39,4 +39,30 @@ describe("atribucion de campana", () => {
     );
     expect(result.source).toBe("ra-training.com");
   });
+    it("acepta el fbclid real generado por Facebook", () => {
+    const fbclid =
+      "Iwb21leATfdVdjbGNrBN9zgmV4dG4DYWVtAjExAHNydGMGYXBwX2lkDDM1MDY4NTUzMTcyOAABHgNJx65-QaSGAdY6de0XtAe1uOU4BxNIp2fMXB5NwwBMX6yVUIgymj0pHMOg_aem_UgwzXqcXbdCoKmfXYCsR3w";
+
+    const result = captureLeadAttribution(
+      `?fbclid=${fbclid}`,
+      "https://automatizacion-mkra-t2.vercel.app/cursos/ia-apoyo-tareas-estudiantiles",
+      "https://www.facebook.com/",
+    );
+
+    expect(result.fbclid).toBe(fbclid);
+    expect(result.landingUrl).toBe(
+      "https://automatizacion-mkra-t2.vercel.app/cursos/ia-apoyo-tareas-estudiantiles",
+    );
+  });
+
+  it("ignora identificadores publicitarios excesivos sin perder las UTMs", () => {
+    const result = captureLeadAttribution(
+      `?utm_source=facebook&utm_campaign=curso_agosto&fbclid=${"a".repeat(513)}`,
+      "https://automatizacion-mkra-t2.vercel.app/cursos/ia-apoyo-tareas-estudiantiles",
+    );
+
+    expect(result.utmSource).toBe("facebook");
+    expect(result.utmCampaign).toBe("curso_agosto");
+    expect(result.fbclid).toBeUndefined();
+  });
 });

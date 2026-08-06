@@ -6,6 +6,7 @@ import {
   lastSession,
   resolveCourseSessions,
   sessionLabel,
+  upcomingSessions,
   type ResolvedCourseSession,
 } from "@/lib/course-sessions";
 import { writeAudit } from "@/lib/audit";
@@ -151,10 +152,36 @@ const enrollmentWithSchedule = {
 } satisfies Prisma.EnrollmentInclude;
 
 type ScheduleTarget = {
+  /**
+   * Sesion a la que queda ligado el mensaje. Determina `courseSessionId` y la
+   * clave idempotente. La bienvenida no se liga a ninguna: es del curso, y
+   * ligarla haria que borrar esa sesion cancelara la bienvenida.
+   */
   session: ResolvedCourseSession | null;
+  /**
+   * Sesion cuyos datos se muestran en el texto. Para los recordatorios coincide
+   * con `session`; para la bienvenida es la primera sesion futura, porque el
+   * participante necesita saber cuando empieza aunque el mensaje salga hoy.
+   */
+  contentSession: ResolvedCourseSession | null;
   scheduledAt: Date;
   stepKey: string;
 };
+
+/**
+ * Sesion que describe el contenido de un mensaje de curso (no de sesion).
+ *
+ * Se prefiere la primera sesion futura. Si ya pasaron todas se usa la primera
+ * registrada: mostrar la fecha real del curso es mas util que "por confirmar",
+ * y ademas conserva intacto el comportamiento de los cursos historicos, cuya
+ * sesion virtual proviene de un `startsAt` que puede estar en el pasado.
+ */
+function courseContentSession(
+  sessions: readonly ResolvedCourseSession[],
+  now: Date,
+): ResolvedCourseSession | null {
+  return upcomingSessions(sessions, now)[0] ?? sessions[0] ?? null;
+}
 
 /**
  * Un mensaje pendiente puede actualizarse (cambio de fecha, enlace que aparece
@@ -224,6 +251,7 @@ function scheduleTargets(
   sessions: readonly ResolvedCourseSession[],
   enrollmentId: string,
   registeredAt: Date,
+  now: Date,
 ): ScheduleTarget[] {
   const baseKey = `enrollment:${enrollmentId}`;
   if (rule.trigger === "ON_REGISTRATION") {
@@ -232,7 +260,11 @@ function scheduleTargets(
       offsetMinutes: rule.offsetMinutes,
       registeredAt,
     });
-    return scheduledAt ? [{ session: null, scheduledAt, stepKey: baseKey }] : [];
+    // La bienvenida sale al inscribirse, pero habla de la primera sesion futura:
+    // el momento de envio y el contenido responden a preguntas distintas.
+    return scheduledAt
+      ? [{ session: null, contentSession: courseContentSession(sessions, now), scheduledAt, stepKey: baseKey }]
+      : [];
   }
   if (rule.trigger === "BEFORE_COURSE") {
     // Un recordatorio por sesion. La clave vacia de la sesion virtual conserva
@@ -245,7 +277,7 @@ function scheduleTargets(
         startsAt: session.startAt,
       });
       if (!scheduledAt) return [];
-      return [{ session, scheduledAt, stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey }];
+      return [{ session, contentSession: session, scheduledAt, stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey }];
     });
   }
   const final = lastSession(sessions);
@@ -254,6 +286,7 @@ function scheduleTargets(
   return [
     {
       session: final,
+      contentSession: final,
       scheduledAt: new Date(completion.getTime() + Math.abs(rule.offsetMinutes) * 60_000),
       stepKey: baseKey,
     },
@@ -347,11 +380,12 @@ export async function scheduleEnrollmentAutomations(
     const toAddress = rule.channel === "EMAIL" ? enrollment.lead.email : enrollment.lead.phone;
     if (!toAddress) { skipped++; continue; }
 
-    for (const target of scheduleTargets(rule, sessions, enrollment.id, enrollment.createdAt)) {
-      // Nunca se programan recordatorios de sesiones que ya ocurrieron.
+    for (const target of scheduleTargets(rule, sessions, enrollment.id, enrollment.createdAt, now)) {
+      // Nunca se programan recordatorios de sesiones que ya ocurrieron. No es un
+      // fallo tecnico: se contabiliza como omitido del cálculo.
       if (rule.trigger !== "ON_REGISTRATION" && target.scheduledAt < oldestAllowed) { skipped++; continue; }
-      const missingStreamUrl = rule.requiresStreamUrl && !target.session?.streamUrl;
-      const vars = templateVariables(enrollment.lead, enrollment.course, target.session);
+      const missingStreamUrl = rule.requiresStreamUrl && !target.contentSession?.streamUrl;
+      const vars = templateVariables(enrollment.lead, enrollment.course, target.contentSession);
       const outcome = await upsertAutomationMessage({
         leadId: enrollment.leadId,
         enrollmentId: enrollment.id,

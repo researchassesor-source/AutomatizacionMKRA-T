@@ -42,11 +42,29 @@ function paragraphs(body: string): string {
 export type EmailDocument = { subject: string; html: string; text: string };
 
 /**
+ * Pie del mensaje. El correo de inscripción explica por qué lo recibe el
+ * participante; el correo técnico de prueba no puede decir lo mismo, porque
+ * nadie se inscribió: lo pidió una persona administradora.
+ */
+export type EmailFooterKind = "enrollment" | "administrative_test";
+
+function footerText(kind: EmailFooterKind, brand: string): string {
+  return kind === "administrative_test"
+    ? `Este es un correo técnico de prueba solicitado por una persona administradora de ${brand} para verificar la configuración del servidor de salida. No corresponde a ninguna inscripción y no requiere ninguna acción.`
+    : `Recibes este correo porque te inscribiste en una actividad de ${brand}. Si no reconoces esta inscripción, responde a este mensaje y lo revisamos.`;
+}
+
+/**
  * Envuelve el cuerpo en una plantilla responsive de una sola columna. Se usan
  * estilos en linea y tablas porque es lo unico que los clientes de correo
  * (Gmail, Outlook) renderizan de forma predecible.
  */
-export function buildEmailDocument(input: { subject: string; body: string; brandName?: string }): EmailDocument {
+export function buildEmailDocument(input: {
+  subject: string;
+  body: string;
+  brandName?: string;
+  footer?: EmailFooterKind;
+}): EmailDocument {
   const brand = input.brandName ?? BRAND_NAME;
   const subject = input.subject.trim();
   const body = input.body.trim();
@@ -69,7 +87,7 @@ export function buildEmailDocument(input: { subject: string; body: string; brand
 ${paragraphs(body)}
 </td></tr>
 <tr><td style="padding:8px 28px 24px;font-family:Arial,Helvetica,sans-serif;">
-<p style="margin:0;font-size:12px;line-height:1.5;color:#6b7684;">Recibes este correo porque te inscribiste en una actividad de ${escapeHtml(brand)}. Si no reconoces esta inscripción, responde a este mensaje y lo revisamos.</p>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#6b7684;">${escapeHtml(footerText(input.footer ?? "enrollment", brand))}</p>
 </td></tr>
 </table>
 </td></tr>

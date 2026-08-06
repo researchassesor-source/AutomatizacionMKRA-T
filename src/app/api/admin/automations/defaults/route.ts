@@ -6,6 +6,7 @@ import { nextFixedRuleExecution } from "@/lib/automation-schedule";
 import { courseCompletionMoment, resolveCourseSessions } from "@/lib/course-sessions";
 import { prisma } from "@/lib/db";
 import { DEFAULT_AUTOMATION_PLAN } from "@/lib/nurture/default-automations";
+import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
 
 const schema = z.object({
   courseId: z.string().trim().min(1, "Selecciona un curso."),
@@ -75,20 +76,59 @@ export async function POST(request: Request) {
     }
   }
 
+  // Un curso con inscripciones previas debe recibir sus mensajes sin que nadie
+  // tenga que abrir y volver a guardar la sesión a mano. La reprogramación es
+  // idempotente y va por lotes, así que no duplica ni carga todo en memoria.
+  const rescheduled = parsed.data.activate && (created > 0 || activated > 0)
+    ? await rescheduleCourseAutomations(course.id)
+    : null;
+
   await writeAudit({
     session: auth.session,
     action: "AUTOMATION_PLAN_APPLIED",
     entityType: "Course",
     entityId: course.id,
-    metadata: { created, activated, requested: DEFAULT_AUTOMATION_PLAN.length, activate: parsed.data.activate },
+    metadata: {
+      created,
+      activated,
+      requested: DEFAULT_AUTOMATION_PLAN.length,
+      activate: parsed.data.activate,
+      enrollmentsProcessed: rescheduled?.enrollments ?? 0,
+      messagesCreated: rescheduled?.enqueued ?? 0,
+      messagesUpdated: rescheduled?.updated ?? 0,
+      messagesOmitted: rescheduled?.omitted ?? 0,
+      truncated: rescheduled?.truncated ?? false,
+    },
   });
+
+  const planSummary = created === 0 && activated === 0
+    ? "El curso ya tenía el plan de correos aplicado."
+    : `Plan aplicado: ${created} reglas nuevas y ${activated} reactivadas.`;
+  const enrollmentSummary = rescheduled
+    ? ` Inscripciones existentes procesadas: ${rescheduled.enrollments}; mensajes creados: ${rescheduled.enqueued}, actualizados: ${rescheduled.updated}, omitidos: ${rescheduled.omitted}.`
+    : parsed.data.activate
+      ? ""
+      : " El plan quedó en borrador: actívalo para que las inscripciones existentes reciban sus mensajes.";
+  const truncatedWarning = rescheduled?.truncated
+    ? " ATENCIÓN: quedaron inscripciones sin procesar por el límite de seguridad. Vuelve a aplicar el plan para continuar."
+    : "";
+
   return NextResponse.json({
     ok: true,
     created,
     activated,
     unchanged: DEFAULT_AUTOMATION_PLAN.length - created - activated,
-    message: created === 0 && activated === 0
-      ? "El curso ya tenía el plan de correos aplicado."
-      : `Plan aplicado: ${created} reglas nuevas y ${activated} reactivadas.`,
+    enrollments: rescheduled
+      ? {
+          processed: rescheduled.enrollments,
+          enqueued: rescheduled.enqueued,
+          updated: rescheduled.updated,
+          omitted: rescheduled.omitted,
+          cancelled: rescheduled.cancelled,
+          batches: rescheduled.batches,
+          truncated: rescheduled.truncated,
+        }
+      : null,
+    message: `${planSummary}${enrollmentSummary}${truncatedWarning}`,
   });
 }

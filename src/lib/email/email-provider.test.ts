@@ -72,6 +72,18 @@ describe("plantilla HTML del correo", () => {
   it("escapa comillas y ángulos", () => {
     expect(escapeHtml(`<a href="x">&'`)).toBe("&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
   });
+
+  it("el correo de inscripción explica por qué lo recibe el participante", () => {
+    const document = buildEmailDocument({ subject: "Confirmada", body: "Hola" });
+    expect(document.html).toContain("porque te inscribiste");
+  });
+
+  it("el correo técnico de prueba no dice que alguien se inscribió", () => {
+    const document = buildEmailDocument({ subject: "Prueba", body: "Hola", footer: "administrative_test" });
+    expect(document.html).not.toContain("porque te inscribiste");
+    expect(document.html).toContain("correo técnico de prueba solicitado por una persona administradora");
+    expect(document.html).toContain("No corresponde a ninguna inscripción");
+  });
 });
 
 describe("errores del servidor de correo", () => {

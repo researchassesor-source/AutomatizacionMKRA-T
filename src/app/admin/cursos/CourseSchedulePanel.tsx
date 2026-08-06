@@ -45,8 +45,17 @@ export function CourseSchedulePanel({ courses, canEdit, publicOrigin }: { course
   const [message, setMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  async function run(key: string, action: () => Promise<{ ok: boolean; data: Record<string, unknown> }>, success: string) {
+  async function run(
+    key: string,
+    action: () => Promise<{ ok: boolean; data: Record<string, unknown> }>,
+    success: string,
+    pending = "Guardando y recalculando recordatorios…",
+  ) {
+    // Un segundo clic mientras la petición está en curso no debe disparar otra
+    // reprogramación del curso.
+    if (busy) return { ok: false, data: {} };
     setBusy(key);
+    setMessage(pending);
     const result = await action();
     setBusy(null);
     setMessage(result.ok ? success : String(result.data.error ?? "No se pudo completar la acción."));
@@ -191,7 +200,7 @@ export function CourseSchedulePanel({ courses, canEdit, publicOrigin }: { course
                             <span>Enlace de transmisión del curso</span>
                             <input name="streamUrl" type="url" defaultValue={course.streamUrl ?? ""} placeholder="https://..." />
                           </label>
-                          <button type="submit" className="btn-sm" disabled={busy === `stream-${course.id}`}>Guardar enlace</button>
+                          <button type="submit" className="btn-sm" disabled={busy !== null}>{busy === `stream-${course.id}` ? "Guardando…" : "Guardar enlace"}</button>
                         </form>
 
                         {course.sessions.map((session) => (
@@ -203,8 +212,8 @@ export function CourseSchedulePanel({ courses, canEdit, publicOrigin }: { course
                             </div>
                             <div className="form-row">
                               <input name="streamUrl" type="url" defaultValue={session.streamUrl ?? ""} placeholder="Enlace propio (opcional)" />
-                              <button type="submit" className="btn-sm" disabled={busy === `session-${session.id}`}>Guardar sesión</button>
-                              <button type="button" className="btn-sm danger" disabled={busy === `session-${session.id}`} onClick={() => deleteSession(course, session)}>Eliminar sesión</button>
+                              <button type="submit" className="btn-sm" disabled={busy !== null}>{busy === `session-${session.id}` ? "Guardando…" : "Guardar sesión"}</button>
+                              <button type="button" className="btn-sm danger" disabled={busy !== null} onClick={() => deleteSession(course, session)}>Eliminar sesión</button>
                             </div>
                           </form>
                         ))}
@@ -217,7 +226,7 @@ export function CourseSchedulePanel({ courses, canEdit, publicOrigin }: { course
                           </div>
                           <div className="form-row">
                             <input name="streamUrl" type="url" placeholder="Enlace propio (opcional)" />
-                            <button type="submit" className="btn-sm" disabled={busy === `session-new-${course.id}`}>Agregar sesión</button>
+                            <button type="submit" className="btn-sm" disabled={busy !== null}>{busy === `session-new-${course.id}` ? "Agregando…" : "Agregar sesión"}</button>
                           </div>
                         </form>
                       </div>

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { automationRuleCanRun, courseAcceptsAutomations } from "./automation-eligibility";
+import {
+  automationRuleCanRun,
+  courseAcceptsAutomations,
+  courseAcceptsNewRegistrations,
+} from "./automation-eligibility";
 
 const course = {
   isPublished: true,
@@ -9,10 +13,30 @@ const course = {
 };
 
 describe("elegibilidad de automatizaciones por curso", () => {
-  it("exige curso vigente, publicado y con registro abierto", () => {
+  it("las automatizaciones solo exigen que el curso siga publicado", () => {
     expect(courseAcceptsAutomations(course)).toBe(true);
     expect(courseAcceptsAutomations({ ...course, isPublished: false })).toBe(false);
-    expect(courseAcceptsAutomations({ ...course, acceptsRegistrations: false })).toBe(false);
+  });
+
+  it("cerrar inscripciones nuevas no apaga los recordatorios de los ya inscritos", () => {
+    // Cerrar el cupo es lo normal cuando el curso está por empezar: si eso
+    // detuviera los recordatorios, quienes ya reservaron su lugar perderían el
+    // enlace de acceso justo cuando lo necesitan.
+    const cupoCerrado = { ...course, acceptsRegistrations: false };
+    expect(courseAcceptsAutomations(cupoCerrado)).toBe(true);
+    expect(automationRuleCanRun(cupoCerrado, { trigger: "BEFORE_COURSE", channel: "EMAIL", subject: "Mañana", body: "Contenido" })).toBe(true);
+  });
+
+  it("el formulario público sí exige el cupo abierto", () => {
+    expect(courseAcceptsNewRegistrations(course)).toBe(true);
+    expect(courseAcceptsNewRegistrations({ ...course, acceptsRegistrations: false })).toBe(false);
+    expect(courseAcceptsNewRegistrations({ ...course, isPublished: false })).toBe(false);
+  });
+
+  it("despublicar el curso sí detiene las automatizaciones", () => {
+    const despublicado = { ...course, isPublished: false };
+    expect(courseAcceptsAutomations(despublicado)).toBe(false);
+    expect(automationRuleCanRun(despublicado, { trigger: "BEFORE_COURSE", channel: "EMAIL", subject: "Mañana", body: "Contenido" })).toBe(false);
   });
 
   it("exige fecha para reglas dependientes del curso", () => {

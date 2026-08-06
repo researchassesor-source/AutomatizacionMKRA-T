@@ -1,5 +1,6 @@
 import { Prisma, type Course, type Enrollment, type Lead } from "@prisma/client";
 import { z } from "zod";
+import { courseAcceptsNewRegistrations } from "@/lib/automation-eligibility";
 import { prisma } from "@/lib/db";
 import { rescoreLead } from "@/lib/scoring";
 import { writeAudit } from "@/lib/audit";
@@ -159,7 +160,9 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
 
   const course = await prisma.course.findUnique({ where: { slug: input.courseSlug } });
   if (!course) throw new Error("COURSE_NOT_FOUND");
-  if (!course.isPublished || !course.acceptsRegistrations) throw new Error("COURSE_UNAVAILABLE");
+  // La puerta de entrada pública sí exige el cupo abierto. Es la única
+  // comprobación que debe mirar `acceptsRegistrations`.
+  if (!courseAcceptsNewRegistrations(course)) throw new Error("COURSE_UNAVAILABLE");
 
   const now = new Date();
   const fullName = `${input.firstName} ${input.lastName}`.replace(/\s+/g, " ").trim();

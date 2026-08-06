@@ -24,8 +24,12 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
   const [mediaUrl, setMediaUrl] = useState("");
   const usableAccounts = accounts.filter((account) => account.isActive && ["SIMULATION", "READY"].includes(account.connectorState));
 
-  async function run(id: string, action: () => Promise<{ ok: boolean; data: Record<string, unknown> }>, success: string) {
-    setBusy(id); const result = await action(); setBusy(null);
+  async function run(id: string, action: () => Promise<{ ok: boolean; data: Record<string, unknown> }>, success: string, pending?: string) {
+    // Evita que un segundo clic dispare la misma acción dos veces.
+    if (busy) return { ok: false, data: {} };
+    setBusy(id);
+    if (pending) setMessage(pending);
+    const result = await action(); setBusy(null);
     setMessage(result.ok ? success : String(result.data.error ?? "No se pudo completar la acción."));
     if (result.ok) router.refresh();
     return result;
@@ -71,7 +75,12 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
   /** Registra la página de Facebook y la cuenta de Instagram configuradas en Vercel. */
   async function syncMetaAccounts() {
     if (!window.confirm("¿Registrar en el CRM la página de Facebook y la cuenta de Instagram configuradas, y comprobar su estado? No se publica contenido.")) return;
-    await run("meta-sync", () => request("/api/admin/social/accounts/sync-meta", "POST", { confirm: true }), "Cuentas de Meta sincronizadas y comprobadas.");
+    await run(
+      "meta-sync",
+      () => request("/api/admin/social/accounts/sync-meta", "POST", { confirm: true }),
+      "Cuentas de Meta sincronizadas y comprobadas.",
+      "Consultando Meta y comprobando la página y la cuenta de Instagram…",
+    );
   }
 
   async function createPost(event: React.FormEvent<HTMLFormElement>) {
@@ -117,7 +126,7 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
   return <>
     {message && <div className="panel result-line" role="status">{message}</div>}
     <section className="panel"><h2>Cuentas sociales</h2><p className="muted">Las cuentas no almacenan credenciales desde este formulario. Preview fuerza SIMULATED y nunca publica contenido real.</p>
-      <p><button type="button" className="btn-sm" disabled={busy === "meta-sync"} onClick={syncMetaAccounts}>Sincronizar cuentas de Meta</button> <span className="muted">Toma la página de Facebook y la cuenta de Instagram de la configuración del servidor y comprueba su estado.</span></p>
+      <p><button type="button" className="btn-sm" disabled={busy !== null} onClick={syncMetaAccounts}>{busy === "meta-sync" ? "Comprobando…" : "Sincronizar cuentas de Meta"}</button> <span className="muted">Toma la página de Facebook y la cuenta de Instagram de la configuración del servidor y comprueba su estado.</span></p>
       <form onSubmit={registerAccount}><div className="form-row"><select name="platform" aria-label="Red social">{platforms.map((platform) => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</select><input name="displayName" aria-label="Nombre visible de la cuenta" placeholder="Nombre visible" required /><input name="externalId" aria-label="Identificador externo" placeholder="ID externo (opcional)" /><button type="submit" className="btn-sm" disabled={busy === "account-new"}>Guardar cuenta</button></div></form>
       {accounts.length ? <div className="table-wrap"><table className="data"><thead><tr><th>Red/cuenta</th><th>Estado verificable</th><th>Acciones</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.id}><td><strong>{presentAdminValue(account.platform)} · {account.displayName}</strong><div className="muted">{account.externalId || "Sin ID externo"}</div><details><summary>Editar datos locales</summary><form onSubmit={(event) => editAccount(event, account)}><input name="displayName" defaultValue={account.displayName} required /><input name="externalId" defaultValue={account.externalId ?? ""} placeholder="ID externo" /><button type="submit" className="btn-sm" disabled={busy === account.id}>Guardar</button></form></details></td><td><span className={`pill ${account.connectionStatus === "READY" ? "ok" : account.connectionStatus === "ERROR" ? "err" : "info"}`}>{accountState(account)}</span>{account.connectionCheckedAt && <div className="muted">Comprobada: {new Date(account.connectionCheckedAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}</div>}{account.connectionError && <div className="muted">{account.connectionError}</div>}</td><td><div className="card-actions"><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => verify(account)}>Comprobar estado</button><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => accountToggle(account)}>{account.isActive ? "Desactivar" : "Activar"}</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="social" title="Sin cuentas" description="Registra una cuenta para organizar contenido en simulación." />}
     </section>

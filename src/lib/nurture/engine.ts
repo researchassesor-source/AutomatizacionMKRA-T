@@ -265,8 +265,36 @@ export type ScheduleAutomationsResult = {
   updated: number;
   skipped: number;
   omitted: number;
-  reason?: string;
+  /** Reglas activas aplicables al curso en el momento de programar. */
+  activeRules: number;
+  /** Motivo técnico cuando no se generó nada. Ausente si sí se generó. */
+  reason?: ScheduleSkipReason;
 };
+
+export type ScheduleSkipReason =
+  | "ENROLLMENT_NOT_FOUND"
+  | "CONTACT_EXCLUDED"
+  | "COURSE_NOT_PUBLISHED"
+  | "NO_ACTIVE_RULES"
+  | "NO_APPLICABLE_RULES";
+
+/** Traducción para el administrador. Nunca se muestra el código técnico solo. */
+export const SCHEDULE_SKIP_MESSAGES: Record<ScheduleSkipReason, string> = {
+  ENROLLMENT_NOT_FOUND: "No se encontró la inscripción al programar los mensajes.",
+  CONTACT_EXCLUDED: "El contacto no recibe automatizaciones: debe estar clasificado como real y tener consentimiento registrado.",
+  COURSE_NOT_PUBLISHED: "El curso no está publicado, así que no se programaron mensajes.",
+  NO_ACTIVE_RULES: "El curso todavía no tiene automatizaciones activas. Aplica el plan estándar de correos y actívalo.",
+  NO_APPLICABLE_RULES: "Hay automatizaciones activas, pero ninguna aplica a esta inscripción: revisa las fechas de las sesiones, el estado de la inscripción y la campaña asociada.",
+};
+
+export function describeScheduleResult(result: ScheduleAutomationsResult): string | null {
+  if (result.reason) return SCHEDULE_SKIP_MESSAGES[result.reason];
+  const total = result.enqueued + result.updated;
+  if (total === 0 && result.omitted > 0) {
+    return "Los mensajes quedaron omitidos: falta el enlace de transmisión de la sesión.";
+  }
+  return null;
+}
 
 /**
  * Programa (o reprograma) los mensajes automaticos de una inscripcion.
@@ -279,13 +307,17 @@ export async function scheduleEnrollmentAutomations(
   now = new Date(),
   options: { ruleIds?: string[]; allowPastDueMinutes?: number } = {},
 ): Promise<ScheduleAutomationsResult> {
+  const empty = { enqueued: 0, updated: 0, skipped: 0, omitted: 0, activeRules: 0 };
   const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: enrollmentWithSchedule });
-  if (!enrollment) return { enqueued: 0, updated: 0, skipped: 0, omitted: 0, reason: "ENROLLMENT_NOT_FOUND" };
+  if (!enrollment) return { ...empty, reason: "ENROLLMENT_NOT_FOUND" };
   if (!isAutomationEligibleContact(enrollment.lead.classification, enrollment.lead.consent)) {
-    return { enqueued: 0, updated: 0, skipped: 0, omitted: 0, reason: "CONTACT_EXCLUDED" };
+    return { ...empty, reason: "CONTACT_EXCLUDED" };
   }
+  // Solo se exige que el curso siga publicado. Cerrar inscripciones nuevas es
+  // lo habitual cuando el curso está por empezar y no puede dejar sin
+  // recordatorios a quienes ya están inscritos.
   if (!courseAcceptsAutomations(enrollment.course)) {
-    return { enqueued: 0, updated: 0, skipped: 0, omitted: 0, reason: "COURSE_NOT_ELIGIBLE" };
+    return { ...empty, reason: "COURSE_NOT_PUBLISHED" };
   }
 
   const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
@@ -300,6 +332,7 @@ export async function scheduleEnrollmentAutomations(
   const rules = enrollment.course.automationRules.filter(
     (rule) => rule.status === "ACTIVE" && (!options.ruleIds?.length || options.ruleIds.includes(rule.id)),
   );
+  if (rules.length === 0) return { ...empty, reason: "NO_ACTIVE_RULES" };
 
   let enqueued = 0;
   let updated = 0;
@@ -342,16 +375,28 @@ export async function scheduleEnrollmentAutomations(
     }
   }
 
-  if (enqueued > 0 || updated > 0 || omitted > 0) {
+  const produced = enqueued + updated + omitted;
+  if (produced > 0) {
     await writeAudit({
       actorEmail: "automation",
       action: "AUTOMATION_MESSAGES_QUEUED",
       entityType: "Enrollment",
       entityId: enrollment.id,
-      metadata: { enqueued, updated, omitted, skipped, courseId: enrollment.courseId, sessions: sessions.length, simulation: isMessagingSimulation() },
+      metadata: { enqueued, updated, omitted, skipped, activeRules: rules.length, courseId: enrollment.courseId, sessions: sessions.length, simulation: isMessagingSimulation() },
     });
+    return { enqueued, updated, skipped, omitted, activeRules: rules.length };
   }
-  return { enqueued, updated, skipped, omitted };
+  // Había reglas activas y aun así no salió nada: es una condición funcional
+  // que el administrador debe poder ver, no un silencio.
+  await writeAudit({
+    actorEmail: "automation",
+    action: "AUTOMATION_NO_MESSAGES_SCHEDULED",
+    entityType: "Enrollment",
+    entityId: enrollment.id,
+    result: "FAILURE",
+    metadata: { reason: "NO_APPLICABLE_RULES", activeRules: rules.length, skipped, courseId: enrollment.courseId, sessions: sessions.length },
+  });
+  return { enqueued, updated, skipped, omitted, activeRules: rules.length, reason: "NO_APPLICABLE_RULES" };
 }
 
 /**
@@ -466,7 +511,9 @@ export async function processDueAutomationRules(now = new Date()) {
       status: "ACTIVE",
       trigger: { in: ["BEFORE_COURSE", "AFTER_COURSE"] },
       nextExecutionAt: { lte: now, gte: new Date(now.getTime() - 24 * 60 * 60_000) },
-      course: { isPublished: true, acceptsRegistrations: true },
+      // Basta con que el curso siga publicado: cerrar inscripciones nuevas no
+      // puede apagar los recordatorios de quienes ya están inscritos.
+      course: { isPublished: true },
     },
     select: { id: true, courseId: true },
     take: 25,

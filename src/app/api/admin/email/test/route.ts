@@ -70,6 +70,8 @@ Si recibiste este mensaje, el envío automático está operativo.
 
 R.A. Training`,
     brandName: config.identity.fromName,
+    // Nadie se inscribió a nada: el pie debe decir que lo pidió un administrador.
+    footer: "administrative_test",
   });
   const result = await sendSmtpEmail({ ...config, smtp: config.smtp }, { to: parsed.data.to, document });
   await writeAudit({

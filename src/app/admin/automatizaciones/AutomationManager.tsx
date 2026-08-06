@@ -77,11 +77,13 @@ export function AutomationManager({ role, courses, campaigns, rules }: { role: s
     const data = new FormData(event.currentTarget);
     const courseId = String(data.get("courseId") ?? "");
     const activate = data.get("activate") === "on";
+    if (busy) return;
     if (!courseId) { setMessage("Selecciona un curso para aplicar el plan."); return; }
     if (!window.confirm(activate
-      ? "¿Aplicar el plan de cinco correos y dejarlo activo? A partir de ese momento las inscripciones nuevas recibirán los mensajes."
+      ? "¿Aplicar el plan de cinco correos y dejarlo activo? Se programarán también los mensajes de las inscripciones que ya existen en el curso."
       : "¿Aplicar el plan de cinco correos como borrador? Podrás revisarlo antes de activarlo.")) return;
     setBusy("plan");
+    setMessage(activate ? "Aplicando el plan y reprogramando las inscripciones existentes…" : "Aplicando el plan…");
     const result = await request("/api/admin/automations/defaults", "POST", { courseId, activate });
     setBusy(null);
     setMessage(result.ok ? String(result.data.message ?? "Plan aplicado.") : String(result.data.error ?? "No se pudo aplicar el plan."));
@@ -135,7 +137,7 @@ export function AutomationManager({ role, courses, campaigns, rules }: { role: s
       <form onSubmit={applyDefaultPlan}><div className="form-row">
         <select name="courseId" required defaultValue=""><option value="" disabled>Selecciona un curso</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
         <label className="checkbox"><input type="checkbox" name="activate" /><span>Dejar el plan activo (si no, queda en borrador)</span></label>
-        <button type="submit" className="btn-sm" disabled={busy === "plan"}>Aplicar plan estándar</button>
+        <button type="submit" className="btn-sm" disabled={busy !== null}>{busy === "plan" ? "Aplicando…" : "Aplicar plan estándar"}</button>
       </div></form>
     </section>
 

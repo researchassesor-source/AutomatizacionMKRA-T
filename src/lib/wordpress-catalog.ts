@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { automationRuleCanRun } from "@/lib/automation-eligibility";
+import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { writeAudit } from "@/lib/audit";
 import type { AdminSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
@@ -51,6 +52,7 @@ export type CourseIdentity = {
 export type WordPressMappingDecision =
   | { kind: "link"; courseId: string; crmSlug: string }
   | { kind: "create"; crmSlug: string }
+  | { kind: "ignore"; reason: string }
   | { kind: "conflict"; reason: string; courseId?: string };
 
 type ConflictItem = {
@@ -59,6 +61,26 @@ type ConflictItem = {
   title: string;
   reason: string;
 };
+
+type IgnoredItem = ConflictItem & { explanation: string };
+
+/** Desglose de cada regla pausada por la sincronización, con su motivo. */
+export type PausedRuleDetail = {
+  ruleId: string;
+  ruleName: string;
+  channel: string;
+  trigger: string;
+  courseId: string;
+  courseTitle: string;
+  courseSlug: string;
+  externalId: string | null;
+  isPublished: boolean;
+  acceptsRegistrations: boolean;
+  reason: string;
+};
+
+export const IGNORED_PLACEHOLDER = "IGNORED_PLACEHOLDER";
+export const IGNORED_PLACEHOLDER_EXPLANATION = "Página genérica de WordPress; no representa un curso.";
 
 function plainTitle(value: string) {
   return value
@@ -76,9 +98,25 @@ function isSafeCrmSlug(value: string) {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }
 
+/** Minúsculas y sin acentos, para comparar títulos de forma exacta. */
+function normalizedTitle(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Páginas genéricas «Próximamente» del sitio: no son cursos.
+ *
+ * La coincidencia es exacta a propósito. Un curso real cuyo título contenga la
+ * palabra («Marketing: próximamente nuevas fechas») no debe ignorarse, así que
+ * no se admiten coincidencias parciales.
+ */
 export function isPlaceholderWordPressCourse(course: Pick<WordPressCourse, "officialSlug" | "title">) {
-  return /^proximamente(?:-\d+)?$/i.test(course.officialSlug)
-    || /^pr[oó]ximamente$/i.test(course.title.trim());
+  return /^proximamente(?:-\d+)?$/i.test(course.officialSlug.trim())
+    || normalizedTitle(course.title) === "proximamente";
 }
 
 function courseBySlug(courses: CourseIdentity[], slug: string) {
@@ -100,6 +138,11 @@ export function resolveWordPressCourseMapping(
   source: WordPressCourse,
   courses: CourseIdentity[],
 ): WordPressMappingDecision {
+  // Se descarta antes que nada: una página genérica no crea, no actualiza y no
+  // se vincula a ningún curso, ni siquiera si una sincronización anterior llegó
+  // a enlazarla.
+  if (isPlaceholderWordPressCourse(source)) return { kind: "ignore", reason: IGNORED_PLACEHOLDER };
+
   const linked = courses.find((course) => course.externalSource === SOURCE && course.externalId === source.externalId);
   if (linked) return { kind: "link", courseId: linked.id, crmSlug: linked.crmSlug ?? linked.slug };
 
@@ -119,7 +162,6 @@ export function resolveWordPressCourseMapping(
     return { kind: "link", courseId: candidate.id, crmSlug: candidate.crmSlug ?? candidate.slug };
   }
   if (exact.length > 1) return { kind: "conflict", reason: "OFFICIAL_SLUG_AMBIGUOUS" };
-  if (isPlaceholderWordPressCourse(source)) return { kind: "conflict", reason: "PLACEHOLDER_WITHOUT_EXPLICIT_MAPPING" };
   if (!isSafeCrmSlug(source.officialSlug)) return { kind: "conflict", reason: "INVALID_OFFICIAL_SLUG" };
   return { kind: "create", crmSlug: source.officialSlug };
 }
@@ -199,6 +241,13 @@ async function synchronizeSourceCourse(source: WordPressCourse, syncedAt: Date) 
       select: { id: true, slug: true, crmSlug: true, externalId: true, externalSource: true },
     });
     const decision = resolveWordPressCourseMapping(source, courses);
+    if (decision.kind === "ignore") {
+      // Si una sincronización anterior llegó a enlazar esta página con un curso,
+      // se devuelve su id para que el curso NO se marque como histórico ni se
+      // pausen sus reglas: ignorar la página no puede tener efectos colaterales.
+      const linked = courses.find((course) => course.externalSource === SOURCE && course.externalId === source.externalId);
+      return { outcome: "ignored" as const, courseId: linked?.id, reason: decision.reason };
+    }
     if (decision.kind === "conflict") {
       if (decision.courseId) {
         await tx.course.update({
@@ -304,21 +353,63 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
       where: { status: "ACTIVE" },
       select: {
         id: true,
+        name: true,
         trigger: true,
         channel: true,
         subject: true,
         body: true,
         course: {
-          select: { id: true, isPublished: true, acceptsRegistrations: true, startsAt: true, endsAt: true },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            externalId: true,
+            isPublished: true,
+            acceptsRegistrations: true,
+            startsAt: true,
+            endsAt: true,
+            // Sin las sesiones, un curso cuyas fechas viven solo en
+            // `course_sessions` parece no tener calendario y sus recordatorios
+            // se pausarían por error.
+            sessions: { select: { id: true, title: true, startAt: true, endAt: true, streamUrl: true }, orderBy: { startAt: "asc" } },
+          },
         },
       },
     });
-    const pauseRuleIds = activeRules.filter((rule) => {
-      const courseState = currentCourseIds.has(rule.course.id)
-        ? rule.course
-        : { ...rule.course, isPublished: false, acceptsRegistrations: false };
-      return !automationRuleCanRun(courseState, rule);
-    }).map((rule) => rule.id);
+    const pausedDetails: PausedRuleDetail[] = activeRules.flatMap((rule) => {
+      const isHistorical = !currentCourseIds.has(rule.course.id);
+      const window = courseAutomationWindow(rule.course, rule.course.sessions);
+      const courseState = {
+        isPublished: isHistorical ? false : rule.course.isPublished,
+        acceptsRegistrations: isHistorical ? false : rule.course.acceptsRegistrations,
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+      };
+      if (automationRuleCanRun(courseState, rule)) return [];
+      const reason = isHistorical
+        ? "COURSE_HISTORICAL"
+        : !rule.course.isPublished
+          ? "COURSE_UNPUBLISHED"
+          : rule.trigger === "BEFORE_COURSE" && !window.startsAt
+            ? "COURSE_WITHOUT_SCHEDULE"
+            : rule.trigger === "AFTER_COURSE" && !window.endsAt
+              ? "COURSE_WITHOUT_SCHEDULE"
+              : "RULE_TEMPLATE_INVALID";
+      return [{
+        ruleId: rule.id,
+        ruleName: rule.name,
+        channel: rule.channel,
+        trigger: rule.trigger,
+        courseId: rule.course.id,
+        courseTitle: rule.course.title,
+        courseSlug: rule.course.slug,
+        externalId: rule.course.externalId,
+        isPublished: rule.course.isPublished,
+        acceptsRegistrations: rule.course.acceptsRegistrations,
+        reason,
+      }];
+    });
+    const pauseRuleIds = pausedDetails.map((detail) => detail.ruleId);
     if (pauseRuleIds.length) {
       await tx.automationRule.updateMany({
         where: { id: { in: pauseRuleIds } },
@@ -330,7 +421,18 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
           status: "CANCELADO",
           cancelledAt: syncedAt,
           errorCode: "COURSE_NOT_ELIGIBLE",
-          errorMessage: "La automatización se pausó porque el curso no está vigente, no acepta registros o no tiene fecha/plantilla válida.",
+          errorMessage: "La automatización se pausó porque el curso no está vigente o no tiene fecha o plantilla válida.",
+        },
+      });
+      // Deja rastro por regla y motivo: sin esto no se puede distinguir después
+      // una pausa correcta de una provocada por un error de la sincronización.
+      await tx.auditLog.create({
+        data: {
+          actorEmail: "wordpress-sync",
+          action: "AUTOMATION_RULES_PAUSED_BY_SYNC",
+          entityType: "AutomationRule",
+          result: "SUCCESS",
+          metadata: { syncedAt: syncedAt.toISOString(), paused: pausedDetails },
         },
       });
     }
@@ -352,6 +454,8 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
       activeRules: activeRuleCount,
       pausedRules: pausedRuleCount,
       rulesPausedThisRun: pauseRuleIds.length,
+      // Desglose por curso y motivo para poder consultarlo desde la interfaz.
+      pausedThisRunDetails: pausedDetails,
     };
   }, { isolationLevel: "Serializable", maxWait: 5_000, timeout: 30_000 });
 }
@@ -371,10 +475,12 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
     let updated = 0;
     let unchanged = 0;
     let conflicts = 0;
+    let ignored = 0;
     let errors = 0;
     const currentCourseIds = new Set<string>();
     const conflictCourseIds = new Set<string>();
     const conflictItems: ConflictItem[] = [];
+    const ignoredItems: IgnoredItem[] = [];
     const errorItems: Array<{ externalId: string; code: string }> = [];
 
     for (const source of sourceCourses) {
@@ -383,7 +489,18 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
         if (result.outcome === "created") created++;
         if (result.outcome === "updated") updated++;
         if (result.outcome === "unchanged") unchanged++;
-        if (result.outcome === "conflict") {
+        if (result.outcome === "ignored") {
+          ignored++;
+          ignoredItems.push({
+            externalId: source.externalId,
+            officialSlug: source.officialSlug,
+            title: source.title,
+            reason: result.reason,
+            explanation: IGNORED_PLACEHOLDER_EXPLANATION,
+          });
+          // Un curso enlazado por error a esta página no debe volverse histórico.
+          if (result.courseId) currentCourseIds.add(result.courseId);
+        } else if (result.outcome === "conflict") {
           conflicts++;
           if (result.courseId) conflictCourseIds.add(result.courseId);
           conflictItems.push({ externalId: source.externalId, officialSlug: source.officialSlug, title: source.title, reason: result.reason });
@@ -407,14 +524,19 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
         activeRules: await prisma.automationRule.count({ where: { status: "ACTIVE" } }),
         pausedRules: await prisma.automationRule.count({ where: { status: "PAUSED" } }),
         rulesPausedThisRun: 0,
+        pausedThisRunDetails: [] as PausedRuleDetail[],
       };
+    // Los ignorados no degradan el estado: si solo hay páginas genéricas y
+    // ningún conflicto real, la sincronización está sana.
     const status = errors ? "ERROR" : conflicts ? "CONFLICT" : "SYNCED";
     const metadata = {
       externalSource: SOURCE,
       sourceStatuses: sourceCourses.map((course) => ({ externalId: course.externalId, status: course.sourceStatus })),
       unchanged,
+      ignored,
       ...reconciliation,
       conflictItems,
+      ignoredItems,
       errorItems,
       missingItemsDeleted: 0,
       internalFieldsOverwritten: false,
@@ -439,9 +561,9 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
       entityType: "CatalogSyncRun",
       entityId: run.id,
       result: errors ? "FAILURE" : "SUCCESS",
-      metadata: { discovered: sourceCourses.length, created, updated, unchanged, conflicts, errors, ...reconciliation, readOnlySource: true },
+      metadata: { discovered: sourceCourses.length, created, updated, unchanged, ignored, conflicts, errors, ...reconciliation, readOnlySource: true },
     });
-    return { runId: run.id, discovered: sourceCourses.length, created, updated, unchanged, conflicts, errors, ...reconciliation };
+    return { runId: run.id, discovered: sourceCourses.length, created, updated, unchanged, ignored, ignoredItems, conflicts, errors, ...reconciliation };
   } catch (error) {
     const code = safeWordPressErrorCode(error);
     await prisma.catalogSyncRun.update({ where: { id: run.id }, data: { status: "ERROR", errors: 1, error: code, completedAt: new Date() } });

@@ -236,11 +236,22 @@ export async function publishPost(postId: string) {
     return { ok: false, errorCode: "CONNECTOR_UNAVAILABLE", error };
   }
 
-  const result = await adapter.publish({
+  const rawResult = await adapter.publish({
     caption: post.caption,
     mediaUrl: post.mediaUrl ?? undefined,
     linkUrl: post.linkUrl ?? undefined,
   });
+  // Un "ok" sin identificador del proveedor no es una publicación verificable.
+  // Marcarla como publicada dejaría un registro que afirma algo que no podemos
+  // demostrar, así que se trata como fallo reintentable.
+  const result = rawResult.ok && !rawResult.externalPostId
+    ? {
+        ...rawResult,
+        ok: false,
+        errorCode: "MISSING_PROVIDER_ID",
+        error: "El proveedor aceptó la solicitud sin devolver un identificador; no se puede confirmar la publicación.",
+      }
+    : rawResult;
   await prisma.socialPost.update({
     where: { id: post.id },
     data: result.ok

@@ -21,7 +21,9 @@
     "db:studio": "prisma studio",
     "admin:create": "tsx scripts/create-admin.ts",
     "report:demo-data": "tsx --env-file=.env scripts/demo-data-report.ts",
-    "report:preflight": "tsx --env-file=.env scripts/deploy-preflight.ts"
+    "report:preflight": "tsx --env-file=.env scripts/deploy-preflight.ts",
+    "report:integrity": "tsx --env-file=.env scripts/data-integrity-report.ts",
+    "report:isolation": "node scripts/db-isolation-check.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",

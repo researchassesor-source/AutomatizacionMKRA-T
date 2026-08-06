@@ -18,7 +18,15 @@ const guayaquil = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeSt
  * panel de Redes y en Mensajes para que quede claro que esta operativo y que
  * sigue pendiente.
  */
-export type IntegrationState = "ACTIVA" | "SIMULACION" | "INCOMPLETA" | "PENDIENTE";
+export type IntegrationState =
+  | "READY"
+  | "SIMULATED"
+  | "PENDING_CONFIGURATION"
+  | "PENDING_EXTERNAL_VERIFICATION"
+  | "PENDING_PROVIDER_APPROVAL"
+  | "PENDING_AD_ACCOUNT"
+  | "NOT_READY"
+  | "ERROR";
 
 export type IntegrationStatus = {
   key: string;
@@ -37,7 +45,7 @@ function emailStatus(): IntegrationStatus {
     return {
       key: "email",
       name: "Correo electrónico",
-      state: "INCOMPLETA",
+      state: "PENDING_CONFIGURATION",
       detail: window.error,
       nextStep: `Define ${MESSAGING_LIVE_FROM} con una fecha ISO 8601 en UTC. Hasta entonces no se envía ningún correo.`,
     };
@@ -46,7 +54,7 @@ function emailStatus(): IntegrationStatus {
     return {
       key: "email",
       name: "Correo electrónico",
-      state: "INCOMPLETA",
+      state: "PENDING_CONFIGURATION",
       detail: config.reason ?? "Falta configurar el correo saliente.",
       nextStep: "Agrega EMAIL_FROM, SMTP_HOST, SMTP_USER y SMTP_PASSWORD en Vercel.",
     };
@@ -55,7 +63,7 @@ function emailStatus(): IntegrationStatus {
     return {
       key: "email",
       name: "Correo electrónico",
-      state: "SIMULACION",
+      state: "SIMULATED",
       detail: `Configurado (${config.from}), pero el entorno actual no envía correos reales.`,
       nextStep: "Para enviar de verdad, MESSAGING_MODE debe ser live en Producción.",
     };
@@ -63,7 +71,7 @@ function emailStatus(): IntegrationStatus {
   return {
     key: "email",
     name: "Correo electrónico",
-    state: "ACTIVA",
+    state: "READY",
     detail: `Envío real por ${config.host}:${config.port} como ${config.from}.`,
     nextStep: window.state === "live"
       ? `Solo salen mensajes programados desde el ${guayaquil.format(window.liveFrom)}. Lo anterior queda visible pero no se envía.`
@@ -81,7 +89,7 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
     return {
       key: platform.toLowerCase(),
       name,
-      state: "INCOMPLETA",
+      state: "PENDING_CONFIGURATION",
       detail: window.error,
       nextStep: `Define ${SOCIAL_LIVE_FROM} con una fecha ISO 8601 en UTC. Hasta entonces no se publica nada.`,
     };
@@ -90,7 +98,7 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
     return {
       key: platform.toLowerCase(),
       name,
-      state: "INCOMPLETA",
+      state: "PENDING_CONFIGURATION",
       detail: !config.tokenConfigured
         ? "Falta el token del usuario del sistema de Meta."
         : `Falta ${isFacebook ? "META_PAGE_ID" : "META_INSTAGRAM_ACCOUNT_ID"}.`,
@@ -101,7 +109,7 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
     return {
       key: platform.toLowerCase(),
       name,
-      state: "SIMULACION",
+      state: "SIMULATED",
       detail: `Credenciales presentes (Graph ${config.graphVersion}), pero el entorno actual no publica contenido real.`,
       nextStep: "Para publicar de verdad, SOCIAL_MODE debe ser live en Producción.",
     };
@@ -109,7 +117,7 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
   return {
     key: platform.toLowerCase(),
     name,
-    state: "ACTIVA",
+    state: "READY",
     detail: `Publicación real habilitada con Graph ${config.graphVersion} (${isFacebook ? "página" : "cuenta"} ${identifier}).`,
     nextStep: window.state === "live"
       ? `Solo se publica lo programado desde el ${guayaquil.format(window.liveFrom)}. Lo anterior queda visible pero no sale.`
@@ -119,14 +127,17 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
 
 function tiktokStatus(): IntegrationStatus {
   const configured = Boolean(process.env.TIKTOK_CLIENT_KEY?.trim() && process.env.TIKTOK_CLIENT_SECRET?.trim());
+  // El CRM no tiene ruta de publicación productiva a TikTok: no hay Login Kit,
+  // ni callback, ni almacenamiento de tokens. Declararla "operativa" porque
+  // existan credenciales sería engañoso.
   return {
     key: "tiktok",
     name: "TikTok",
-    state: configured ? "SIMULACION" : "PENDIENTE",
+    state: configured ? "PENDING_PROVIDER_APPROVAL" : "NOT_READY",
     detail: configured
-      ? "Aplicación y Sandbox configurados. La publicación desde el CRM sigue en preparación."
-      : "Configuración externa lista (Sandbox), sin credenciales cargadas en el CRM.",
-    nextStep: "Prioridad posterior al correo y a Meta. No enviar a revisión hasta probar el flujo completo.",
+      ? "Aplicación y Sandbox configurados en el portal de TikTok, pero el CRM aún no implementa Login Kit, callback ni publicación."
+      : "Configuración externa lista en el portal de TikTok (Sandbox). El CRM no tiene integración implementada.",
+    nextStep: "Falta: Login Kit con state firmado, callback /api/integrations/tiktok/callback, almacenamiento y refresco de tokens, y prueba en Sandbox. No se pueden crear publicaciones de TikTok hasta entonces.",
   };
 }
 
@@ -134,9 +145,9 @@ function whatsappStatus(): IntegrationStatus {
   return {
     key: "whatsapp",
     name: "WhatsApp",
-    state: "PENDIENTE",
-    detail: "WhatsApp pendiente de conexión. El número aparece sin conexión y la cuenta no admite más socios asignados.",
-    nextStep: "No bloquea inscripciones ni correos. Los mensajes de este canal quedan pendientes, nunca marcados como enviados.",
+    state: "PENDING_EXTERNAL_VERIFICATION",
+    detail: "Bloqueado fuera del CRM: el número figura sin conexión y el portafolio no admite más socios asignados. No depende del código.",
+    nextStep: "No bloquea inscripciones ni correos. Las reglas de este canal no se ejecutan y sus mensajes nunca se marcan como enviados.",
   };
 }
 
@@ -145,24 +156,36 @@ function adsStatus(): IntegrationStatus {
   return {
     key: "meta_ads",
     name: "Campañas pagadas de Meta",
-    state: config.adAccountConfigured ? "SIMULACION" : "PENDIENTE",
+    state: "PENDING_AD_ACCOUNT",
     detail: config.adAccountConfigured
-      ? "Cuenta publicitaria declarada, sin automatización de anuncios habilitada."
-      : "Cuenta publicitaria no asignada al portafolio comercial.",
-    nextStep: "Agregar una cuenta publicitaria en Meta Business antes de crear campañas pagadas. La publicación orgánica no depende de esto.",
+      ? "Hay META_AD_ACCOUNT_ID declarado, pero el CRM no implementa gestión de campañas pagadas."
+      : "No hay cuenta publicitaria asignada al portafolio Research Assessor & Training, y el CRM no implementa campañas pagadas.",
+    nextStep: "Falta: crear o asignar una cuenta publicitaria al portafolio y concederla al usuario del sistema. La publicación orgánica es independiente y no se ve afectada.",
   };
 }
 
+/**
+ * El cron vive en GitHub Actions y su workflow se niega a correr si la rama
+ * predeterminada no es `main`. Tener el secreto no basta: mientras esa
+ * condición no se cumpla, no hay ejecución automática real.
+ */
 function cronStatus(): IntegrationStatus {
-  const configured = Boolean(process.env.CRON_SECRET?.trim());
+  const secretConfigured = Boolean(process.env.CRON_SECRET?.trim());
+  if (!secretConfigured) {
+    return {
+      key: "cron",
+      name: "Procesos programados",
+      state: "PENDING_CONFIGURATION",
+      detail: "Sin CRON_SECRET los endpoints de automatización no pueden autenticarse en Producción.",
+      nextStep: "Define CRON_SECRET en Vercel y el mismo valor como secreto del repositorio.",
+    };
+  }
   return {
     key: "cron",
     name: "Procesos programados",
-    state: configured ? "ACTIVA" : "INCOMPLETA",
-    detail: configured
-      ? "Los endpoints de automatización exigen el secreto compartido."
-      : "Sin CRON_SECRET los procesos programados no pueden autenticarse en Producción.",
-    nextStep: configured ? null : "Define CRON_SECRET en Vercel y en el secreto del repositorio.",
+    state: "PENDING_CONFIGURATION",
+    detail: "El secreto está configurado y los endpoints lo exigen, pero el reloj automático depende de una condición externa al código.",
+    nextStep: "El workflow automation-cron.yml solo se ejecuta si la rama predeterminada del repositorio es main. Mientras no se cambie, no hay ejecución automática y la cola solo avanza con la ejecución manual desde el panel.",
   };
 }
 
@@ -178,9 +201,17 @@ export function integrationStatuses(): IntegrationStatus[] {
   ];
 }
 
+/**
+ * Etiquetas honestas: ningún módulo debe decir "Activo" cuando solo existe
+ * código y credenciales pero no ejecución automática comprobada.
+ */
 export const INTEGRATION_STATE_LABELS: Record<IntegrationState, string> = {
-  ACTIVA: "Activa",
-  SIMULACION: "Simulación segura",
-  INCOMPLETA: "Configuración incompleta",
-  PENDIENTE: "Pendiente",
+  READY: "Operativa en producción",
+  SIMULATED: "Aprobada en simulación",
+  PENDING_CONFIGURATION: "Falta configuración",
+  PENDING_EXTERNAL_VERIFICATION: "Bloqueada por verificación externa",
+  PENDING_PROVIDER_APPROVAL: "Pendiente de aprobación del proveedor",
+  PENDING_AD_ACCOUNT: "Falta cuenta publicitaria",
+  NOT_READY: "No implementada",
+  ERROR: "Con error",
 };

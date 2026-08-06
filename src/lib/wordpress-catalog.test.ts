@@ -88,12 +88,40 @@ describe("mapeo explícito WordPress → CRM", () => {
     expect(resolveWordPressCourseMapping(wordpress("9003", "curso-exact"), [exact])).toEqual({ kind: "create", crmSlug: "curso-exact" });
   });
 
-  it("registra los tres placeholders como conflictos independientes", () => {
+  it("ignora los tres placeholders en lugar de tratarlos como conflictos", () => {
+    // Son páginas genéricas del sitio, no cursos: no deben crear, actualizar,
+    // vincular ni aparecer como conflicto.
     for (const [externalId, slug] of [["2238", "proximamente"], ["2290", "proximamente-2"], ["2295", "proximamente-3"]]) {
       const course = wordpress(externalId, slug, "Próximamente");
       expect(isPlaceholderWordPressCourse(course)).toBe(true);
-      expect(resolveWordPressCourseMapping(course, identities)).toEqual({ kind: "conflict", reason: "PLACEHOLDER_WITHOUT_EXPLICIT_MAPPING" });
+      expect(resolveWordPressCourseMapping(course, identities)).toEqual({ kind: "ignore", reason: "IGNORED_PLACEHOLDER" });
     }
+  });
+
+  it("reconoce el placeholder por título aunque el slug sea distinto", () => {
+    for (const title of ["Próximamente", "próximamente", "PRÓXIMAMENTE", "  Proximamente  "]) {
+      expect(isPlaceholderWordPressCourse(wordpress("9001", "pagina-generica", title))).toBe(true);
+    }
+  });
+
+  it("no ignora un curso real que contiene la palabra próximamente", () => {
+    // La coincidencia es exacta: un curso legítimo no puede desaparecer del
+    // catálogo por mencionar la palabra.
+    const casos = [
+      wordpress("9101", "marketing-proximamente-nuevas-fechas", "Marketing: próximamente nuevas fechas"),
+      wordpress("9102", "proximamente-en-vivo", "Taller próximamente en vivo"),
+      wordpress("9103", "curso-proximamente", "Curso Próximamente Disponible"),
+    ];
+    for (const course of casos) {
+      expect(isPlaceholderWordPressCourse(course)).toBe(false);
+      expect(resolveWordPressCourseMapping(course, identities).kind).not.toBe("ignore");
+    }
+  });
+
+  it("el placeholder se ignora incluso si una sincronización previa lo enlazó", () => {
+    const linked = [...identities, { id: "curso-fantasma", slug: "proximamente", crmSlug: null, externalId: "2238", externalSource: "wordpress" }];
+    expect(resolveWordPressCourseMapping(wordpress("2238", "proximamente", "Próximamente"), linked))
+      .toEqual({ kind: "ignore", reason: "IGNORED_PLACEHOLDER" });
   });
 
   it("rechaza un enlace explícito ambiguo o asociado a otra fuente", () => {

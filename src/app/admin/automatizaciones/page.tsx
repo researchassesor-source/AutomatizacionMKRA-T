@@ -4,6 +4,7 @@ import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { AutomationManager } from "./AutomationManager";
+import { PausedRulesPanel } from "./PausedRulesPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function AutomationsPage() {
     <AdminNav />
     <AdminPageHeader eyebrow="Automatización" title="Campañas y recordatorios" description="Configura reglas por curso. En Preview todas las ejecuciones permanecen en SIMULATED y no contactan personas." />
     <section className="admin-notice" role="status"><strong>Preview seguro:</strong> activar una regla permite programarla y probar su trazabilidad, pero no habilita proveedores reales.</section>
+    <PausedRulesPanel canRecover={session.role === "ADMIN"} />
     <AutomationManager
       role={session.role}
       courses={courses.map((course) => ({ id: course.id, title: course.title, startsAt: course.startsAt?.toISOString() ?? null, endsAt: course.endsAt?.toISOString() ?? null }))}

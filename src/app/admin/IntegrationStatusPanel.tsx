@@ -1,10 +1,14 @@
 import { INTEGRATION_STATE_LABELS, integrationStatuses, type IntegrationState } from "@/lib/integration-status";
 
 const pillClass: Record<IntegrationState, string> = {
-  ACTIVA: "ok",
-  SIMULACION: "info",
-  INCOMPLETA: "err",
-  PENDIENTE: "warn",
+  READY: "ok",
+  SIMULATED: "info",
+  PENDING_CONFIGURATION: "warn",
+  PENDING_EXTERNAL_VERIFICATION: "warn",
+  PENDING_PROVIDER_APPROVAL: "warn",
+  PENDING_AD_ACCOUNT: "warn",
+  NOT_READY: "info",
+  ERROR: "err",
 };
 
 /**

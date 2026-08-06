@@ -10,12 +10,16 @@ const mocks = vi.hoisted(() => ({
   rescoreLead: vi.fn(async () => undefined),
   writeAudit: vi.fn(async (_input: { action: string }) => undefined),
   scheduleEnrollmentAutomations: vi.fn(async () => ({ enqueued: 2 })),
+  sendDueMessagesForEnrollment: vi.fn(async () => ({ processed: 1, succeeded: 1 })),
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/scoring", () => ({ rescoreLead: mocks.rescoreLead }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
-vi.mock("@/lib/nurture/engine", () => ({ scheduleEnrollmentAutomations: mocks.scheduleEnrollmentAutomations }));
+vi.mock("@/lib/nurture/engine", () => ({
+  scheduleEnrollmentAutomations: mocks.scheduleEnrollmentAutomations,
+  sendDueMessagesForEnrollment: mocks.sendDueMessagesForEnrollment,
+}));
 
 import { captureLead, leadInputSchema } from "./leads";
 
@@ -182,6 +186,15 @@ describe("captura transaccional de contactos", () => {
       "FORM_SUBMIT_SUCCESS",
     ]));
     expect(mocks.scheduleEnrollmentAutomations).toHaveBeenCalledWith("enrollment-1");
+    // La bienvenida sale en el momento de inscribirse, no en el siguiente cron.
+    expect(mocks.sendDueMessagesForEnrollment).toHaveBeenCalledWith("enrollment-1");
+  });
+
+  it("conserva la inscripción cuando el envío inmediato falla", async () => {
+    mocks.sendDueMessagesForEnrollment.mockRejectedValueOnce(new Error("SMTP caído"));
+    const result = await captureLead(input(), { requestId: "request-smtp-down" });
+    expect(result).toMatchObject({ created: true, enrollmentCreated: true });
+    expect(enrollments).toHaveLength(1);
   });
 
   it("reutiliza mismo contacto y curso sin degradar un estado avanzado", async () => {

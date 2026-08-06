@@ -5,6 +5,8 @@ import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { CourseManager, type CourseRow } from "./CourseManager";
+import { CourseSchedulePanel, type ScheduledCourse } from "./CourseSchedulePanel";
+import { CRM_PUBLIC_URL } from "@/data/course-capture-mapping";
 import { wordpressCatalogConfigured } from "@/lib/wordpress-catalog";
 import { WordPressCatalogSync, type SyncMetadata } from "./WordPressCatalogSync";
 
@@ -46,6 +48,31 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
   }) : Promise.resolve([]), session.role === "ADMIN" ? prisma.catalogSyncRun.findFirst({ where: { source: "wordpress" }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null)]);
   const categories = await prisma.course.findMany({ distinct: ["category"], select: { category: true }, where: { category: { not: null } } });
   const rows: CourseRow[] = courses.map((course) => ({ ...course, price: course.price === null ? null : Number(course.price), startsAt: course.startsAt?.toISOString() ?? null, endsAt: course.endsAt?.toISOString() ?? null }));
+  const scheduledCourses = await prisma.course.findMany({
+    where: { isPublished: true },
+    orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
+    include: {
+      sessions: { orderBy: { startAt: "asc" } },
+      _count: { select: { enrollments: true, automationRules: true } },
+    },
+  });
+  const schedules: ScheduledCourse[] = scheduledCourses.map((course) => ({
+    id: course.id,
+    slug: course.slug,
+    title: course.title,
+    startsAt: course.startsAt?.toISOString() ?? null,
+    endsAt: course.endsAt?.toISOString() ?? null,
+    streamUrl: course.streamUrl,
+    enrollments: course._count.enrollments,
+    automations: course._count.automationRules,
+    sessions: course.sessions.map((session) => ({
+      id: session.id,
+      title: session.title,
+      startAt: session.startAt.toISOString(),
+      endAt: session.endAt?.toISOString() ?? null,
+      streamUrl: session.streamUrl,
+    })),
+  }));
   return (
     <main className="container admin-shell">
       <AdminNav />
@@ -84,6 +111,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
           La sincronización del catálogo oficial está disponible únicamente para administradores.
         </section>
       )}
+      <CourseSchedulePanel courses={schedules} canEdit={canEdit} publicOrigin={process.env.APP_URL?.replace(/\/$/, "") || CRM_PUBLIC_URL} />
       <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
     </main>
   );

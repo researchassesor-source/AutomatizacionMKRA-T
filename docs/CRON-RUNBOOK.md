@@ -22,3 +22,19 @@ El workflow nuevo falla de forma visible si GitHub informa una rama predetermina
 6. Confirmar en auditoría que no hubo dobles ejecuciones ni envíos reales no autorizados.
 
 El cron no activa proveedores: `MESSAGING_MODE` y `SOCIAL_MODE` conservan el control de simulación.
+
+## Frecuencia requerida (actualización del 6 de agosto de 2026)
+
+El workflow pasó de `*/15` a `*/5` minutos. El motivo es funcional: el
+recordatorio de 15 minutos antes de cada sesión no puede depender de un reloj de
+15 minutos, porque en el peor caso saldría justo al empezar la sesión. Cinco
+minutos es además la frecuencia mínima que admite `schedule` en GitHub Actions.
+
+El plan Hobby de Vercel solo permite ejecuciones diarias, por eso el reloj vive
+en GitHub Actions y no en `vercel.json`. La lógica no está acoplada a ningún
+proveedor de cron: cualquier programador externo que pueda enviar una cabecera
+`Authorization: Bearer <CRON_SECRET>` cada cinco minutos a
+`/api/nurture/dispatch` y `/api/social/publish` cumple la misma función.
+
+Ambos endpoints son idempotentes: una ejecución repetida no duplica correos ni
+publicaciones.

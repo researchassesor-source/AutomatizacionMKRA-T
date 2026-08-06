@@ -3,6 +3,7 @@ import { currentAdminSession } from "@/lib/auth/server";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
+import { IntegrationStatusPanel } from "../IntegrationStatusPanel";
 import { RedesManager } from "./RedesManager";
 import { socialConnectionState } from "@/lib/social/orchestrator";
 
@@ -18,7 +19,7 @@ export default async function SocialPage() {
     prisma.socialPost.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { account: true } }),
     prisma.socialSchedule.findMany({ orderBy: { nextRunAt: "asc" }, include: { account: true } }),
   ]);
-  return <main className="container admin-shell"><AdminNav /><AdminPageHeader eyebrow="Contenido y campañas" title="Redes sociales" description="Coordina cuentas, publicaciones y calendarios de contenido desde un solo lugar." /><RedesManager
+  return <main className="container admin-shell"><AdminNav /><AdminPageHeader eyebrow="Contenido y campañas" title="Redes sociales" description="Coordina cuentas, publicaciones y calendarios de contenido desde un solo lugar." /><IntegrationStatusPanel only={["facebook", "instagram", "tiktok", "whatsapp", "meta_ads"]} /><RedesManager
     accounts={accounts.map((item) => ({ id: item.id, platform: item.platform, displayName: item.displayName, externalId: item.externalId, isActive: item.isActive, connectorState: socialConnectionState(item.platform), connectionStatus: item.connectionStatus, connectionCheckedAt: item.connectionCheckedAt?.toISOString() ?? null, connectionError: item.connectionError }))}
     posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, account: `${item.account.platform} · ${item.account.displayName}`, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, errorCode: item.errorCode, providerPostUrl: item.providerPostUrl, externalPostId: item.externalPostId }))}
     schedules={schedules.map((item) => ({ id: item.id, name: item.name, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, weekday: item.weekday, localTime: item.localTime, isActive: item.isActive, nextRunAt: item.nextRunAt.toISOString(), account: `${item.account.platform} · ${item.account.displayName}` }))}

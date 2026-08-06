@@ -120,6 +120,24 @@ export const CRM_AUTOMATION_REQUIRED_COLUMNS = Object.freeze([
   "automation_rules.id", "campaigns.id", "catalog_sync_runs.id", "message_provider_events.id", "rate_limit_buckets.key",
 ]);
 
+// Etapa 20260806010000_course_sessions_and_stream_links. No participa en la
+// clasificacion de bases Preview (queda cubierta por additionalSchemaMigrations),
+// solo en la verificacion final de estructuras criticas.
+export const COURSE_SESSIONS_TABLES = Object.freeze(["course_sessions"]);
+
+export const COURSE_SESSIONS_REQUIRED_COLUMNS = Object.freeze([
+  "course_sessions.id",
+  "course_sessions.courseId",
+  "course_sessions.startAt",
+  "course_sessions.endAt",
+  "course_sessions.streamUrl",
+  "course_sessions.timezone",
+  "courses.streamUrl",
+  "outbound_messages.courseSessionId",
+  "automation_rules.requiresStreamUrl",
+  "automation_rules.planKey",
+]);
+
 const PREVIEW_FLAG = "PREVIEW_DATABASE_MIGRATIONS_ENABLED";
 const DIRECT_URL = "POSTGRES_URL_NON_POOLING";
 const HISTORY_TABLE = "_prisma_migrations";

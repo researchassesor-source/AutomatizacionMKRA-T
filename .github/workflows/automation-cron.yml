@@ -8,13 +8,17 @@ concurrency:
 #  - publicar los posts programados cuya hora ya llego
 #  - enviar los correos/WhatsApp de nurture vencidos
 #
-# Corre cada 15 minutos. Reemplaza al cron de Vercel (que en el plan gratis
-# solo corre 1 vez al dia). Requiere un secreto de repositorio: CRON_SECRET
-# (mismo valor que la variable CRON_SECRET en Vercel).
+# Corre cada 5 minutos: es la frecuencia minima que admite GitHub Actions y la
+# necesaria para que el recordatorio de 15 minutos antes de cada sesion llegue a
+# tiempo. Con 15 minutos podia salir justo al empezar la sesion.
+#
+# Reemplaza al cron de Vercel (que en el plan Hobby solo corre 1 vez al dia).
+# Requiere un secreto de repositorio: CRON_SECRET (mismo valor que la variable
+# CRON_SECRET en Vercel).
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {} # permite dispararlo a mano desde la pestana Actions
 
 jobs:

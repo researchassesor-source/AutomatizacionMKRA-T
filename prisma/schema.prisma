@@ -50,6 +50,7 @@ model Course {
   modality             String?
   startsAt             DateTime?
   endsAt               DateTime?
+  streamUrl            String?
   isFree               Boolean           @default(false)
   isPublished          Boolean           @default(false)
   acceptsRegistrations Boolean           @default(false)
@@ -74,12 +75,36 @@ model Course {
   enrollments     Enrollment[]
   campaigns       Campaign[]
   automationRules AutomationRule[]
+  sessions        CourseSession[]
 
   @@unique([externalSource, externalId])
   @@index([isPublished, displayOrder])
   @@index([category])
   @@index([syncStatus])
   @@map("courses")
+}
+
+/// Sesiones reales de un curso o taller. Un curso puede tener varias fechas y
+/// reutilizar el mismo enlace de transmision entre ellas. Si un curso no tiene
+/// sesiones registradas, el CRM sigue usando `startsAt`/`endsAt` del curso como
+/// una sesion unica virtual (ver src/lib/course-sessions.ts).
+model CourseSession {
+  id        String    @id @default(cuid())
+  courseId  String
+  title     String?
+  startAt   DateTime
+  endAt     DateTime?
+  streamUrl String?
+  timezone  String    @default("America/Guayaquil")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  course   Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  messages OutboundMessage[]
+
+  @@index([courseId, startAt])
+  @@index([startAt])
+  @@map("course_sessions")
 }
 
 enum CatalogSyncStatus {
@@ -346,6 +371,7 @@ model OutboundMessage {
   id                String         @id @default(cuid())
   leadId            String
   enrollmentId      String?
+  courseSessionId   String?
   templateId        String?
   channel           MessageChannel
   toAddress         String
@@ -378,6 +404,7 @@ model OutboundMessage {
 
   lead           Lead                   @relation(fields: [leadId], references: [id], onDelete: Cascade)
   enrollment     Enrollment?            @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  courseSession  CourseSession?         @relation(fields: [courseSessionId], references: [id], onDelete: SetNull)
   template       MessageTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
   automationRule AutomationRule?        @relation(fields: [automationRuleId], references: [id], onDelete: SetNull)
   providerEvents MessageProviderEvent[]
@@ -386,6 +413,7 @@ model OutboundMessage {
   @@index([status, scheduledAt])
   @@index([leadId])
   @@index([enrollmentId])
+  @@index([courseSessionId])
   @@index([automationRuleId])
   @@index([providerMessageId])
   @@map("outbound_messages")
@@ -437,6 +465,13 @@ model AutomationRule {
   subject            String?
   body               String
   status             AutomationStatus  @default(DRAFT)
+  /// Marca las reglas que solo tienen sentido con enlace de transmision (por
+  /// ejemplo el recordatorio de 15 minutos). Sin enlace el mensaje se registra
+  /// como OMITIDO con un motivo claro en lugar de enviarse vacio.
+  requiresStreamUrl  Boolean           @default(false)
+  /// Identificador estable del plan estandar de correos ("welcome",
+  /// "reminder_24h", ...). Permite reaplicar el plan sin duplicar reglas.
+  planKey            String?
   enrollmentStatuses Json?
   lastExecutedAt     DateTime?
   nextExecutionAt    DateTime?
@@ -447,6 +482,7 @@ model AutomationRule {
   campaign Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   messages OutboundMessage[]
 
+  @@unique([courseId, planKey])
   @@index([status, nextExecutionAt])
   @@index([courseId, trigger])
   @@index([campaignId])

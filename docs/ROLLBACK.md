@@ -25,6 +25,36 @@ La migración no incluye un `down` automático. No ejecutar `DROP`, `db push`, `
 
 Las inscripciones de backfill son deterministas y los campos históricos permanecen intactos, pero no deben eliminarse manualmente como forma de rollback.
 
+## Rollback del cierre del 6 de agosto de 2026
+
+Vía rápida y sin pérdida de datos, en este orden:
+
+1. `MESSAGING_MODE=simulation` y `SOCIAL_MODE=simulation` en Vercel y redeploy.
+   Corta de inmediato cualquier envío o publicación real conservando todo el
+   historial. Es el paso que resuelve el 95 % de los incidentes.
+2. Si el problema es solo de correo, `EMAIL_PROVIDER=resend` (con
+   `EMAIL_API_KEY`) o vaciar `SMTP_HOST` deja el canal en simulación sin tocar
+   el resto del CRM.
+3. Redeploy del commit anterior si el fallo es de código.
+
+La migración `20260806010000_course_sessions_and_stream_links` es aditiva: el
+código anterior ignora `course_sessions`, `courses.streamUrl`,
+`outbound_messages.courseSessionId`, `automation_rules.requiresStreamUrl` y
+`automation_rules.planKey`. **No hace falta revertirla para volver atrás.**
+
+Solo si se decide eliminarla de forma deliberada, con respaldo previo y fuera de
+horario de operación:
+
+```sql
+DROP TABLE "course_sessions";
+ALTER TABLE "outbound_messages" DROP COLUMN "courseSessionId";
+ALTER TABLE "automation_rules" DROP COLUMN "requiresStreamUrl", DROP COLUMN "planKey";
+ALTER TABLE "courses" DROP COLUMN "streamUrl";
+```
+
+`DROP TABLE "course_sessions"` borra el calendario de sesiones. Los mensajes ya
+enviados se conservan porque su relación es `ON DELETE SET NULL`.
+
 ## Rollback de Preview
 
 1. Bloquear el avance si falla migrate deploy, migrate status o schema-check.

@@ -10,6 +10,8 @@ export const automationRuleFields = z.object({
   subject: z.string().trim().max(200).nullable().optional(),
   body: z.string().trim().min(5).max(10_000),
   status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]).default("DRAFT"),
+  // Marca los recordatorios que no tienen sentido sin enlace de transmisión.
+  requiresStreamUrl: z.boolean().default(false),
   enrollmentStatuses: z.array(z.enum(["INTERESADO", "INSCRITO", "EN_CURSO", "COMPLETADO", "CANCELADO"])).min(1).default(["INTERESADO", "INSCRITO"]),
 });
 

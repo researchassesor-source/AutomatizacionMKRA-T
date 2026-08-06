@@ -3,15 +3,24 @@ import { Prisma } from "@prisma/client";
 import type { PostStatus } from "@prisma/client";
 import { MetaAdapter } from "./adapters/meta";
 import { TikTokAdapter } from "./adapters/tiktok";
+import { resolveMetaConfig } from "./meta-config";
 import type { Platform, SocialAdapter } from "./types";
+import {
+  isWithinLiveWindow,
+  outsideLiveWindowMessage,
+  resolveSocialWindow,
+  SOCIAL_LIVE_FROM,
+  type LiveWindow,
+} from "@/lib/live-activation";
 import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
+import { writeAudit } from "@/lib/audit";
 
+/**
+ * Los adaptadores se construyen en cada uso para leer la configuracion vigente
+ * (y no la que existiera al importar el modulo).
+ */
 function buildAdapters(): Partial<Record<Platform, SocialAdapter>> {
-  const metaConfig = {
-    accessToken: process.env.META_ACCESS_TOKEN,
-    pageId: process.env.META_PAGE_ID,
-    igUserId: process.env.META_IG_USER_ID,
-  };
+  const metaConfig = resolveMetaConfig();
   return {
     INSTAGRAM: new MetaAdapter("INSTAGRAM", metaConfig),
     FACEBOOK: new MetaAdapter("FACEBOOK", metaConfig),
@@ -24,10 +33,8 @@ function buildAdapters(): Partial<Record<Platform, SocialAdapter>> {
   };
 }
 
-const adapters = buildAdapters();
-
 export function getAdapter(platform: Platform): SocialAdapter | undefined {
-  return adapters[platform];
+  return buildAdapters()[platform];
 }
 
 export type SocialConnectionState = "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED";
@@ -55,7 +62,7 @@ export async function verifyPlatformConnection(platform: Platform) {
   if (isSocialSimulation()) {
     return { ok: true, simulated: true, state: "SIMULATION" as const, message: "Preview no consulta proveedores reales." };
   }
-  const adapter = adapters[platform];
+  const adapter = getAdapter(platform);
   if (adapter instanceof MetaAdapter || adapter instanceof TikTokAdapter) return adapter.verifyConnection();
   return { ok: false, error: `La conexión aún no está disponible para ${platform}.` };
 }
@@ -97,13 +104,46 @@ export function nextGuayaquilOccurrence(weekday: number, localTime: string, afte
   return candidate;
 }
 
-export async function expandDueSchedules(now = new Date()) {
+/**
+ * Adelanta una recurrencia hasta su primera ocurrencia dentro de la ventana de
+ * activación, sin materializar las publicaciones atrasadas por el camino.
+ * El límite de iteraciones cubre con holgura cualquier fecha de corte razonable
+ * (520 semanas = 10 años) y evita un bucle infinito ante datos corruptos.
+ */
+export function fastForwardOccurrence(
+  weekday: number,
+  localTime: string,
+  from: Date,
+  target: Date,
+  maxIterations = 520,
+): Date {
+  let candidate = from;
+  for (let index = 0; index < maxIterations && candidate.getTime() < target.getTime(); index++) {
+    candidate = nextGuayaquilOccurrence(weekday, localTime, candidate);
+  }
+  return candidate;
+}
+
+export async function expandDueSchedules(now = new Date(), window: LiveWindow = resolveSocialWindow()) {
+  if (window.state === "blocked") return 0;
   const schedules = await prisma.socialSchedule.findMany({
     where: { isActive: true, nextRunAt: { lte: now }, account: { isActive: true } },
     take: 50,
   });
   let created = 0;
+  let skipped = 0;
   for (const schedule of schedules) {
+    // Una recurrencia vencida antes de la fecha de activación no genera
+    // publicaciones atrasadas: se adelanta hasta la primera ocurrencia válida.
+    if (window.state === "live" && schedule.nextRunAt.getTime() < window.liveFrom.getTime()) {
+      const resumeAt = fastForwardOccurrence(schedule.weekday, schedule.localTime, schedule.nextRunAt, window.liveFrom);
+      await prisma.socialSchedule.update({
+        where: { id: schedule.id },
+        data: { lastRunAt: schedule.lastRunAt, nextRunAt: resumeAt },
+      });
+      skipped++;
+      continue;
+    }
     const occurrenceKey = `${schedule.id}:${schedule.nextRunAt.toISOString()}`;
     try {
       await prisma.socialPost.create({
@@ -132,19 +172,48 @@ export async function expandDueSchedules(now = new Date()) {
       },
     });
   }
+  if (skipped > 0) {
+    await writeAudit({
+      actorEmail: "automation",
+      action: "SOCIAL_SCHEDULES_FAST_FORWARDED",
+      entityType: "SocialSchedule",
+      metadata: { skipped, liveFrom: window.state === "live" ? window.liveFrom.toISOString() : null },
+    });
+  }
   return created;
 }
 
 export async function publishPost(postId: string) {
+  // La ventana se comprueba antes de reclamar: una publicación bloqueada
+  // conserva su estado y sigue visible y cancelable desde el panel.
+  const window = resolveSocialWindow();
+  if (window.state === "blocked") {
+    return { ok: false, errorCode: window.errorCode, error: window.error };
+  }
+  const scheduled = await prisma.socialPost.findUnique({ where: { id: postId }, select: { scheduledAt: true, status: true } });
+  if (!scheduled) return { ok: false, error: "No se encontró la publicación." };
+  // Un borrador sin fecha se publica a mano desde el panel: la fecha de corte
+  // protege de la cola atrasada, no de una acción deliberada de hoy.
+  const effectiveSchedule = scheduled.scheduledAt ?? new Date();
+  if (!isWithinLiveWindow(window, effectiveSchedule)) {
+    return { ok: false, errorCode: "BEFORE_LIVE_FROM", error: outsideLiveWindowMessage(window, SOCIAL_LIVE_FROM) };
+  }
+
   const claimed = await prisma.socialPost.updateMany({
     where: {
       id: postId,
       status: { in: ["BORRADOR", "PROGRAMADO", "FALLIDO", "SIMULADO"] },
+      // Un registro que ya tiene identificador del proveedor no vuelve a
+      // publicarse nunca: es la garantia de que un cron repetido no duplica
+      // contenido en Facebook o Instagram.
+      externalPostId: null,
       account: { isActive: true },
     },
     data: { status: "PUBLICANDO", publishStartedAt: new Date(), error: null },
   });
-  if (claimed.count !== 1) return { ok: false, error: "La publicación ya está siendo procesada o fue cancelada." };
+  if (claimed.count !== 1) {
+    return { ok: false, error: "La publicación ya se envió al proveedor, está siendo procesada o fue cancelada." };
+  }
 
   const post = await prisma.socialPost.findUnique({ where: { id: postId }, include: { account: true } });
   if (!post) return { ok: false, error: "No se encontró la publicación." };
@@ -159,11 +228,12 @@ export async function publishPost(postId: string) {
 
   const adapter = getAdapter(post.account.platform);
   if (!adapter) {
+    const error = "Esta red todavía no tiene un conector habilitado.";
     await prisma.socialPost.update({
       where: { id: post.id },
-      data: { status: "FALLIDO", error: "Esta red todavía no tiene un conector habilitado." },
+      data: { status: "FALLIDO", publishStartedAt: null, error, errorCode: "CONNECTOR_UNAVAILABLE", errorMessage: error },
     });
-    return { ok: false, error: "Esta red todavía no tiene un conector habilitado." };
+    return { ok: false, errorCode: "CONNECTOR_UNAVAILABLE", error };
   }
 
   const result = await adapter.publish({
@@ -199,18 +269,35 @@ export async function publishPost(postId: string) {
 }
 
 export async function processScheduledPosts(now = new Date()) {
+  // Un canal en live sin fecha de activación no publica nada: falla de forma
+  // segura y lo dice, en lugar de vaciar la cola atrasada sobre las redes.
+  const window = resolveSocialWindow();
+  if (window.state === "blocked") {
+    await writeAudit({
+      actorEmail: "automation",
+      action: "SOCIAL_PUBLISH_BLOCKED",
+      entityType: "SocialPost",
+      result: "FAILURE",
+      metadata: { errorCode: window.errorCode, variable: SOCIAL_LIVE_FROM },
+    });
+    return { blocked: true, errorCode: window.errorCode, error: window.error, expanded: 0, processed: 0, results: [] };
+  }
   await prisma.socialPost.updateMany({
     where: { status: "PUBLICANDO", publishStartedAt: { lt: new Date(now.getTime() - 15 * 60 * 1000) } },
     data: { status: "FALLIDO", publishStartedAt: null, error: "La publicación quedó interrumpida y puede reintentarse." },
   });
-  const expanded = await expandDueSchedules(now);
+  const expanded = await expandDueSchedules(now, window);
   const pending = await prisma.socialPost.findMany({
-    where: { status: "PROGRAMADO", scheduledAt: { lte: now }, account: { isActive: true } },
+    where: {
+      status: "PROGRAMADO",
+      scheduledAt: window.state === "live" ? { lte: now, gte: window.liveFrom } : { lte: now },
+      account: { isActive: true },
+    },
     orderBy: { scheduledAt: "asc" },
     take: 25,
     select: { id: true },
   });
   const results = [];
   for (const post of pending) results.push({ id: post.id, ...(await publishPost(post.id)) });
-  return { expanded, processed: results.length, results };
+  return { blocked: false, errorCode: null, error: null, expanded, processed: results.length, results };
 }

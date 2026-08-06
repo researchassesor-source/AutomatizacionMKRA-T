@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   COURSE_CAPTURE_REQUIRED_COLUMNS,
   COURSE_SCHEDULE_REQUIRED_COLUMNS,
+  COURSE_SESSIONS_REQUIRED_COLUMNS,
+  COURSE_SESSIONS_TABLES,
   CRM_AUTOMATION_REQUIRED_COLUMNS,
   CRM_AUTOMATION_TABLES,
   REPOSITORY_MIGRATIONS,
@@ -19,6 +21,7 @@ const requiredTables = [
   "leads",
   "outbound_messages",
   ...CRM_AUTOMATION_TABLES,
+  ...COURSE_SESSIONS_TABLES,
 ];
 const requiredColumns = [
   "courses.category",
@@ -26,6 +29,7 @@ const requiredColumns = [
   ...COURSE_SCHEDULE_REQUIRED_COLUMNS,
   ...COURSE_CAPTURE_REQUIRED_COLUMNS,
   ...CRM_AUTOMATION_REQUIRED_COLUMNS,
+  ...COURSE_SESSIONS_REQUIRED_COLUMNS,
 ];
 
 function prismaSnapshot(options: {
@@ -60,8 +64,13 @@ describe("verificacion final del esquema", () => {
     await expect(verifyDatabaseSchema(prismaSnapshot() as never)).resolves.toBeUndefined();
   });
 
+  it("rechaza la tabla de sesiones ausente", async () => {
+    const tables = requiredTables.filter((table) => table !== "course_sessions");
+    await expect(verifyDatabaseSchema(prismaSnapshot({ tables }) as never)).rejects.toThrow("course_sessions");
+  });
+
   it("rechaza una columna de captacion o agenda ausente", async () => {
-    for (const missing of ["courses.startsAt", "leads.utmContent", "enrollments.referrer"]) {
+    for (const missing of ["courses.startsAt", "leads.utmContent", "enrollments.referrer", "courses.streamUrl", "outbound_messages.courseSessionId"]) {
       const columns = requiredColumns.filter((column) => column !== missing);
       await expect(verifyDatabaseSchema(prismaSnapshot({ columns }) as never)).rejects.toThrow(missing);
     }

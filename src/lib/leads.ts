@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rescoreLead } from "@/lib/scoring";
 import { writeAudit } from "@/lib/audit";
-import { scheduleEnrollmentAutomations } from "@/lib/nurture/engine";
+import { scheduleEnrollmentAutomations, sendDueMessagesForEnrollment } from "@/lib/nurture/engine";
 import {
   normalizeEcuadorPhone,
   normalizeEmail,
@@ -386,6 +386,10 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
   await writeCaptureAudits(result, input, context);
   try {
     await scheduleEnrollmentAutomations(result.enrollment.id);
+    // La bienvenida debe salir en el momento de inscribirse, no en el siguiente
+    // ciclo del reloj. Si el proveedor falla, la inscripción se conserva y el
+    // mensaje queda como fallido y reintentable.
+    await sendDueMessagesForEnrollment(result.enrollment.id);
   } catch {
     console.error("[leads] No se pudo programar la automatización del curso.");
     await writeAudit({

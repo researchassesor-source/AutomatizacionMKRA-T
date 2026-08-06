@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { scheduleEnrollmentAutomations } from "@/lib/nurture/engine";
 
 const schema = z.object({
   leadId: z.string().trim().min(1).max(100),
@@ -58,6 +59,20 @@ export async function POST(request: Request) {
       entityId: enrollment.id,
       metadata: { leadId: lead.id, courseId: course.id },
     });
+    // La programación no puede deshacer una inscripción válida: si falla se
+    // registra y queda pendiente de reprogramar desde el curso.
+    try {
+      await scheduleEnrollmentAutomations(enrollment.id);
+    } catch {
+      await writeAudit({
+        session: auth.session,
+        action: "AUTOMATION_SCHEDULING_FAILED",
+        entityType: "Enrollment",
+        entityId: enrollment.id,
+        result: "FAILURE",
+        metadata: { courseId: course.id },
+      });
+    }
     return NextResponse.json({ ok: true, enrollmentId: enrollment.id }, { status: 201 });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

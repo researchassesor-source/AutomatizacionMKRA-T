@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { normalizeEcuadorPhone } from "@/lib/leads";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { cancelPendingMessages } from "@/lib/nurture/engine";
 
 const updateSchema = z.object({
   firstName: z.string().trim().min(2).max(80).optional(),
@@ -85,6 +86,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await prisma.leadEvent.create({
       data: { leadId: id, type: "stage_change", payload: { from: current.stage, to: parsed.data.stage } },
     });
+  }
+  // Archivar un contacto detiene sus recordatorios pendientes; el historial de
+  // lo ya enviado se conserva intacto.
+  if (archivedChanged && updated.isArchived) {
+    await cancelPendingMessages(
+      { leadId: id },
+      { code: "CONTACT_ARCHIVED", message: "El contacto fue archivado por un administrador." },
+    );
   }
   await writeAudit({
     session: auth.session,

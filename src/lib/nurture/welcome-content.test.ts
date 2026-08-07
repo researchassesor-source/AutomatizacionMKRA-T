@@ -117,7 +117,8 @@ describe("contenido de la bienvenida", () => {
     // es-EC formatea la hora como "7:30 p. m.", no en formato 24 h.
     expect(body).toContain(`Fecha: ${esDate.format(SESSION_START)}`);
     expect(body).toContain(`Hora: ${esTime.format(SESSION_START)}`);
-    expect(body).toContain("https://meet.example.com/marketing");
+    // El enlace de la reunión no viaja en la bienvenida: llega 2 horas antes.
+    expect(body).not.toContain("https://meet.example.com/marketing");
   });
 
   it("elige la primera sesión futura cuando hay varias", async () => {
@@ -130,7 +131,7 @@ describe("contenido de la bienvenida", () => {
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
     const body = welcome()?.body ?? "";
     expect(body).toContain(esDate.format(SESSION_START));
-    expect(body).toContain("https://meet.example.com/primera");
+    expect(body).not.toContain("https://meet.example.com/primera");
     expect(body).not.toContain(esDate.format(new Date("2026-08-15T00:30:00.000Z")));
   });
 
@@ -154,19 +155,23 @@ describe("contenido de la bienvenida", () => {
     expect(body).toContain(`Hora: ${esTime.format(SESSION_START)}`);
   });
 
-  it("mantiene «por confirmar» cuando el curso no tiene ninguna fecha", async () => {
+  it("omite el bloque de fecha cuando el curso no tiene ninguna", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ sessions: [], startsAt: null }));
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
     const body = welcome()?.body ?? "";
-    expect(body).toContain("Fecha: por confirmar");
-    expect(body).toContain("Hora: por confirmar");
+    // Repetir «por confirmar» dos veces seguidas es ruido: mejor no decir nada.
+    expect(body).not.toContain("por confirmar");
+    expect(body).not.toContain("Fecha:");
+    expect(body).not.toContain("Hora:");
+    // El resto del correo sigue en pie y no queda un hueco donde iba el bloque.
+    expect(body).toContain("Tu inscripción a Desarrollo Profesional en Marketing");
+    expect(body).not.toMatch(/\n{3,}/);
   });
 
-  it("omite el bloque de enlace si no hay enlace configurado", async () => {
+  it("la bienvenida nunca lleva el enlace de la reunión, haya o no", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ streamUrl: null }));
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
     const body = welcome()?.body ?? "";
-    // Sin enlace no debe quedar un encabezado huérfano ni un hueco.
     expect(body).not.toContain("Enlace de acceso");
     expect(body).toContain(`Fecha: ${esDate.format(SESSION_START)}`);
   });
@@ -223,11 +228,35 @@ describe("recordatorio de 24 horas ya vencido", () => {
   });
 });
 
+/**
+ * El enlace de la reunión solo viaja en los dos correos que preceden a la
+ * sesión. Es una decisión del negocio, no un detalle de redacción: un enlace
+ * repartido en cinco correos obliga a buscar cuál era el bueno.
+ */
+describe("dónde viaja el enlace de la reunión", () => {
+  const CON_ENLACE = new Set(["reminder_2h", "reminder_15m"]);
+
+  for (const entrada of DEFAULT_AUTOMATION_PLAN) {
+    const deberia = CON_ENLACE.has(entrada.planKey);
+    it(`${entrada.planKey} ${deberia ? "lleva" : "no lleva"} el enlace`, () => {
+      const lleva = entrada.body.includes("{{bloqueEnlace}}") || entrada.body.includes("{{streamUrl}}");
+      expect(lleva).toBe(deberia);
+    });
+  }
+
+  it("solo el de 15 minutos se omite cuando falta el enlace", () => {
+    const exigen = DEFAULT_AUTOMATION_PLAN.filter((entrada) => entrada.requiresStreamUrl).map((entrada) => entrada.planKey);
+    // El de 2 horas sigue siendo un recordatorio útil sin enlace (por ejemplo
+    // en un curso presencial); el de 15 minutos sin enlace no dice nada.
+    expect(exigen).toEqual(["reminder_15m"]);
+  });
+});
+
 describe("idempotencia tras el arreglo", () => {
   it("reprogramar no duplica ni reescribe lo ya enviado", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ sessions: [], startsAt: null }));
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(welcome()?.body).toContain("por confirmar");
+    expect(welcome()?.body).not.toContain("Fecha:");
 
     // La bienvenida ya salió: su texto es historial y no debe reescribirse.
     const sent = welcome();
@@ -237,13 +266,13 @@ describe("idempotencia tras el arreglo", () => {
 
     expect(messages).toHaveLength(1);
     expect(second.enqueued).toBe(0);
-    expect(welcome()?.body).toContain("por confirmar");
+    expect(welcome()?.body).not.toContain("Fecha:");
   });
 
   it("una bienvenida todavía pendiente sí se corrige al reprogramar", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ sessions: [], startsAt: null }));
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(welcome()?.body).toContain("por confirmar");
+    expect(welcome()?.body).not.toContain("Fecha:");
 
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     const second = await scheduleEnrollmentAutomations("enrollment-1", NOW);
@@ -251,6 +280,25 @@ describe("idempotencia tras el arreglo", () => {
     expect(messages).toHaveLength(1);
     expect(second.updated).toBe(1);
     expect(welcome()?.body).toContain(esDate.format(SESSION_START));
+  });
+
+  it("una regla de bienvenida creada después de la inscripción no saluda hacia atrás", async () => {
+    // Es el escenario de aplicar el plan estándar a un curso que ya tiene
+    // inscritos: sin este freno todos recibirían de nuevo "tu inscripción fue
+    // registrada", porque la bienvenida está exenta del filtro de fechas pasadas.
+    const reciente = { ...planRule("welcome"), createdAt: new Date(REGISTERED_AT.getTime() + 86_400_000) };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reciente] }));
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(messages).toHaveLength(0);
+    expect(result.enqueued).toBe(0);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("una regla anterior a la inscripción sí envía la bienvenida", async () => {
+    const previa = { ...planRule("welcome"), createdAt: new Date(REGISTERED_AT.getTime() - 86_400_000) };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [previa] }));
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(result.enqueued).toBe(1);
   });
 
   it("aplicar el plan repetidamente no duplica mensajes", async () => {

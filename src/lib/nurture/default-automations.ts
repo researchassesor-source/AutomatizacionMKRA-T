@@ -28,6 +28,16 @@ export type AutomationPlanEntry = {
 
 const AUDIENCE: EnrollmentStatus[] = ["INTERESADO", "INSCRITO", "EN_CURSO"];
 
+/**
+ * Donde va el enlace de la reunion.
+ *
+ * Solo en los dos ultimos correos: el de 2 horas es el que entrega el acceso y
+ * el de 15 minutos el que lo repite cuando la sesion esta por empezar. La
+ * bienvenida y el recordatorio de 24 horas no lo llevan a proposito, para que
+ * el enlace no quede enterrado en un correo viejo del buzon justo cuando hace
+ * falta. El agradecimiento final tampoco: la sesion ya termino.
+ */
+
 export const DEFAULT_AUTOMATION_PLAN: readonly AutomationPlanEntry[] = [
   {
     planKey: "welcome",
@@ -35,17 +45,17 @@ export const DEFAULT_AUTOMATION_PLAN: readonly AutomationPlanEntry[] = [
     description: "Se envía apenas se registra la inscripción.",
     trigger: "ON_REGISTRATION",
     offsetMinutes: 0,
-    subject: "¡Tu inscripción a {{curso}} está confirmada!",
+    subject: "Tu inscripción a {{curso}} está confirmada",
     body: `Hola {{nombre}},
 
-Tu inscripción a {{curso}} fue registrada correctamente.
+Tu inscripción a {{curso}} quedó registrada correctamente.
 
-Fecha: {{fecha}}
-Hora: {{hora}}
+{{bloqueFecha}}
 
-Te enviaremos recordatorios antes de cada sesión para que tengas a la mano toda la información necesaria.
+Te enviaremos un recordatorio el día antes, y el enlace de acceso llegará dos horas antes de la sesión.
 
-{{bloqueEnlace}}
+Puedes consultar los detalles del curso aquí:
+{{courseUrl}}
 
 Gracias por ser parte de R.A. Training.
 
@@ -67,9 +77,9 @@ Te recordamos que mañana tienes una sesión de {{curso}}.
 Fecha: {{fechaSesion}}
 Hora: {{horaSesion}}
 
-{{bloqueEnlace}}
+El enlace de acceso te llegará dos horas antes de que empiece, en un correo aparte.
 
-Te recomendamos conectarte con unos minutos de anticipación.
+Te recomendamos reservar el horario y revisar tu conexión con anticipación.
 
 R.A. Training`,
     requiresStreamUrl: false,
@@ -78,10 +88,10 @@ R.A. Training`,
   {
     planKey: "reminder_2h",
     name: "Recordatorio 2 horas antes",
-    description: "Un recordatorio por cada sesión, 2 horas antes de su inicio.",
+    description: "Entrega el enlace de la reunión, 2 horas antes de cada sesión.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 120,
-    subject: "Tu sesión de {{curso}} comienza en 2 horas",
+    subject: "Tu sesión de {{curso}} comienza en 2 horas · enlace de acceso",
     body: `Hola {{nombre}},
 
 Faltan 2 horas para iniciar la sesión de {{curso}}.
@@ -90,7 +100,7 @@ Hora: {{horaSesion}}
 
 {{bloqueEnlace}}
 
-Ten listo tu dispositivo y una conexión estable.
+Ten listo tu dispositivo y una conexión estable. Te reenviaremos este enlace 15 minutos antes de empezar.
 
 R.A. Training`,
     requiresStreamUrl: false,
@@ -102,16 +112,15 @@ R.A. Training`,
     description: "Incluye el enlace directo. Necesita enlace de transmisión configurado.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 15,
-    subject: "Empezamos en 15 minutos — ingresa aquí",
+    subject: "Empezamos en 15 minutos · {{curso}}",
     body: `Hola {{nombre}},
 
 La sesión de {{curso}} comienza en 15 minutos.
 
-Ingresa desde este enlace:
-
+Enlace de acceso:
 {{streamUrl}}
 
-Te recomendamos acceder ahora para verificar tu conexión.
+Te recomendamos entrar ahora para verificar tu audio y tu conexión.
 
 R.A. Training`,
     requiresStreamUrl: true,
@@ -123,14 +132,14 @@ R.A. Training`,
     description: "Se envía una hora después de terminar la última sesión.",
     trigger: "AFTER_COURSE",
     offsetMinutes: 60,
-    subject: "Gracias por participar en {{curso}}",
+    subject: "¡Felicitaciones por completar {{curso}}!",
     body: `Hola {{nombre}},
 
-Gracias por acompañarnos en {{curso}}.
+¡Felicitaciones! Completaste {{curso}}.
 
-Esperamos que la experiencia y los contenidos compartidos hayan sido útiles para tu desarrollo.
+Gracias por acompañarnos y por el tiempo que dedicaste. Esperamos que los contenidos te resulten útiles en tu trabajo del día a día.
 
-La información relacionada con certificados, cuando aplique, será comunicada por separado.
+La información sobre el certificado, cuando aplique, te llegará por separado.
 
 R.A. Training`,
     requiresStreamUrl: false,

@@ -382,6 +382,12 @@ export async function scheduleEnrollmentAutomations(
     if (!automationRuleCanRun(effectiveCourse, rule)) { skipped++; continue; }
     if (rule.campaignId && rule.campaignId !== enrollment.campaignId) { skipped++; continue; }
     if (!supportsEnrollmentStatus(rule.enrollmentStatuses, enrollment.status)) { skipped++; continue; }
+    // Una regla de bienvenida creada despues de la inscripcion no saluda hacia
+    // atras. La bienvenida esta exenta del filtro de fechas pasadas (debe salir
+    // aunque se programe con retraso), asi que sin esta condicion aplicar el
+    // plan estandar a un curso con inscritos les reenviaria a todos un "tu
+    // inscripcion fue registrada" semanas despues de haberse inscrito.
+    if (rule.trigger === "ON_REGISTRATION" && enrollment.createdAt < rule.createdAt) { skipped++; continue; }
     const toAddress = rule.channel === "EMAIL" ? enrollment.lead.email : enrollment.lead.phone;
     if (!toAddress) { skipped++; continue; }
 

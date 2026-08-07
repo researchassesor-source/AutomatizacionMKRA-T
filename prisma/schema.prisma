@@ -521,11 +521,34 @@ model MessageTemplate {
 }
 
 model SocialAccount {
-  id                  String                 @id @default(cuid())
-  platform            SocialPlatform
-  displayName         String
-  externalId          String?
-  accessToken         String?
+  id          String         @id @default(cuid())
+  platform    SocialPlatform
+  displayName String
+  externalId  String?
+  /// Campo histórico en texto plano. NO se escribe desde el flujo OAuth: los
+  /// tokens nuevos viven cifrados en `accessTokenCipher`/`refreshTokenCipher`.
+  accessToken String?
+
+  // --- Conexión OAuth por cuenta (TikTok Login Kit) ---
+  /// Identificador estable del usuario en el proveedor.
+  openId                String?
+  nickname              String?
+  avatarUrl             String?
+  /// Scopes realmente concedidos por la persona usuaria.
+  grantedScopes         Json?
+  /// AES-256-GCM con versión de formato. Nunca en texto plano.
+  accessTokenCipher     String?
+  refreshTokenCipher    String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  /// Versión del formato de cifrado, para poder rotar la clave.
+  tokenVersion          Int       @default(1)
+  connectedAt           DateTime?
+  refreshedAt           DateTime?
+  disconnectedAt        DateTime?
+  lastErrorCode         String?
+  lastErrorMessage      String?
+
   isActive            Boolean                @default(true)
   connectionStatus    SocialConnectionStatus @default(UNKNOWN)
   connectionCheckedAt DateTime?
@@ -539,6 +562,7 @@ model SocialAccount {
 
   @@unique([platform, externalId])
   @@index([isActive])
+  @@index([platform, openId])
   @@map("social_accounts")
 }
 
@@ -549,6 +573,8 @@ enum SocialConnectionStatus {
   EXPIRED
   DISCONNECTED
   MISSING_PERMISSION
+  /// El refresh token caducó o fue revocado: hace falta volver a autorizar.
+  REAUTH_REQUIRED
   ERROR
 }
 
@@ -572,6 +598,11 @@ model SocialPost {
   publishedAt       DateTime?
   cancelledAt       DateTime?
   externalPostId    String?
+  /// Identificador que devuelve TikTok al iniciar la publicación o la carga.
+  /// No equivale a "publicado": el estado real se consulta con status/fetch.
+  publishId         String?
+  /// Último estado informado por el proveedor (PROCESSING, PUBLISH_COMPLETE...).
+  providerStatus    String?
   providerPostUrl   String?
   providerResponse  Json?
   error             String?
@@ -594,6 +625,7 @@ model SocialPost {
 
   @@index([status, scheduledAt])
   @@index([scheduleId])
+  @@index([publishId])
   @@map("social_posts")
 }
 

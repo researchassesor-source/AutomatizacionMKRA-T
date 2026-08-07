@@ -116,8 +116,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (body?.mode !== "delete-test" || body?.confirmName !== lead.fullName) {
     return NextResponse.json({ error: "La confirmación no coincide con el nombre del contacto." }, { status: 422 });
   }
-  if (!["TEST", "DEMO"].includes(lead.classification)) {
-    return NextResponse.json({ error: "Solo los registros TEST o DEMO pueden eliminarse definitivamente." }, { status: 409 });
+  // Un contacto TEST o DEMO se borra con la confirmación del nombre. Uno REAL
+  // representa a una persona que dejó sus datos, así que exige además un
+  // reconocimiento explícito: no puede borrarse por inercia.
+  const isReal = !["TEST", "DEMO"].includes(lead.classification);
+  if (isReal && body?.acknowledgeRealDeletion !== true) {
+    return NextResponse.json({
+      error: "Este contacto está clasificado como real. Debes confirmar expresamente que quieres eliminarlo con todo su historial.",
+      requiresRealAcknowledgement: true,
+    }, { status: 409 });
   }
   await prisma.$transaction([
     prisma.lead.delete({ where: { id } }),
@@ -125,11 +132,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       data: {
         actorId: auth.session?.userId ?? null,
         actorEmail: auth.session?.email ?? null,
-        action: "LEAD_TEST_DELETED",
+        action: isReal ? "LEAD_DELETED" : "LEAD_TEST_DELETED",
         entityType: "Lead",
         entityId: id,
         result: "SUCCESS",
-        metadata: { classification: lead.classification, confirmed: true, cascadedRelatedData: true },
+        metadata: { classification: lead.classification, email: lead.email, fullName: lead.fullName, wasReal: isReal, confirmed: true, cascadedRelatedData: true },
       },
     }),
   ]);

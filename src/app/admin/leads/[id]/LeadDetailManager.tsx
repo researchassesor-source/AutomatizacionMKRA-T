@@ -75,7 +75,8 @@ export function LeadDetailManager({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const canEdit = role === "ADMIN" || role === "VENTAS";
-  const canDeleteTest = role === "ADMIN" && ["TEST", "DEMO"].includes(lead.classification);
+  const canDelete = role === "ADMIN";
+  const isRealContact = !["TEST", "DEMO"].includes(lead.classification);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,14 +114,28 @@ export function LeadDetailManager({
     router.refresh();
   }
 
-  async function deleteTest() {
-    if (!canDeleteTest) return;
-    const confirmation = window.prompt(`Esta acción elimina el contacto de prueba y sus datos relacionados. Escribe exactamente: ${lead.fullName}`);
+  async function deleteContact() {
+    if (!canDelete || busy) return;
+    // Un contacto real exige un aviso previo: se borra a una persona y todo su
+    // historial de inscripciones y mensajes, y no hay deshacer.
+    if (isRealContact && !window.confirm(
+      `${lead.fullName} está clasificado como contacto REAL.
+
+Eliminarlo borra también sus inscripciones, mensajes y seguimientos. Esta acción no se puede deshacer.
+
+¿Continuar?`,
+    )) return;
+    const confirmation = window.prompt(`Para confirmar la eliminación escribe exactamente el nombre:
+${lead.fullName}`);
     if (confirmation !== lead.fullName) { setMessage("La confirmación no coincide. No se eliminó ningún dato."); return; }
     setBusy(true);
-    const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "DELETE", { mode: "delete-test", confirmName: confirmation });
+    const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "DELETE", {
+      mode: "delete-test",
+      confirmName: confirmation,
+      acknowledgeRealDeletion: isRealContact,
+    });
     setBusy(false);
-    if (result.ok) router.replace("/admin/leads?classification=TEST");
+    if (result.ok) router.replace("/admin/leads");
     else setMessage(result.data.error);
   }
 
@@ -194,7 +209,7 @@ export function LeadDetailManager({
         {lead.phone && <a className="btn-sm" href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Abrir WhatsApp ↗</a>}
         {lead.email && <a className="btn-sm ghost" href={`mailto:${lead.email}`}>Abrir correo</a>}
         {canEdit && <button type="button" className="btn-sm ghost" onClick={archive}>{lead.isArchived ? "Restaurar" : "Archivar"}</button>}
-        {canDeleteTest && <button type="button" className="btn-sm danger" disabled={busy} onClick={deleteTest}>Eliminar registro de prueba</button>}
+        {canDelete && <button type="button" className="btn-sm danger" disabled={busy} onClick={deleteContact}>{isRealContact ? "Eliminar contacto" : "Eliminar registro de prueba"}</button>}
         {message && <span className="result-line" role="status">{message}</span>}
       </div>
 

@@ -22,7 +22,10 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState("");
-  const usableAccounts = accounts.filter((account) => account.isActive && ["SIMULATION", "READY"].includes(account.connectorState));
+  // TikTok se excluye a proposito: este formulario publica por el orquestador de
+  // Meta y para TikTok solo generaria un registro "Simulado" que nunca sale.
+  // El envio real de TikTok vive en su propio panel.
+  const usableAccounts = accounts.filter((account) => account.isActive && account.platform !== "TIKTOK" && ["SIMULATION", "READY"].includes(account.connectorState));
 
   async function run(id: string, action: () => Promise<{ ok: boolean; data: Record<string, unknown> }>, success: string, pending?: string) {
     // Evita que un segundo clic dispare la misma acción dos veces.

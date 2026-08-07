@@ -29,6 +29,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "plataforma invalida" }, { status: 422 });
   }
 
+  // TikTok no se comprueba desde aquí: su estado lo determina la conexión OAuth
+  // y TIKTOK_MODE, no SOCIAL_MODE. Sobrescribirlo con "SIMULATION" borraba una
+  // conexión real y dejaba la cuenta inutilizable en el panel de TikTok.
+  if (platform === "TIKTOK") {
+    return NextResponse.json({
+      ok: false,
+      error: "El estado de TikTok se gestiona desde su propio panel, con la conexión autorizada por la persona usuaria.",
+    }, { status: 409 });
+  }
+
   const result = await verifyPlatformConnection(platform as Platform);
   const simulation = isSocialSimulation();
   const connectionError = "error" in result ? result.error : undefined;

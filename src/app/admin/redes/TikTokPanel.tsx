@@ -203,7 +203,9 @@ export function TikTokPanel() {
 
   const config = data?.configuration;
   const connected = (data?.accounts ?? []).filter((account) => account.connectionStatus !== "DISCONNECTED");
-  const active = connected.find((account) => account.connectionStatus === "READY");
+  // Basta con que la conexión no este desconectada ni requiera reautorizar:
+  // exigir READY exacto ocultaba el formulario si otro proceso tocaba el estado.
+  const active = connected.find((account) => !["DISCONNECTED", "REAUTH_REQUIRED"].includes(account.connectionStatus));
 
   return (
     <section className="panel">

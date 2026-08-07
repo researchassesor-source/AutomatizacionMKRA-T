@@ -382,6 +382,8 @@ model OutboundMessage {
   sentAt            DateTime?
   acceptedAt        DateTime?
   deliveredAt       DateTime?
+  /// Solo WhatsApp. Meta lo reporta con el estado `read` del webhook.
+  readAt            DateTime?
   bouncedAt         DateTime?
   failedAt          DateTime?
   cancelledAt       DateTime?
@@ -391,6 +393,11 @@ model OutboundMessage {
   providerName      String?
   providerMessageId String?
   providerResponse  Json?
+  /// Plantilla de WhatsApp con sus parametros ya resueltos, tal como se
+  /// enviaran a Meta: {name, language, components}. Se calcula al programar,
+  /// de modo que el historial guarda exactamente lo que se envio y no una
+  /// reconstruccion posterior. Siempre null en los mensajes de correo.
+  waTemplate        Json?
   sequenceKey       String?
   stepKey           String?
   attempts          Int            @default(0)
@@ -430,6 +437,9 @@ enum MessageStatus {
   ACEPTADO
   ENVIADO
   ENTREGADO
+  /// Solo WhatsApp lo reporta. El correo nunca alcanza este estado: confirmar
+  /// la lectura de un correo exige pixeles de rastreo que no usamos.
+  LEIDO
   REBOTADO
   SIMULADO
   FALLIDO
@@ -472,6 +482,18 @@ model AutomationRule {
   /// Identificador estable del plan estandar de correos ("welcome",
   /// "reminder_24h", ...). Permite reaplicar el plan sin duplicar reglas.
   planKey            String?
+  /// Nombre exacto de la plantilla aprobada en Meta. Obligatorio en las reglas
+  /// de WhatsApp iniciadas por la empresa: sin ventana de servicio abierta,
+  /// Meta rechaza cualquier texto libre. Siempre null en las reglas de correo.
+  waTemplateName     String?
+  /// Codigo de idioma de la plantilla tal como se registro en Meta ("es").
+  waTemplateLanguage String?
+  /// Orden EXACTO de las variables del cuerpo: el elemento 0 alimenta {{1}}.
+  /// Son claves de TEMPLATE_VARIABLES, no textos ya resueltos.
+  waTemplateBodyVars Json?
+  /// Variable que rellena el sufijo del boton de URL dinamica, si la plantilla
+  /// declara uno. Meta fija el prefijo en la plantilla y solo acepta el sufijo.
+  waTemplateUrlVar   String?
   enrollmentStatuses Json?
   lastExecutedAt     DateTime?
   nextExecutionAt    DateTime?
@@ -482,7 +504,10 @@ model AutomationRule {
   campaign Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   messages OutboundMessage[]
 
-  @@unique([courseId, planKey])
+  // El canal forma parte de la identidad del paso: un curso tiene la
+  // bienvenida por correo Y la bienvenida por WhatsApp, y ambas comparten
+  // `planKey` porque son el mismo momento del plan.
+  @@unique([courseId, channel, planKey])
   @@index([status, nextExecutionAt])
   @@index([courseId, trigger])
   @@index([campaignId])

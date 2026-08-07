@@ -6,19 +6,77 @@ import { nextFixedRuleExecution } from "@/lib/automation-schedule";
 import { courseCompletionMoment, resolveCourseSessions } from "@/lib/course-sessions";
 import { prisma } from "@/lib/db";
 import { DEFAULT_AUTOMATION_PLAN } from "@/lib/nurture/default-automations";
+import { templateFieldsFor, WHATSAPP_AUTOMATION_PLAN } from "@/lib/nurture/default-automations-whatsapp";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
 
 const schema = z.object({
   courseId: z.string().trim().min(1, "Selecciona un curso."),
   /** true deja las reglas listas para enviar; false las crea como borrador. */
   activate: z.boolean().default(false),
+  /**
+   * Canal del plan. Por omisión el correo, que es como se comportaba antes de
+   * que existiera el plan de WhatsApp: quien ya llamaba a este endpoint sigue
+   * obteniendo exactamente lo mismo.
+   */
+  channel: z.enum(["EMAIL", "WHATSAPP"]).default("EMAIL"),
 });
 
+type PlanEntry = {
+  planKey: string;
+  name: string;
+  trigger: "ON_REGISTRATION" | "BEFORE_COURSE" | "AFTER_COURSE";
+  offsetMinutes: number;
+  subject: string | null;
+  body: string;
+  requiresStreamUrl: boolean;
+  enrollmentStatuses: string[];
+  waTemplateName: string | null;
+  waTemplateLanguage: string | null;
+  waTemplateBodyVars: string[] | null;
+  waTemplateUrlVar: string | null;
+};
+
+function planFor(channel: "EMAIL" | "WHATSAPP"): PlanEntry[] {
+  if (channel === "EMAIL") {
+    return DEFAULT_AUTOMATION_PLAN.map((entry) => ({
+      planKey: entry.planKey,
+      name: entry.name,
+      trigger: entry.trigger,
+      offsetMinutes: entry.offsetMinutes,
+      subject: entry.subject,
+      body: entry.body,
+      requiresStreamUrl: entry.requiresStreamUrl,
+      enrollmentStatuses: entry.enrollmentStatuses,
+      waTemplateName: null,
+      waTemplateLanguage: null,
+      waTemplateBodyVars: null,
+      waTemplateUrlVar: null,
+    }));
+  }
+  return WHATSAPP_AUTOMATION_PLAN.map((entry) => {
+    const template = templateFieldsFor(entry);
+    return {
+      planKey: entry.planKey,
+      name: entry.name,
+      trigger: entry.trigger,
+      offsetMinutes: entry.offsetMinutes,
+      // WhatsApp no tiene asunto: dejarlo con texto seria un campo muerto que
+      // ademas confundiria al diagnostico de reglas pausadas.
+      subject: null,
+      body: entry.body,
+      requiresStreamUrl: entry.requiresStreamUrl,
+      enrollmentStatuses: entry.enrollmentStatuses,
+      ...template,
+    };
+  });
+}
+
 /**
- * Aplica el plan estandar de cinco correos a un curso.
+ * Aplica el plan estandar de cinco pasos a un curso, en el canal indicado.
  *
- * Es idempotente gracias a `planKey`: reaplicarlo no duplica reglas y respeta
- * el contenido que el administrador haya editado (solo completa lo que falta).
+ * Es idempotente gracias a `planKey` combinado con el canal: reaplicarlo no
+ * duplica reglas y respeta el contenido que el administrador haya editado
+ * (solo completa lo que falta).
  */
 export async function POST(request: Request) {
   const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
@@ -35,16 +93,18 @@ export async function POST(request: Request) {
   const sessions = resolveCourseSessions(course, course.sessions);
   const startsAt = sessions[0]?.startAt ?? course.startsAt;
   const endsAt = courseCompletionMoment(sessions) ?? course.endsAt;
+  const channel = parsed.data.channel;
+  const plan = planFor(channel);
 
   const existing = await prisma.automationRule.findMany({
-    where: { courseId: course.id, planKey: { not: null } },
+    where: { courseId: course.id, channel, planKey: { not: null } },
     select: { id: true, planKey: true, status: true },
   });
   const byPlanKey = new Map(existing.map((rule) => [rule.planKey, rule]));
 
   let created = 0;
   let activated = 0;
-  for (const entry of DEFAULT_AUTOMATION_PLAN) {
+  for (const entry of plan) {
     const current = byPlanKey.get(entry.planKey);
     const status = parsed.data.activate ? ("ACTIVE" as const) : ("DRAFT" as const);
     const nextExecutionAt = nextFixedRuleExecution({ trigger: entry.trigger, offsetMinutes: entry.offsetMinutes, startsAt, endsAt });
@@ -56,12 +116,16 @@ export async function POST(request: Request) {
           name: entry.name,
           trigger: entry.trigger,
           offsetMinutes: entry.offsetMinutes,
-          channel: "EMAIL",
+          channel,
           subject: entry.subject,
           body: entry.body,
           status,
           requiresStreamUrl: entry.requiresStreamUrl,
           enrollmentStatuses: entry.enrollmentStatuses,
+          waTemplateName: entry.waTemplateName,
+          waTemplateLanguage: entry.waTemplateLanguage,
+          waTemplateBodyVars: entry.waTemplateBodyVars ?? undefined,
+          waTemplateUrlVar: entry.waTemplateUrlVar,
           nextExecutionAt,
         },
       });
@@ -89,9 +153,10 @@ export async function POST(request: Request) {
     entityType: "Course",
     entityId: course.id,
     metadata: {
+      channel,
       created,
       activated,
-      requested: DEFAULT_AUTOMATION_PLAN.length,
+      requested: plan.length,
       activate: parsed.data.activate,
       enrollmentsProcessed: rescheduled?.enrollments ?? 0,
       messagesCreated: rescheduled?.enqueued ?? 0,
@@ -101,9 +166,10 @@ export async function POST(request: Request) {
     },
   });
 
+  const channelLabel = channel === "WHATSAPP" ? "WhatsApp" : "correo";
   const planSummary = created === 0 && activated === 0
-    ? "El curso ya tenía el plan de correos aplicado."
-    : `Plan aplicado: ${created} reglas nuevas y ${activated} reactivadas.`;
+    ? `El curso ya tenía el plan de ${channelLabel} aplicado.`
+    : `Plan de ${channelLabel} aplicado: ${created} reglas nuevas y ${activated} reactivadas.`;
   const enrollmentSummary = rescheduled
     ? ` Inscripciones existentes procesadas: ${rescheduled.enrollments}; mensajes creados: ${rescheduled.enqueued}, actualizados: ${rescheduled.updated}, omitidos: ${rescheduled.omitted}.`
     : parsed.data.activate
@@ -115,9 +181,10 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
+    channel,
     created,
     activated,
-    unchanged: DEFAULT_AUTOMATION_PLAN.length - created - activated,
+    unchanged: plan.length - created - activated,
     enrollments: rescheduled
       ? {
           processed: rescheduled.enrollments,

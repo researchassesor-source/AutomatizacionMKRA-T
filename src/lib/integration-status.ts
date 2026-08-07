@@ -8,6 +8,7 @@ import {
 import { isMessagingSimulation } from "@/lib/nurture/engine";
 import { describeMetaConfig, resolveMetaConfig } from "@/lib/social/meta-config";
 import { isSocialSimulation } from "@/lib/social/orchestrator";
+import { describeWhatsAppConfig } from "@/lib/whatsapp/config";
 
 const guayaquil = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Guayaquil" });
 
@@ -142,12 +143,44 @@ function tiktokStatus(): IntegrationStatus {
 }
 
 function whatsappStatus(): IntegrationStatus {
+  const wa = describeWhatsAppConfig();
+  if (wa.mode === "disabled") {
+    return {
+      key: "whatsapp",
+      name: "WhatsApp",
+      state: "PENDING_CONFIGURATION",
+      detail: "Canal deshabilitado: WHATSAPP_MODE no está definido como 'simulation' ni 'live'. No envía ni simula, y el correo no se ve afectado.",
+      nextStep: "Define WHATSAPP_MODE cuando las plantillas estén aprobadas en Meta.",
+    };
+  }
+  if (wa.windowState === "blocked") {
+    return {
+      key: "whatsapp",
+      name: "WhatsApp",
+      state: "NOT_READY",
+      detail: wa.blockedReason ?? "El canal está bloqueado.",
+      nextStep: "Corrige la configuración indicada; hasta entonces no se envía nada y los mensajes siguen en cola.",
+    };
+  }
+  if (wa.windowState === "simulation") {
+    return {
+      key: "whatsapp",
+      name: "WhatsApp",
+      state: "SIMULATED",
+      detail: "En simulación: los mensajes se registran como SIMULADO y no se llama a Meta.",
+      nextStep: wa.webhookReady
+        ? "Aprueba las plantillas en Meta y pasa WHATSAPP_MODE a live."
+        : "Faltan META_APP_SECRET o META_WEBHOOK_VERIFY_TOKEN para dar de alta el webhook de estados.",
+    };
+  }
   return {
     key: "whatsapp",
     name: "WhatsApp",
-    state: "PENDING_EXTERNAL_VERIFICATION",
-    detail: "Bloqueado fuera del CRM: el número figura sin conexión y el portafolio no admite más socios asignados. No depende del código.",
-    nextStep: "No bloquea inscripciones ni correos. Las reglas de este canal no se ejecutan y sus mensajes nunca se marcan como enviados.",
+    state: "READY",
+    detail: `Envío real desde ${wa.liveFrom}. Solo salen mensajes programados a partir de esa fecha.`,
+    nextStep: wa.webhookReady
+      ? null
+      : "Sin webhook los mensajes se quedan en ACEPTADO: nunca constará ENTREGADO ni LEÍDO.",
   };
 }
 

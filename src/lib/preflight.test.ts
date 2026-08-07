@@ -7,7 +7,7 @@ const NOW = new Date("2026-08-06T15:00:00.000Z");
 /** Nombres reales de los índices que garantizan la idempotencia. */
 const INDEXES = [
   "outbound_messages_leadId_enrollmentId_sequenceKey_stepKey_key",
-  "automation_rules_courseId_planKey_key",
+  "automation_rules_courseId_channel_planKey_key",
   "social_posts_occurrenceKey_key",
   "enrollments_leadId_courseId_key",
 ];
@@ -18,6 +18,9 @@ const COLUMNS = [
   "outbound_messages.courseSessionId",
   "automation_rules.requiresStreamUrl",
   "automation_rules.planKey",
+  "automation_rules.waTemplateName",
+  "outbound_messages.waTemplate",
+  "outbound_messages.readAt",
 ];
 
 /** Registro de cualquier método de escritura que se invoque por error. */
@@ -30,7 +33,7 @@ function forbidden(name: string) {
 }
 
 function db(overrides: { tables?: string[]; columns?: string[]; indexes?: string[]; migrationsBroken?: boolean; counts?: Record<string, number> } = {}) {
-  const counts = { published: 3, withoutSessions: 0, withoutStream: 0, withActiveRules: 3, pausedRules: 0, stale1h: 0, stale6h: 0, stalePosts: 0, whatsappRules: 0, enrolledWithout: 0, ...overrides.counts };
+  const counts = { published: 3, withoutSessions: 0, withoutStream: 0, withActiveRules: 3, pausedRules: 0, stale1h: 0, stale6h: 0, stalePosts: 0, whatsappRules: 0, whatsappWithoutTemplate: 0, whatsappQueued: 0, enrolledWithout: 0, ...overrides.counts };
   let messageCountCall = 0;
   return {
     $queryRawUnsafe: vi.fn(async (sql: string) => {
@@ -63,11 +66,16 @@ function db(overrides: { tables?: string[]; columns?: string[]; indexes?: string
     enrollment: { count: vi.fn(async () => counts.enrolledWithout), update: forbidden("enrollment.update") },
     courseSession: { count: vi.fn(async () => 0) },
     automationRule: {
-      count: vi.fn(async ({ where }: any) => (where?.channel === "WHATSAPP" ? counts.whatsappRules : counts.pausedRules)),
+      count: vi.fn(async ({ where }: any) => {
+        if (where?.channel !== "WHATSAPP") return counts.pausedRules;
+        // La consulta de reglas sin plantilla se distingue por su filtro OR.
+        return where?.OR ? counts.whatsappWithoutTemplate : counts.whatsappRules;
+      }),
       updateMany: forbidden("automationRule.updateMany"),
     },
     outboundMessage: {
-      count: vi.fn(async () => {
+      count: vi.fn(async ({ where }: any) => {
+        if (where?.channel === "WHATSAPP") return counts.whatsappQueued;
         messageCountCall += 1;
         return messageCountCall === 1 ? counts.stale1h : counts.stale6h;
       }),
@@ -101,6 +109,13 @@ function healthyEnv() {
   vi.stubEnv("META_SYSTEM_USER_TOKEN", "valor-de-prueba");
   vi.stubEnv("META_PAGE_ID", "1190035477534301");
   vi.stubEnv("META_INSTAGRAM_ACCOUNT_ID", "17841403176483044");
+  // WhatsApp completamente configurado, en simulación: es el estado sano por
+  // defecto para las pruebas que no van específicamente sobre este canal.
+  vi.stubEnv("WHATSAPP_MODE", "simulation");
+  vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "valor-de-prueba");
+  vi.stubEnv("WHATSAPP_ACCESS_TOKEN", "valor-de-prueba");
+  vi.stubEnv("META_APP_SECRET", "valor-de-prueba");
+  vi.stubEnv("META_WEBHOOK_VERIFY_TOKEN", "valor-de-prueba");
 }
 
 beforeEach(() => { mutations.length = 0; });
@@ -156,12 +171,13 @@ describe("preflight", () => {
     expect(report.checks.find((check) => check.id === "migrations")?.level).toBe("FAIL");
   });
 
-  it("avisa de reglas de WhatsApp activas sin proveedor", async () => {
+  it("avisa de reglas de WhatsApp activas con el canal deshabilitado", async () => {
     healthyEnv();
+    vi.stubEnv("WHATSAPP_MODE", "");
     const report = await runPreflight(db({ counts: { whatsappRules: 4 } }), NOW);
     const whatsapp = report.checks.find((check) => check.id === "whatsapp_rules");
     expect(whatsapp?.level).toBe("WARN");
-    expect(whatsapp?.detail).toContain("nunca se enviarán");
+    expect(whatsapp?.detail).toContain("se acumularán como PROGRAMADO");
   });
 
   it("avisa de colas estancadas y de inscritos sin mensajes", async () => {

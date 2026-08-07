@@ -1,0 +1,102 @@
+import type { AutomationTrigger, EnrollmentStatus } from "@prisma/client";
+import { WHATSAPP_TEMPLATES, type WhatsAppTemplateKey } from "@/lib/whatsapp/templates";
+import type { AutomationPlanKey } from "./default-automations";
+
+/**
+ * Plan estandar de WhatsApp: los mismos cinco momentos que el de correo.
+ *
+ * Se mantiene aparte del plan de correo a proposito. Comparten los momentos y
+ * la audiencia, pero no el contenido: el correo lleva un cuerpo redactado y
+ * WhatsApp lleva el nombre de una plantilla aprobada mas sus parametros. Un
+ * unico plan con campos opcionales por canal invitaria justo al error que
+ * queremos impedir, que una regla de WhatsApp acabe con cuerpo y sin plantilla.
+ *
+ * El `body` que se guarda aqui no viaja a Meta: es el texto que el panel
+ * muestra y el que queda como historial legible del mensaje. Lo que WhatsApp
+ * recibe son los parametros de la plantilla.
+ */
+export type WhatsAppPlanEntry = {
+  planKey: AutomationPlanKey;
+  templateKey: WhatsAppTemplateKey;
+  name: string;
+  description: string;
+  trigger: AutomationTrigger;
+  offsetMinutes: number;
+  /** Vista previa legible del mensaje; no es lo que se envia a Meta. */
+  body: string;
+  requiresStreamUrl: boolean;
+  enrollmentStatuses: EnrollmentStatus[];
+};
+
+const AUDIENCE: EnrollmentStatus[] = ["INTERESADO", "INSCRITO", "EN_CURSO"];
+
+export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
+  {
+    planKey: "welcome",
+    templateKey: "welcome",
+    name: "Bienvenida inmediata · WhatsApp",
+    description: "Se envía apenas se registra la inscripción, con plantilla aprobada.",
+    trigger: "ON_REGISTRATION",
+    offsetMinutes: 0,
+    body: "Hola {{nombre}}, tu inscripción a {{curso}} quedó registrada. Fecha: {{fecha}}. Hora: {{hora}}. Te avisaremos antes de cada sesión.",
+    requiresStreamUrl: false,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "reminder_24h",
+    templateKey: "reminder_24h",
+    name: "Recordatorio 24 horas antes · WhatsApp",
+    description: "Un recordatorio por sesión, 24 horas antes. No lleva el enlace.",
+    trigger: "BEFORE_COURSE",
+    offsetMinutes: 24 * 60,
+    body: "Hola {{nombre}}, mañana tienes una sesión de {{curso}}. Fecha: {{fechaSesion}}. Hora: {{horaSesion}}. El enlace de acceso te llegará 2 horas antes.",
+    requiresStreamUrl: false,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "reminder_2h",
+    templateKey: "reminder_2h",
+    name: "Acceso 2 horas antes · WhatsApp",
+    description: "Entrega el enlace de la reunión. Necesita enlace configurado.",
+    trigger: "BEFORE_COURSE",
+    offsetMinutes: 120,
+    body: "Hola {{nombre}}, tu sesión de {{curso}} comienza a las {{horaSesion}}. Este es tu enlace de acceso: {{streamUrl}}",
+    // A diferencia del correo, aqui SI se exige el enlace: la plantilla lo
+    // lleva como parametro obligatorio y Meta rechaza un parametro vacio.
+    requiresStreamUrl: true,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "reminder_15m",
+    templateKey: "reminder_15m",
+    name: "Acceso 15 minutos antes · WhatsApp",
+    description: "Repite el enlace cuando la sesión está por empezar.",
+    trigger: "BEFORE_COURSE",
+    offsetMinutes: 15,
+    body: "Hola {{nombre}}, la sesión de {{curso}} empieza en 15 minutos. Ingresa aquí: {{streamUrl}}",
+    requiresStreamUrl: true,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "thank_you",
+    templateKey: "thank_you",
+    name: "Agradecimiento final · WhatsApp",
+    description: "Se envía una hora después de terminar la última sesión.",
+    trigger: "AFTER_COURSE",
+    offsetMinutes: 60,
+    body: "¡Felicitaciones {{nombre}}! Completaste {{curso}}. Gracias por acompañarnos.",
+    requiresStreamUrl: false,
+    enrollmentStatuses: [...AUDIENCE, "COMPLETADO"],
+  },
+];
+
+/** Campos de plantilla que hay que guardar en la regla para esta entrada. */
+export function templateFieldsFor(entry: WhatsAppPlanEntry) {
+  const spec = WHATSAPP_TEMPLATES[entry.templateKey];
+  return {
+    waTemplateName: spec.name,
+    waTemplateLanguage: spec.language,
+    waTemplateBodyVars: [...spec.bodyVars],
+    waTemplateUrlVar: spec.urlVar ?? null,
+  };
+}

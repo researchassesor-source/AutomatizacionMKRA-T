@@ -22,6 +22,7 @@ export type PauseReason =
   | "COURSE_UNPUBLISHED"
   | "COURSE_WITHOUT_SCHEDULE"
   | "RULE_TEMPLATE_INVALID"
+  | "WHATSAPP_TEMPLATE_MISSING"
   | "RECOVERABLE";
 
 export const PAUSE_REASON_LABELS: Record<PauseReason, string> = {
@@ -29,6 +30,7 @@ export const PAUSE_REASON_LABELS: Record<PauseReason, string> = {
   COURSE_UNPUBLISHED: "El curso está despublicado.",
   COURSE_WITHOUT_SCHEDULE: "El curso no tiene fecha ni sesiones que permitan calcular el envío.",
   RULE_TEMPLATE_INVALID: "La regla no tiene asunto o cuerpo válidos.",
+  WHATSAPP_TEMPLATE_MISSING: "La regla de WhatsApp no declara plantilla aprobada de Meta. Activarla no serviría: sus mensajes quedarían omitidos.",
   RECOVERABLE: "El curso está vigente y la regla puede volver a activarse: se pausó por error.",
 };
 
@@ -78,6 +80,7 @@ const pausedRuleSelect = {
   subject: true,
   body: true,
   planKey: true,
+  waTemplateName: true,
   updatedAt: true,
 } as const;
 
@@ -119,16 +122,26 @@ export async function diagnosePausedAutomations(): Promise<PauseDiagnosisReport>
       endsAt: window.endsAt,
     };
     const rules = course.automationRules.map((rule) => {
-      const canRun = automationRuleCanRun(courseState, rule);
+      // Una regla de WhatsApp sin plantilla no es recuperable aunque el curso
+      // esté impecable: activarla solo produciría mensajes omitidos.
+      const missingWhatsAppTemplate = rule.channel === "WHATSAPP" && !rule.waTemplateName?.trim();
+      const canRun = !missingWhatsAppTemplate && automationRuleCanRun(courseState, rule);
+      // El asunto solo existe en el correo; exigirlo en WhatsApp marcaría como
+      // inválidas todas sus reglas por un campo que ese canal no usa.
+      const missingContent = rule.channel === "EMAIL"
+        ? !rule.subject?.trim() || !rule.body.trim()
+        : !rule.body.trim();
       const reason: PauseReason = canRun
         ? "RECOVERABLE"
-        : course.syncStatus === "HISTORICAL"
-          ? "COURSE_HISTORICAL"
-          : !course.isPublished
-            ? "COURSE_UNPUBLISHED"
-            : !rule.subject?.trim() || !rule.body.trim()
-              ? "RULE_TEMPLATE_INVALID"
-              : "COURSE_WITHOUT_SCHEDULE";
+        : missingWhatsAppTemplate
+          ? "WHATSAPP_TEMPLATE_MISSING"
+          : course.syncStatus === "HISTORICAL"
+            ? "COURSE_HISTORICAL"
+            : !course.isPublished
+              ? "COURSE_UNPUBLISHED"
+              : missingContent
+                ? "RULE_TEMPLATE_INVALID"
+                : "COURSE_WITHOUT_SCHEDULE";
       return {
         ruleId: rule.id,
         ruleName: rule.name,

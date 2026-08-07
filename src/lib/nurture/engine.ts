@@ -18,6 +18,8 @@ import {
   resolveMessagingWindow,
 } from "@/lib/live-activation";
 import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
+import { resolveWhatsAppConfig, resolveWhatsAppWindow, WHATSAPP_LIVE_FROM } from "@/lib/whatsapp/config";
+import { buildTemplateComponents, templateBindingOf } from "@/lib/whatsapp/templates";
 import { EmailChannel } from "./channels/email";
 import { WhatsAppChannel } from "./channels/whatsapp";
 import type { MessageChannelAdapter, SendResult } from "./channels/types";
@@ -40,16 +42,37 @@ const RESCHEDULE_MAX_ENROLLMENTS = 5_000;
  * Vercel se aplica sin depender del orden de carga.
  */
 function buildChannel(channel: MessageChannel): MessageChannelAdapter {
-  return channel === "EMAIL"
-    ? new EmailChannel()
-    : new WhatsAppChannel({
-        phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
-        accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
-      });
+  if (channel === "EMAIL") return new EmailChannel();
+  const config = resolveWhatsAppConfig();
+  return new WhatsAppChannel({
+    phoneNumberId: config.phoneNumberId,
+    accessToken: config.accessToken,
+    graphVersion: config.graphVersion,
+  });
 }
 
 export function isMessagingSimulation(): boolean {
   return mustSimulateExternalIntegration(process.env.MESSAGING_MODE);
+}
+
+/**
+ * Ventana de activacion del canal concreto.
+ *
+ * Correo y WhatsApp compartian `MESSAGING_MODE`, de modo que tocar uno ponia
+ * en juego el otro. Separarlos no es una comodidad: el correo ya opera en real
+ * y ninguna maniobra sobre WhatsApp deberia poder apagarlo.
+ */
+export function resolveChannelWindow(channel: MessageChannel, env: NodeJS.ProcessEnv = process.env) {
+  return channel === "WHATSAPP" ? resolveWhatsAppWindow(env) : resolveMessagingWindow(env);
+}
+
+export function channelLiveFromVariable(channel: MessageChannel): string {
+  return channel === "WHATSAPP" ? WHATSAPP_LIVE_FROM : MESSAGING_LIVE_FROM;
+}
+
+/** ¿Este canal simula? WhatsApp tiene su propio interruptor. */
+export function isChannelSimulation(channel: MessageChannel, env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveChannelWindow(channel, env).state === "simulation";
 }
 
 export function isAutomationEligibleContact(classification: string, consent: boolean) {
@@ -207,6 +230,7 @@ async function upsertAutomationMessage(input: {
   sequenceKey: string;
   stepKey: string;
   courseSessionId: string | null;
+  waTemplate: Prisma.InputJsonValue | null;
   omitted: { code: string; message: string } | null;
 }): Promise<"created" | "updated" | "unchanged"> {
   const identity = {
@@ -228,7 +252,8 @@ async function upsertAutomationMessage(input: {
     body: input.body,
     status,
     scheduledAt: input.scheduledAt,
-    isSimulation: isMessagingSimulation(),
+    waTemplate: input.waTemplate ?? Prisma.DbNull,
+    isSimulation: isChannelSimulation(input.channel),
     errorCode: input.omitted?.code ?? null,
     errorMessage: input.omitted?.message ?? null,
     error: input.omitted?.message ?? null,
@@ -296,6 +321,48 @@ function scheduleTargets(
       stepKey: baseKey,
     },
   ];
+}
+
+type WhatsAppRuleFields = {
+  channel: MessageChannel;
+  waTemplateName: string | null;
+  waTemplateLanguage: string | null;
+  waTemplateBodyVars: unknown;
+  waTemplateUrlVar: string | null;
+};
+
+/**
+ * Resuelve la plantilla de una regla de WhatsApp.
+ *
+ * Esta funcion es el punto donde se hace estructuralmente imposible que un
+ * mensaje iniciado por la empresa salga como texto libre. Una regla de WhatsApp
+ * sin plantilla no produce un mensaje "de texto": produce un mensaje OMITIDO
+ * con el motivo escrito. Meta lo rechazaria igualmente, y descubrirlo al
+ * programar es mucho mejor que descubrirlo cuando la sesion esta por empezar.
+ */
+export function resolveWhatsAppTemplate(
+  rule: WhatsAppRuleFields,
+  vars: Record<string, string>,
+): { payload: Prisma.InputJsonValue | null; problem: { code: string; message: string } | null } {
+  if (rule.channel !== "WHATSAPP") return { payload: null, problem: null };
+  const binding = templateBindingOf(rule);
+  if (!binding) {
+    return {
+      payload: null,
+      problem: {
+        code: "WHATSAPP_TEMPLATE_MISSING",
+        message: "La regla de WhatsApp no tiene plantilla aprobada asignada. Meta rechaza el texto libre en mensajes iniciados por la empresa, así que el mensaje no se programa.",
+      },
+    };
+  }
+  const built = buildTemplateComponents(binding, vars);
+  if (!built.ok) {
+    return { payload: null, problem: { code: built.errorCode, message: built.error } };
+  }
+  return {
+    payload: { name: binding.name, language: binding.language, components: built.components } as Prisma.InputJsonValue,
+    problem: null,
+  };
 }
 
 export type ScheduleAutomationsResult = {
@@ -397,6 +464,13 @@ export async function scheduleEnrollmentAutomations(
       if (rule.trigger !== "ON_REGISTRATION" && target.scheduledAt < oldestAllowed) { skipped++; continue; }
       const missingStreamUrl = rule.requiresStreamUrl && !target.contentSession?.streamUrl;
       const vars = templateVariables(enrollment.lead, enrollment.course, target.contentSession);
+      // WhatsApp resuelve aqui su plantilla, no al enviar: asi el mensaje
+      // guarda exactamente lo que saldra, y un problema de plantilla se ve al
+      // programar en lugar de descubrirse cuando ya no hay margen.
+      const template = resolveWhatsAppTemplate(rule, vars);
+      const blocked = missingStreamUrl
+        ? { code: "MISSING_STREAM_URL", message: "La sesión no tiene un enlace de transmisión configurado." }
+        : template.problem;
       const outcome = await upsertAutomationMessage({
         leadId: enrollment.leadId,
         enrollmentId: enrollment.id,
@@ -409,11 +483,10 @@ export async function scheduleEnrollmentAutomations(
         sequenceKey: `automation:${rule.id}`,
         stepKey: target.stepKey,
         courseSessionId: target.session?.id ?? null,
-        omitted: missingStreamUrl
-          ? { code: "MISSING_STREAM_URL", message: "La sesión no tiene un enlace de transmisión configurado." }
-          : null,
+        waTemplate: template.payload,
+        omitted: blocked,
       });
-      if (missingStreamUrl && outcome !== "unchanged") omitted++;
+      if (blocked && outcome !== "unchanged") omitted++;
       else if (outcome === "created") enqueued++;
       else if (outcome === "updated") updated++;
       else skipped++;
@@ -581,6 +654,20 @@ export async function processDueAutomationRules(now = new Date()) {
   return { rules: rules.length, enrollments, enqueued };
 }
 
+/**
+ * Lectura defensiva de `waTemplate`. Es JSON libre en la base, asi que un valor
+ * incompleto debe tratarse como ausencia de plantilla y no como una plantilla
+ * a medias que Meta rechazaria.
+ */
+export function readStoredTemplate(raw: unknown): { name: string; language: string; components: unknown[] } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as { name?: unknown; language?: unknown; components?: unknown };
+  if (typeof value.name !== "string" || !value.name.trim()) return null;
+  if (typeof value.language !== "string" || !value.language.trim()) return null;
+  if (!Array.isArray(value.components)) return null;
+  return { name: value.name, language: value.language, components: value.components };
+}
+
 export function retryDelayMinutes(attemptCount: number) {
   return Math.min(240, 5 * (2 ** Math.max(0, attemptCount - 1)));
 }
@@ -591,7 +678,10 @@ function retryAt(attemptCount: number, now = new Date()) {
 }
 
 function failureData(result: SendResult, attemptCount: number, now: Date) {
-  const exhausted = attemptCount >= MAX_ATTEMPTS;
+  // Un fallo permanente (plantilla inexistente, token revocado, numero no
+  // valido) no mejora reintentando: se agotan los intentos de una vez para que
+  // el motivo quede visible en lugar de repetirse durante cuatro horas.
+  const exhausted = result.permanent === true || attemptCount >= MAX_ATTEMPTS;
   return {
     status: "FALLIDO" as const,
     failedAt: now,
@@ -608,15 +698,16 @@ export async function sendMessage(messageId: string) {
   const now = new Date();
   // La ventana se comprueba antes de reclamar el mensaje: un mensaje bloqueado
   // no cambia de estado, sigue visible como PROGRAMADO y puede cancelarse o
-  // reprogramarse desde el panel.
-  const window = resolveMessagingWindow();
+  // reprogramarse desde el panel. Cada canal tiene la suya, de modo que
+  // WhatsApp bloqueado no detiene el correo ni al reves.
+  const scheduled = await prisma.outboundMessage.findUnique({ where: { id: messageId }, select: { scheduledAt: true, channel: true } });
+  if (!scheduled) return { ok: false, error: "Mensaje no encontrado." };
+  const window = resolveChannelWindow(scheduled.channel);
   if (window.state === "blocked") {
     return { ok: false, errorCode: window.errorCode, error: window.error };
   }
-  const scheduled = await prisma.outboundMessage.findUnique({ where: { id: messageId }, select: { scheduledAt: true } });
-  if (!scheduled) return { ok: false, error: "Mensaje no encontrado." };
   if (!isWithinLiveWindow(window, scheduled.scheduledAt)) {
-    return { ok: false, errorCode: "BEFORE_LIVE_FROM", error: outsideLiveWindowMessage(window, MESSAGING_LIVE_FROM) };
+    return { ok: false, errorCode: "BEFORE_LIVE_FROM", error: outsideLiveWindowMessage(window, channelLiveFromVariable(scheduled.channel)) };
   }
 
   const claimed = await prisma.outboundMessage.updateMany({
@@ -638,7 +729,7 @@ export async function sendMessage(messageId: string) {
     await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "CONTACT_EXCLUDED", classification: message.lead.classification, consent: message.lead.consent } });
     return { ok: true, skipped: true };
   }
-  if (isMessagingSimulation()) {
+  if (window.state === "simulation") {
     await prisma.outboundMessage.update({ where: { id: message.id }, data: { status: "SIMULADO", isSimulation: true, nextAttemptAt: null, error: null } });
     if (message.automationRuleId) {
       await prisma.automationRule.update({ where: { id: message.automationRuleId }, data: { lastExecutedAt: now } }).catch(() => undefined);
@@ -647,7 +738,30 @@ export async function sendMessage(messageId: string) {
     return { ok: true, simulated: true };
   }
 
-  const result = await buildChannel(message.channel).send({ to: message.toAddress, subject: message.subject ?? undefined, body: message.body });
+  // Segundo cerrojo contra el texto libre. El primero esta al programar; este
+  // cubre los mensajes creados antes de que existiera la comprobacion y
+  // cualquier ruta que llegue aqui sin pasar por el programador.
+  const template = readStoredTemplate(message.waTemplate);
+  if (message.channel === "WHATSAPP" && !template) {
+    await prisma.outboundMessage.update({
+      where: { id: message.id },
+      data: {
+        status: "OMITIDO", nextAttemptAt: null,
+        errorCode: "WHATSAPP_TEMPLATE_MISSING",
+        errorMessage: "El mensaje no lleva plantilla aprobada. No se envía como texto libre porque Meta lo rechazaría.",
+        error: "El mensaje no lleva plantilla aprobada.",
+      },
+    });
+    await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "WHATSAPP_TEMPLATE_MISSING", channel: message.channel } });
+    return { ok: false, errorCode: "WHATSAPP_TEMPLATE_MISSING", error: "El mensaje de WhatsApp no lleva plantilla aprobada." };
+  }
+
+  const result = await buildChannel(message.channel).send({
+    to: message.toAddress,
+    subject: message.subject ?? undefined,
+    body: message.body,
+    template: template ?? undefined,
+  });
   const completedAt = new Date();
   await prisma.outboundMessage.update({
     where: { id: message.id },
@@ -698,26 +812,44 @@ export async function sendDueMessagesForEnrollment(enrollmentId: string, now = n
   };
 }
 
+const DISPATCH_CHANNELS: MessageChannel[] = ["EMAIL", "WHATSAPP"];
+
 export async function processScheduledMessages(now = new Date()) {
-  // Un canal en live sin fecha de activación no procesa nada: falla de forma
-  // segura y lo dice, en lugar de vaciar la cola atrasada sobre los contactos.
-  const window = resolveMessagingWindow();
-  if (window.state === "blocked") {
-    await writeAudit({
-      actorEmail: "automation",
-      action: "MESSAGE_DISPATCH_BLOCKED",
-      entityType: "OutboundMessage",
-      result: "FAILURE",
-      metadata: { errorCode: window.errorCode, variable: MESSAGING_LIVE_FROM },
-    });
-    return { blocked: true, errorCode: window.errorCode, error: window.error, automations: null, processed: 0, succeeded: 0, failed: 0, results: [] };
+  // Cada canal se evalúa por separado: un canal bloqueado ya no detiene al
+  // otro. Antes compartían una única puerta, de modo que un fallo de
+  // configuración de WhatsApp habría dejado el correo sin salir.
+  const blockedChannels: Array<{ channel: MessageChannel; errorCode: string; error: string }> = [];
+  const channelFilters: Prisma.OutboundMessageWhereInput[] = [];
+  for (const channel of DISPATCH_CHANNELS) {
+    const channelWindow = resolveChannelWindow(channel);
+    if (channelWindow.state === "blocked") {
+      blockedChannels.push({ channel, errorCode: channelWindow.errorCode, error: channelWindow.error });
+      await writeAudit({
+        actorEmail: "automation",
+        action: "MESSAGE_DISPATCH_BLOCKED",
+        entityType: "OutboundMessage",
+        result: "FAILURE",
+        metadata: { channel, errorCode: channelWindow.errorCode, variable: channelLiveFromVariable(channel) },
+      });
+      continue;
+    }
+    channelFilters.push(
+      channelWindow.state === "live"
+        ? { channel, scheduledAt: { gte: channelWindow.liveFrom } }
+        : { channel },
+    );
   }
+
+  if (channelFilters.length === 0) {
+    const first = blockedChannels[0];
+    return { blocked: true, blockedChannels, errorCode: first?.errorCode ?? null, error: first?.error ?? null, automations: null, processed: 0, succeeded: 0, failed: 0, results: [] };
+  }
+
   const automations = await processDueAutomationRules(now);
-  const liveFrom = window.state === "live" ? { scheduledAt: { gte: window.liveFrom } } : {};
   const pending = await prisma.outboundMessage.findMany({
     where: {
       AND: [
-        liveFrom,
+        { OR: channelFilters },
         {
           OR: [
             { status: "PROGRAMADO", scheduledAt: { lte: now } },
@@ -739,5 +871,5 @@ export async function processScheduledMessages(now = new Date()) {
       results.push(result.status === "fulfilled" ? { id, ...result.value } : { id, ok: false, error: "Fallo interno aislado durante el procesamiento." });
     });
   }
-  return { blocked: false, errorCode: null, error: null, automations, processed: results.length, succeeded: results.filter((result) => result.ok).length, failed: results.filter((result) => !result.ok).length, results };
+  return { blocked: false, blockedChannels, errorCode: null, error: null, automations, processed: results.length, succeeded: results.filter((result) => result.ok).length, failed: results.filter((result) => !result.ok).length, results };
 }

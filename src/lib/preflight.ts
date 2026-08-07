@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { describeEmailConfig, resolveEmailConfig } from "@/lib/email/config";
 import { parseLiveFrom } from "@/lib/live-activation";
 import { describeMetaConfig, resolveMetaConfig } from "@/lib/social/meta-config";
+import { describeWhatsAppConfig } from "@/lib/whatsapp/config";
 
 /**
  * Comprobación previa al despliegue. ESTRICTAMENTE DE SOLO LECTURA.
@@ -31,6 +32,44 @@ type Db = Pick<PrismaClient, "$queryRawUnsafe" | "course" | "lead" | "enrollment
 
 function check(id: string, group: string, title: string, level: CheckLevel, detail: string): PreflightCheck {
   return { id, group, title, level, detail };
+}
+
+/**
+ * Estado de WhatsApp. Solo informa de presencia o ausencia: ningún valor de
+ * token, secreto ni identificador aparece aquí ni en el informe.
+ */
+function whatsappEnvironmentChecks(): PreflightCheck[] {
+  const wa = describeWhatsAppConfig();
+  const credentialsDetail = [
+    wa.phoneNumberConfigured ? null : "WHATSAPP_PHONE_NUMBER_ID",
+    wa.tokenConfigured ? null : "WHATSAPP_ACCESS_TOKEN",
+  ].filter(Boolean);
+  const webhookDetail = [
+    wa.appSecretConfigured ? null : "META_APP_SECRET",
+    wa.verifyTokenConfigured ? null : "META_WEBHOOK_VERIFY_TOKEN",
+  ].filter(Boolean);
+
+  return [
+    check("whatsapp_mode", "WhatsApp", "Modo del canal",
+      wa.mode === "disabled" ? "WARN" : wa.windowState === "blocked" ? "FAIL" : "PASS",
+      wa.mode === "disabled"
+        ? "WHATSAPP_MODE ausente o no reconocido: el canal está deshabilitado y no envía ni simula. El correo no se ve afectado."
+        : wa.windowState === "blocked"
+          ? wa.blockedReason ?? "El canal está bloqueado."
+          : wa.windowState === "live"
+            ? `Envío real desde ${wa.liveFrom}.`
+            : "En simulación: no se envía ningún WhatsApp real."),
+    check("whatsapp_credentials", "WhatsApp", "Credenciales de envío",
+      credentialsDetail.length === 0 ? "PASS" : wa.mode === "live" ? "FAIL" : "WARN",
+      credentialsDetail.length === 0
+        ? "Número y token presentes (no se muestran)."
+        : `Faltan: ${credentialsDetail.join(", ")}.`),
+    check("whatsapp_webhook", "WhatsApp", "Webhook de estados",
+      webhookDetail.length === 0 ? "PASS" : wa.mode === "live" ? "FAIL" : "WARN",
+      webhookDetail.length === 0
+        ? "App Secret y verify token presentes: el webhook puede verificarse y firmar."
+        : `Faltan: ${webhookDetail.join(", ")}. Sin esto los mensajes se quedan en ACEPTADO y nunca llegan a ENTREGADO ni LEÍDO.`),
+  ];
 }
 
 async function environmentChecks(): Promise<PreflightCheck[]> {
@@ -72,6 +111,7 @@ async function environmentChecks(): Promise<PreflightCheck[]> {
       process.env.WORDPRESS_COURSES_API_URL?.trim()
         ? "Endpoint del catálogo configurado."
         : "Sin WORDPRESS_COURSES_API_URL la sincronización del catálogo no puede ejecutarse."),
+    ...whatsappEnvironmentChecks(),
   ];
 }
 
@@ -82,10 +122,13 @@ const CRITICAL_COLUMNS = [
   "outbound_messages.courseSessionId",
   "automation_rules.requiresStreamUrl",
   "automation_rules.planKey",
+  "automation_rules.waTemplateName",
+  "outbound_messages.waTemplate",
+  "outbound_messages.readAt",
 ];
 const CRITICAL_INDEXES = [
   "outbound_messages_leadId_enrollmentId_sequenceKey_stepKey_key",
-  "automation_rules_courseId_planKey_key",
+  "automation_rules_courseId_channel_planKey_key",
   "social_posts_occurrenceKey_key",
   "enrollments_leadId_courseId_key",
 ];
@@ -172,7 +215,7 @@ async function catalogChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
 }
 
 async function operationalChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
-  const [staleMessages, stalePosts, whatsappRules, activeAccounts, enrolledWithoutMessages] = await Promise.all([
+  const [staleMessages, stalePosts, whatsappRules, activeAccounts, enrolledWithoutMessages, whatsappRulesWithoutTemplate, whatsappQueued] = await Promise.all([
     db.outboundMessage.count({ where: { status: "PROGRAMADO", scheduledAt: { lt: new Date(now.getTime() - 6 * 60 * 60_000) } } }),
     db.socialPost.count({ where: { status: "PROGRAMADO", scheduledAt: { lt: new Date(now.getTime() - 6 * 60 * 60_000) } } }),
     db.automationRule.count({ where: { status: "ACTIVE", channel: "WHATSAPP" } }),
@@ -185,8 +228,13 @@ async function operationalChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
         messages: { none: {} },
       },
     }),
+    db.automationRule.count({
+      where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] },
+    }),
+    db.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
   ]);
   const legacyAccounts = activeAccounts.filter((account) => !account.externalId);
+  const whatsappDisabled = describeWhatsAppConfig().mode === "disabled";
 
   return [
     check("stale_messages_6h", "Cron", "Cola de correo estancada", staleMessages > 0 ? "WARN" : "PASS",
@@ -195,10 +243,18 @@ async function operationalChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
         : "No hay mensajes vencidos sin procesar."),
     check("stale_posts_6h", "Cron", "Cola de publicaciones estancada", stalePosts > 0 ? "WARN" : "PASS",
       stalePosts > 0 ? `${stalePosts} publicación(es) llevan más de 6 horas vencidas.` : "No hay publicaciones vencidas sin procesar."),
-    check("whatsapp_rules", "WhatsApp", "Reglas activas sin proveedor", whatsappRules > 0 ? "WARN" : "PASS",
-      whatsappRules > 0
-        ? `${whatsappRules} regla(s) de WhatsApp están activas pero el canal no tiene proveedor conectado: sus mensajes nunca se enviarán.`
-        : "No hay reglas de WhatsApp activas."),
+    check("whatsapp_rules", "WhatsApp", "Reglas activas con el canal apagado", whatsappRules > 0 && whatsappDisabled ? "WARN" : "PASS",
+      whatsappRules > 0 && whatsappDisabled
+        ? `${whatsappRules} regla(s) de WhatsApp están activas pero WHATSAPP_MODE está deshabilitado: sus mensajes se acumularán como PROGRAMADO sin salir.`
+        : `${whatsappRules} regla(s) de WhatsApp activas.`),
+    check("whatsapp_templates", "WhatsApp", "Reglas sin plantilla asignada", whatsappRulesWithoutTemplate > 0 ? "WARN" : "PASS",
+      whatsappRulesWithoutTemplate > 0
+        ? `${whatsappRulesWithoutTemplate} regla(s) de WhatsApp no declaran plantilla aprobada. Sus mensajes se registran como OMITIDO en lugar de enviarse como texto libre, que Meta rechazaría.`
+        : "Todas las reglas de WhatsApp declaran su plantilla."),
+    check("whatsapp_queue", "WhatsApp", "Cola de WhatsApp", whatsappQueued > 0 && whatsappDisabled ? "WARN" : "PASS",
+      whatsappQueued > 0 && whatsappDisabled
+        ? `${whatsappQueued} mensaje(s) de WhatsApp esperan con el canal deshabilitado. Al activarlo saldrán solo los posteriores a WHATSAPP_LIVE_FROM.`
+        : `${whatsappQueued} mensaje(s) de WhatsApp en cola.`),
     check("social_accounts", "Redes", "Cuentas sociales activas", activeAccounts.length > 0 ? "PASS" : "WARN",
       activeAccounts.length > 0
         ? `Activas: ${activeAccounts.map((account) => `${account.platform}/${account.displayName}`).join(", ")}.`

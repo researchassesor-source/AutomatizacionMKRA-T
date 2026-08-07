@@ -60,6 +60,8 @@ describe("bloqueo del procesador sin fecha de activación", () => {
 
   it("sendMessage rechaza sin tocar el estado del mensaje", async () => {
     liveEnv();
+    // El canal se lee del mensaje: la ventana que se aplica depende de él.
+    mocks.prisma.outboundMessage.findUnique.mockResolvedValue({ scheduledAt: NOW, channel: "EMAIL" });
     const result = await sendMessage("mensaje-1");
     expect(result).toMatchObject({ ok: false, errorCode: "LIVE_FROM_MISSING" });
     expect(mocks.prisma.outboundMessage.updateMany).not.toHaveBeenCalled();
@@ -76,11 +78,13 @@ describe("bloqueo del procesador sin fecha de activación", () => {
 });
 
 describe("filtro por fecha de activación", () => {
-  it("añade el corte a la consulta de pendientes", async () => {
+  it("añade el corte a la consulta de pendientes, por canal", async () => {
     liveEnv("2026-08-06T18:00:00Z");
     await processScheduledMessages(NOW);
     const where = mocks.prisma.outboundMessage.findMany.mock.calls[0][0].where;
-    expect(where.AND[0]).toEqual({ scheduledAt: { gte: new Date("2026-08-06T18:00:00.000Z") } });
+    // WHATSAPP_MODE no está definido, así que WhatsApp queda fuera de la
+    // consulta y el corte del correo se aplica solo a los mensajes de correo.
+    expect(where.AND[0]).toEqual({ OR: [{ channel: "EMAIL", scheduledAt: { gte: new Date("2026-08-06T18:00:00.000Z") } }] });
   });
 
   it("rechaza un mensaje antiguo sin cambiar su estado", async () => {

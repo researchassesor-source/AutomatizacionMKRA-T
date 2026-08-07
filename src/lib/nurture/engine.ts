@@ -59,7 +59,7 @@ export function isAutomationEligibleContact(classification: string, consent: boo
 export const TEMPLATE_VARIABLES = [
   "nombre", "apellido", "curso", "courseUrl", "moodleUrl", "asesor", "fecha",
   "hora", "modalidad", "enlace", "appUrl", "streamUrl", "bloqueEnlace",
-  "fechaSesion", "horaSesion", "sesion",
+  "fechaSesion", "horaSesion", "sesion", "bloqueFecha",
 ] as const;
 
 export function renderMessageTemplate(template: string, vars: Record<string, string>): string {
@@ -107,6 +107,11 @@ function templateVariables(
     enlace: course.moodleCourseUrl ?? course.officialCourseUrl,
     streamUrl,
     bloqueEnlace: streamUrl ? `Enlace de acceso:\n${streamUrl}` : "",
+    // Un curso sin calendario no debe mostrar «Fecha: por confirmar» seguido de
+    // «Hora: por confirmar»: es ruido que no aporta nada. Mejor omitir el bloque.
+    bloqueFecha: reference
+      ? `Fecha: ${formatDate(reference)}\nHora: ${formatTime(reference)}${course.modality ? `\nModalidad: ${course.modality}` : ""}`
+      : "",
     appUrl: process.env.APP_URL ?? "http://localhost:3000",
   };
 }

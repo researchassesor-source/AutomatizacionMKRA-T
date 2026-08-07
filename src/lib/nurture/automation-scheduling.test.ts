@@ -235,6 +235,10 @@ describe("variables de plantilla", () => {
     expect(renderMessageTemplate("Hola\n\n{{bloqueEnlace}}\n\nGracias", { bloqueEnlace: "" })).toBe("Hola\n\nGracias");
   });
 
+  it("omite el bloque de fecha en lugar de escribir «por confirmar» dos veces", () => {
+    expect(renderMessageTemplate("Hola\n\n{{bloqueFecha}}\n\nGracias", { bloqueFecha: "" })).toBe("Hola\n\nGracias");
+  });
+
   it("no reemplaza variables desconocidas", () => {
     expect(renderMessageTemplate("{{tokenSecreto}}", {})).toBe("{{tokenSecreto}}");
   });

@@ -26,6 +26,24 @@ function linkify(escapedLine: string): string {
   });
 }
 
+/**
+ * Una línea del tipo «Etiqueta: valor» se muestra como dato destacado y no como
+ * texto corrido. Fecha, hora y enlace son justo lo que el participante busca de
+ * un vistazo, y perderlos dentro de un párrafo obliga a releer el correo entero.
+ *
+ * Se exige un espacio tras los dos puntos: es lo que separa un dato real de los
+ * dos puntos de un esquema de URL. Sin esa condición, «Ingresa en https://…»
+ * se partiría por `https:` y el enlace quedaría roto.
+ */
+const DATA_LINE = /^([A-Za-zÁÉÍÓÚÑáéíóúñ ]{3,22}):[ \t]+(\S.*)$/;
+
+function renderLine(line: string): string {
+  const match = line.match(DATA_LINE);
+  if (!match) return linkify(escapeHtml(line));
+  return `<span style="display:inline-block;min-width:80px;color:#64748b;font-size:14px;">${escapeHtml(match[1])}</span>`
+    + `<strong style="color:#0f172a;font-size:16px;">${linkify(escapeHtml(match[2]))}</strong>`;
+}
+
 function paragraphs(body: string): string {
   return body
     .replace(/\r\n/g, "\n")
@@ -33,8 +51,15 @@ function paragraphs(body: string): string {
     .map((block) => block.trim())
     .filter(Boolean)
     .map((block) => {
-      const lines = block.split("\n").map((line) => linkify(escapeHtml(line.trim())));
-      return `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1f2933;">${lines.join("<br />")}</p>`;
+      const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+      // Un bloque en el que todas las líneas son datos se destaca visualmente.
+      if (lines.length > 0 && lines.every((line) => DATA_LINE.test(line))) {
+        return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background-color:#f1f5f9;border-radius:10px;">'
+          + '<tr><td style="padding:15px 18px;border-left:3px solid #0b3d68;border-radius:10px;font-family:Arial,Helvetica,sans-serif;">'
+          + lines.map((line) => `<div style="margin:4px 0;line-height:1.6;">${renderLine(line)}</div>`).join("")
+          + "</td></tr></table>";
+      }
+      return `<p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#334155;">${lines.map(renderLine).join("<br />")}</p>`;
     })
     .join("");
 }

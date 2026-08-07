@@ -69,6 +69,32 @@ describe("plantilla HTML del correo", () => {
     expect(buildEmailDocument({ subject: "Prueba", body: "http://inseguro.example.com" }).html).not.toContain("<a href=");
   });
 
+  it("destaca como bloque de datos las líneas «etiqueta: valor»", () => {
+    const document = buildEmailDocument({
+      subject: "Prueba",
+      body: "Hola Angel\n\nFecha: 12 de agosto de 2026\nHora: 7:30 p. m.\nModalidad: Virtual\n\nGracias",
+    });
+    expect(document.html).toContain("background-color:#f1f5f9");
+    expect(document.html).toContain(">Fecha</span>");
+    expect(document.html).toContain("<strong style=\"color:#0f172a;font-size:16px;\">12 de agosto de 2026</strong>");
+    // Una hora con dos puntos no debe partirse por su propio separador.
+    expect(document.html).toContain(">7:30 p. m.</strong>");
+    // El saludo y el cierre siguen siendo párrafos normales.
+    expect(document.html).toContain("Hola Angel</p>");
+  });
+
+  it("no confunde el «https:» de un enlace con una etiqueta de dato", () => {
+    const document = buildEmailDocument({ subject: "Prueba", body: "Ingresa en https://meet.example.com/sala" });
+    expect(document.html).not.toContain(">Ingresa en https</span>");
+    expect(document.html).toContain('<a href="https://meet.example.com/sala"');
+  });
+
+  it("mantiene enlazado el valor de un dato que es una URL", () => {
+    const document = buildEmailDocument({ subject: "Prueba", body: "Enlace de acceso: https://meet.example.com/sala" });
+    expect(document.html).toContain('<a href="https://meet.example.com/sala"');
+    expect(document.html).toContain(">Enlace de acceso</span>");
+  });
+
   it("escapa comillas y ángulos", () => {
     expect(escapeHtml(`<a href="x">&'`)).toBe("&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
   });

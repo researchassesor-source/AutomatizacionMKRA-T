@@ -28,6 +28,22 @@ export type OAuthState = {
   expiresAt: number;
 };
 
+/**
+ * Identidad a la que se liga el flujo OAuth.
+ *
+ * Lo ideal es el id del usuario administrativo. El acceso compartido heredado
+ * no tiene uno, y exigirlo dejaba una asimetría absurda: podía desconectar una
+ * cuenta pero no volver a conectarla, es decir, romper sin poder arreglar.
+ *
+ * Se le da una identidad derivada y estable. Se pierde solo la comprobación de
+ * "mismo administrador" —que entre sesiones compartidas nunca fue significativa—
+ * mientras siguen intactas las tres defensas reales: firma HMAC, coincidencia
+ * con la cookie del navegador y caducidad corta.
+ */
+export function oauthIdentity(session: { userId: string | null; email: string }): string {
+  return session.userId ?? `legacy:${session.email}`;
+}
+
 function sign(payload: string, secret: string): string {
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }

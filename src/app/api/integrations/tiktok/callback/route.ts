@@ -3,7 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { sessionFromRequest } from "@/lib/auth/authorization";
 import { persistConnection, type ProfileInfo } from "@/lib/social/tiktok/account";
 import { resolveTikTokConfig } from "@/lib/social/tiktok/config";
-import { exchangeCodeForTokens, STATE_COOKIE, verifyOAuthState } from "@/lib/social/tiktok/oauth";
+import { exchangeCodeForTokens, oauthIdentity, STATE_COOKIE, verifyOAuthState } from "@/lib/social/tiktok/oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -58,9 +58,6 @@ export async function GET(request: Request) {
   // La sesión administrativa debe seguir activa: el `state` se emitió para ella.
   const session = await sessionFromRequest(request);
   if (session?.role !== "ADMIN") return clearState(back("sesion_invalida"));
-  // El `state` se emitió para un administrador concreto. Una sesión heredada
-  // compartida no tiene identidad propia, así que no puede cerrar el flujo.
-  if (!session.userId) return clearState(back("sesion_compartida"));
 
   const cookieState = request.headers.get("cookie")?.match(new RegExp(`${STATE_COOKIE}=([^;]+)`))?.[1];
   const verification = verifyOAuthState(
@@ -68,7 +65,7 @@ export async function GET(request: Request) {
     cookieState ? decodeURIComponent(cookieState) : null,
 
     config.stateSecret ?? "",
-    session.userId,
+    oauthIdentity(session),
   );
   if (!verification.ok) {
     await writeAudit({

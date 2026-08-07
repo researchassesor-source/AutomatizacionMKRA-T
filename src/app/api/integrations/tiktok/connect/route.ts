@@ -3,7 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
 import { resolveTikTokConfig } from "@/lib/social/tiktok/config";
-import { buildAuthorizeUrl, createOAuthState, STATE_COOKIE, STATE_TTL_SECONDS } from "@/lib/social/tiktok/oauth";
+import { buildAuthorizeUrl, createOAuthState, oauthIdentity, STATE_COOKIE, STATE_TTL_SECONDS } from "@/lib/social/tiktok/oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -32,18 +32,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: config.reason }, { status: 422 });
   }
 
-  // El acceso heredado compartido no tiene identidad individual: sin ella el
-  // `state` no puede quedar ligado a una persona concreta.
-  const adminId = auth.session?.userId;
-  if (!adminId) {
-    return NextResponse.json(
-      { error: "Conectar TikTok requiere una cuenta administrativa individual, no el acceso compartido heredado." },
-      { status: 403 },
-    );
-  }
-
+  if (!auth.session) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const body = (await request.json().catch(() => ({}))) as { reconnect?: boolean };
-  const { state } = createOAuthState(adminId, config.stateSecret ?? "");
+  const { state } = createOAuthState(oauthIdentity(auth.session), config.stateSecret ?? "");
   // Al reconectar se fuerza la pantalla de consentimiento: si no, TikTok
   // reutiliza la autorización previa y el paso queda invisible.
   const authorizeUrl = buildAuthorizeUrl(config, state, { forceConsent: Boolean(body.reconnect) });

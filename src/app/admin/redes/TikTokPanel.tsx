@@ -46,7 +46,6 @@ const CALLBACK_MESSAGES: Record<string, string> = {
   cancelado: "No se autorizó el acceso: el flujo se canceló en TikTok.",
   estado_invalido: "La autorización no se pudo validar. Vuelve a intentarlo desde el botón.",
   sesion_invalida: "Tu sesión administrativa expiró durante el proceso.",
-  sesion_compartida: "Conectar TikTok requiere una cuenta administrativa individual, no el acceso compartido.",
   sin_codigo: "TikTok no devolvió el código de autorización.",
   error_token: "TikTok rechazó el intercambio de credenciales.",
   error_guardado: "No se pudo guardar la conexión.",

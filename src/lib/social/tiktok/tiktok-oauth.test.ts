@@ -4,6 +4,7 @@ import { allowedPrivacyLevels, describeTikTokConfig, isValidRedirectUri, resolve
 import {
   buildAuthorizeUrl,
   createOAuthState,
+  oauthIdentity,
   exchangeCodeForTokens,
   needsRefresh,
   refreshTokens,
@@ -143,6 +144,23 @@ describe("state de OAuth", () => {
   it("rechaza state ausente o malformado", () => {
     expect(verifyOAuthState(null, null, STATE_SECRET, admin, NOW)).toMatchObject({ ok: false, reason: "MALFORMED" });
     expect(verifyOAuthState("basura", "basura", STATE_SECRET, admin, NOW)).toMatchObject({ ok: false, reason: "MALFORMED" });
+  });
+
+  it("el acceso compartido tambien obtiene una identidad estable", () => {
+    // Exigir userId dejaba que el acceso compartido desconectara una cuenta
+    // pero no pudiera reconectarla: podia romper sin poder arreglar.
+    const compartida = { userId: null, email: "legacy-local" };
+    const identidad = oauthIdentity(compartida);
+    expect(identidad).toBe("legacy:legacy-local");
+    const { state } = createOAuthState(identidad, STATE_SECRET, NOW);
+    expect(verifyOAuthState(state, state, STATE_SECRET, identidad, NOW)).toMatchObject({ ok: true });
+  });
+
+  it("un usuario individual sigue teniendo identidad propia", () => {
+    expect(oauthIdentity({ userId: "user-1", email: "a@b.test" })).toBe("user-1");
+    // Y no puede cerrar un flujo iniciado por el acceso compartido.
+    const { state } = createOAuthState("legacy:legacy-local", STATE_SECRET, NOW);
+    expect(verifyOAuthState(state, state, STATE_SECRET, "user-1", NOW)).toMatchObject({ ok: false, reason: "WRONG_ADMIN" });
   });
 
   it("dos states consecutivos son distintos", () => {

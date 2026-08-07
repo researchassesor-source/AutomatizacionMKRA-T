@@ -8,7 +8,7 @@ import { GESTION } from "@/lib/auth/roles";
 
 const schema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
-  role: z.enum(["ADMIN", "MARKETING", "VENTAS", "LECTURA"]).optional(),
+  role: z.enum(["ADMIN", "DIRECCION", "MARKETING", "VENTAS", "LECTURA"]).optional(),
   isActive: z.boolean().optional(),
   password: z.string().min(8).max(256).optional(),
 }).refine((data) => Object.values(data).some((value) => value !== undefined), {

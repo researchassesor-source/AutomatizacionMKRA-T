@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../AdminEmptyState";
+import { profileLabel } from "@/lib/auth/roles";
 import { presentAdminValue } from "../adminPresentation";
 
 type User = {
@@ -16,7 +17,8 @@ type User = {
 };
 
 const roleDescriptions: Record<string, string> = {
-  ADMIN: "Control completo, usuarios y auditoría.",
+  DIRECCION: "Todo lo operativo: contactos, cursos, comunicaciones, redes y usuarios.",
+  ADMIN: "Lo mismo que Dirección, más integraciones, diagnóstico y auditoría.",
   MARKETING: "Cursos, mensajes, redes y lectura de contactos.",
   VENTAS: "Contactos, seguimientos, ventas, mensajes y Finance.",
   LECTURA: "Consulta de resumen, contactos, cursos y Finance.",
@@ -88,7 +90,7 @@ export function UserManager({ users }: { users: User[] }) {
           <input name="password" type={showPassword ? "text" : "password"} minLength={8} aria-label="Contraseña inicial" placeholder="Contraseña inicial" required />
           <button className="password-toggle" type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}>{showPassword ? "Ocultar" : "Mostrar"}</button>
         </div>
-        <select name="role" aria-label="Rol" defaultValue="LECTURA">{["LECTURA", "VENTAS", "MARKETING", "ADMIN"].map((role) => <option key={role} value={role}>{presentAdminValue(role)}</option>)}</select>
+        <select name="role" aria-label="Rol" defaultValue="LECTURA">{["DIRECCION", "ADMIN", "MARKETING", "VENTAS", "LECTURA"].map((role) => <option key={role} value={role}>{profileLabel(role as never)}</option>)}</select>
       </div>
       <p className="muted">Administrador: control completo · Marketing: automatización · Ventas: gestión comercial · Lectura: solo consulta.</p>
       <button type="submit" className="btn-sm" disabled={busy === "create"}>{busy === "create" ? "Creando…" : "Crear usuario"}</button>

@@ -15,6 +15,8 @@ export type AttentionItem = {
   href: string;
   actionLabel: string;
   severity: "warn" | "error";
+  /** Curso al que programar una sesion desde el propio aviso. */
+  scheduleCourse?: { id: string; title: string; enrollments: number; modality: string | null };
 };
 
 export type UpcomingSession = {
@@ -79,7 +81,7 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
 
   // Sesiones reales de los cursos publicados, ordenadas por proximidad.
   const sessions: UpcomingSession[] = [];
-  const sinFecha: Array<{ id: string; title: string; enrollments: number }> = [];
+  const sinFecha: Array<{ id: string; title: string; enrollments: number; modality: string | null }> = [];
   const sinEnlace: Array<{ id: string; title: string; startAt: Date }> = [];
 
   for (const course of courses) {
@@ -88,7 +90,7 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
     if (resolved.length === 0) {
       // Solo molesta si hay gente esperando: un curso sin inscritos y sin
       // fecha no es un problema todavia.
-      if (course._count.enrollments > 0) sinFecha.push({ id: course.id, title: course.title, enrollments: course._count.enrollments });
+      if (course._count.enrollments > 0) sinFecha.push({ id: course.id, title: course.title, enrollments: course._count.enrollments, modality: course.modality });
       continue;
     }
     for (const session of proximas) {
@@ -122,11 +124,12 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
   for (const item of sinFecha.slice(0, 2)) {
     attention.push({
       id: `fecha-${item.id}`,
-      title: "Un curso con inscritos no tiene fecha",
-      detail: `${item.title} tiene ${item.enrollments} inscrito${item.enrollments === 1 ? "" : "s"} y todavía no hay sesión programada, así que no se pueden enviar recordatorios.`,
-      href: `/admin/cursos#curso-${item.id}`,
-      actionLabel: "Poner fecha",
+      title: `${item.enrollments} ${item.enrollments === 1 ? "persona está inscrita" : "personas están inscritas"} en un curso que todavía no tiene sesión programada`,
+      detail: `${item.title}. Para poder enviar los recordatorios necesitamos definir fecha y hora.`,
+      href: "/admin/cursos",
+      actionLabel: "Programar sesión",
       severity: "warn",
+      scheduleCourse: { id: item.id, title: item.title, enrollments: item.enrollments, modality: item.modality },
     });
   }
   for (const post of failedPosts.slice(0, 2)) {

@@ -28,7 +28,7 @@ export function ViewSwitch({ current }: { current: ViewMode }) {
   }
 
   return (
-    <div className="view-switch" role="group" aria-label="Vista del panel">
+    <fieldset className="view-switch" aria-label="Vista del panel">
       <span className="view-switch-label">Vista</span>
       {(["direccion", "tecnica"] as const).map((mode) => (
         <button
@@ -45,6 +45,6 @@ export function ViewSwitch({ current }: { current: ViewMode }) {
           {mode === "direccion" ? "Dirección" : "Técnica"}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }

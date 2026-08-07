@@ -6,6 +6,7 @@ import { formatDay, formatTime, relativeMoment } from "@/lib/message-presentatio
 import { AdminIcon } from "./AdminIcon";
 import { AdminNav } from "./AdminNav";
 import { HealthStrip } from "./HealthStrip";
+import { ScheduleSessionButton } from "./cursos/ScheduleSessionButton";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +69,17 @@ export default async function AdminHome() {
                   <strong>{item.title}</strong>
                   <small>{item.detail}</small>
                 </div>
-                <Link className="btn-sm" href={item.href}>{item.actionLabel}</Link>
+                {item.scheduleCourse ? (
+                  <ScheduleSessionButton
+                    courseId={item.scheduleCourse.id}
+                    courseTitle={item.scheduleCourse.title}
+                    enrollments={item.scheduleCourse.enrollments}
+                    modality={item.scheduleCourse.modality}
+                    label={item.actionLabel}
+                  />
+                ) : (
+                  <Link className="btn-sm" href={item.href}>{item.actionLabel}</Link>
+                )}
               </article>
             ))}
           </div>
@@ -104,9 +115,9 @@ export default async function AdminHome() {
         <h2 id="sesiones-titulo" className="home-block-title">Próximas sesiones</h2>
         {data.sessions.length === 0 ? (
           <div className="home-empty">
-            <p><strong>Todavía no hay ninguna sesión programada.</strong></p>
-            <p>Los recordatorios se calculan a partir de la fecha de cada sesión, así que hasta que cargues una no puede salir ninguno.</p>
-            <Link className="btn-sm" href="/admin/cursos">Poner fechas a los cursos</Link>
+            <p><strong>Aún no hay sesiones programadas.</strong></p>
+            <p>Tienes cursos con personas inscritas. Programa la primera sesión para activar sus recordatorios.</p>
+            <Link className="btn-sm" href="/admin/cursos">Ir a Cursos</Link>
           </div>
         ) : (
           <div className="session-list">

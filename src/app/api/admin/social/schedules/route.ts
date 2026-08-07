@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Recurrencia no válida." }, { status: 422 });
   const account = await prisma.socialAccount.findUnique({ where: { id: parsed.data.accountId } });
-  if (!account || !account.isActive || !isSocialAccountUsable(account.platform)) {
+  if (!account?.isActive || !isSocialAccountUsable(account.platform)) {
     return NextResponse.json({ error: "La cuenta no está disponible para programar en este entorno." }, { status: 422 });
   }
   const schedule = await prisma.socialSchedule.create({

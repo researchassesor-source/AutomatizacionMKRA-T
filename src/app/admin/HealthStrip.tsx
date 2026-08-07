@@ -51,12 +51,12 @@ export async function HealthStrip() {
   ];
 
   return (
-    <div className="health-strip" aria-label="Estado de las integraciones">
+    <section className="health-strip" aria-label="Estado de las integraciones">
       {puntos.map((punto) => (
         <span className={`health-item is-${punto.state}`} key={punto.label}>
           {punto.label} <em>{punto.detail}</em>
         </span>
       ))}
-    </div>
+    </section>
   );
 }

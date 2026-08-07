@@ -5,6 +5,7 @@ import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
 import { CourseCommunications } from "./CourseCommunications";
+import { CourseCards } from "./CourseCards";
 import { buildCourseTimeline } from "@/lib/course-timeline";
 import { resolveCourseSessions } from "@/lib/course-sessions";
 import { AdminPageHeader } from "../AdminPageHeader";
@@ -68,6 +69,8 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
   });
   // Que recibe cada inscrito de cada curso y cuando. Se calcula en el servidor
   // para que la pantalla no tenga que saber nada del modelo de reglas.
+  const totalInscritos = scheduledCourses.reduce((suma, course) => suma + course._count.enrollments, 0);
+  const cursosSinFecha = scheduledCourses.filter((course) => resolveCourseSessions(course, course.sessions).length === 0).length;
   const comunicaciones = scheduledCourses.map((course) => {
     const sessions = resolveCourseSessions(course, course.sessions);
     return {
@@ -119,6 +122,37 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         </div>
         </AdminFilterPanel>
       </form>
+      <section className={`summary-line ${cursosSinFecha > 0 ? "is-attention" : ""}`}>
+        <strong>{scheduledCourses.length}</strong> curso{scheduledCourses.length === 1 ? "" : "s"} publicado{scheduledCourses.length === 1 ? "" : "s"}
+        <span className="summary-sep">·</span>
+        <strong>{totalInscritos}</strong> inscrito{totalInscritos === 1 ? "" : "s"}
+        {cursosSinFecha > 0 ? <>
+          <span className="summary-sep">·</span>
+          <strong>{cursosSinFecha}</strong> sin sesión programada
+        </> : null}
+        <span className="summary-actions">
+          <a className="btn-sm ghost" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">Ver catálogo oficial</a>
+        </span>
+      </section>
+
+      <section className="panel">
+        <h2>Cursos publicados</h2>
+        <CourseCards canEdit={canEdit} courses={scheduledCourses.map((course) => {
+          const sessions = resolveCourseSessions(course, course.sessions);
+          const proxima = sessions.find((item) => item.startAt.getTime() >= Date.now()) ?? sessions[0] ?? null;
+          return {
+            id: course.id,
+            title: course.title,
+            modality: course.modality,
+            enrollments: course._count.enrollments,
+            nextSessionAt: proxima?.startAt.toISOString() ?? null,
+            hasStreamUrl: Boolean(proxima?.streamUrl),
+            sessionsCount: sessions.length,
+            isPublished: course.isPublished,
+          };
+        })} />
+      </section>
+
       <CourseCommunications courses={comunicaciones} />
       {tecnico ? (
         <WordPressCatalogSync

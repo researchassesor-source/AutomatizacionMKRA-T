@@ -17,6 +17,8 @@ export type AdminSessionValue = {
   role: SessionRole;
   name: string;
   legacy: boolean;
+  /** ¿Tiene perfil técnico? Decide si aparece el selector de vista. */
+  technical: boolean;
   /** false mientras no se sabe quien es: evita parpadeos de menu. */
   ready: boolean;
 };
@@ -25,11 +27,12 @@ const AdminSessionContext = createContext<AdminSessionValue>({
   role: "LECTURA",
   name: "Usuario",
   legacy: false,
+  technical: false,
   ready: false,
 });
 
 export function AdminSessionProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<AdminSessionValue>({ role: "LECTURA", name: "Usuario", legacy: false, ready: false });
+  const [session, setSession] = useState<AdminSessionValue>({ role: "LECTURA", name: "Usuario", legacy: false, technical: false, ready: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +40,7 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (cancelled) return;
-        if (data) setSession({ role: data.role, name: data.name, legacy: Boolean(data.legacy), ready: true });
+        if (data) setSession({ role: data.role, name: data.name, legacy: Boolean(data.legacy), technical: isTechnicalProfile(data.role), ready: true });
         else setSession((previous) => ({ ...previous, ready: true }));
       })
       .catch(() => {

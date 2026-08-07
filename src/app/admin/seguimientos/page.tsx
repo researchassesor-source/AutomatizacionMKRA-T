@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
+import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
@@ -14,8 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function FollowUpsPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const { view = "pending" } = await searchParams;
   const session = await currentAdminSession();
+  const vista = await resolveViewMode(session.role);
   if (!session || !["ADMIN", "VENTAS"].includes(session.role)) {
-    return <main className="container admin-shell"><AdminNav /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar seguimientos." /></main>;
+    return <main className="container admin-shell"><AdminNav view={vista} /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar seguimientos." /></main>;
   }
   const now = new Date();
   const { start: startToday, end: endToday } = ecuadorDayBounds(now);
@@ -31,7 +33,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
   const followUps = await prisma.followUp.findMany({ where, include: { lead: true, assignedTo: true }, orderBy: { dueAt: "asc" }, take: 200 });
   return (
     <main className="container admin-shell">
-      <AdminNav />
+      <AdminNav view={vista} />
       <AdminPageHeader eyebrow="Agenda comercial" title="Seguimientos" description="Prioriza llamadas, mensajes, reuniones y recordatorios del equipo comercial." />
       <div className="toolbar segmented-tabs">{[["pending","Pendientes"],["today","De hoy"],["overdue","Vencidos"],["upcoming","Próximos"],["completed","Completados"]].map(([key,label]) => <Link key={key} className={`btn-sm ${view === key ? "" : "ghost"}`} href={`/admin/seguimientos?view=${key}`}>{label}</Link>)}</div>
       <div className="panel">

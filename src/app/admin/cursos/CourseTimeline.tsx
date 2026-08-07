@@ -53,7 +53,7 @@ export function CourseTimeline({ steps, hasSchedule }: { steps: TimelineStep[]; 
           </div>
           <div className="timeline-date">
             {step.scheduledAt
-              ? <>{formatMoment(step.scheduledAt)}</>
+              ? formatMoment(step.scheduledAt)
               : <span className="muted">{hasSchedule ? "—" : "sin fecha"}</span>}
             <small>{step.blockedReason ? "No puede salir" : step.active ? "Activo" : "Desactivado"}</small>
           </div>

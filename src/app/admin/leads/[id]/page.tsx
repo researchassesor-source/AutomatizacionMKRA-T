@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
+import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { AdminNav } from "../../AdminNav";
 import { AdminPageHeader } from "../../AdminPageHeader";
@@ -32,6 +33,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     currentAdminSession(),
   ]);
   if (!lead) notFound();
+  const view = await resolveViewMode(session.role);
   const relatedAudits = await prisma.auditLog.findMany({
     where: { OR: [
       { entityType: "Lead", entityId: lead.id },
@@ -62,7 +64,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   }));
   return (
     <main className="container admin-shell">
-      <AdminNav />
+      <AdminNav view={view} />
       <AdminPageHeader eyebrow="Detalle del contacto" title={lead.fullName} description="Información comercial, historial y próximos pasos de este contacto." actions={<span className="pill info">{presentAdminValue(lead.stage)}</span>} />
       <LeadDetailManager
         lead={serializedLead}

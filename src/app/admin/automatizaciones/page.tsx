@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
+import { CONTENIDO } from "@/lib/auth/roles";
+import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
@@ -10,8 +12,9 @@ export const dynamic = "force-dynamic";
 
 export default async function AutomationsPage() {
   const session = await currentAdminSession();
-  if (!["ADMIN", "MARKETING"].includes(session.role)) {
-    return <main className="container admin-shell"><AdminNav /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para administrar automatizaciones." /></main>;
+  const view = await resolveViewMode(session.role);
+  if (!CONTENIDO.includes(session.role)) {
+    return <main className="container admin-shell"><AdminNav view={view} /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para administrar automatizaciones." /></main>;
   }
   const [courses, campaigns, rules] = await Promise.all([
     prisma.course.findMany({ where: { isPublished: true }, orderBy: { title: "asc" }, select: { id: true, title: true, startsAt: true, endsAt: true } }),
@@ -25,7 +28,7 @@ export default async function AutomationsPage() {
     prisma.automationRule.findMany({ orderBy: [{ course: { title: "asc" } }, { trigger: "asc" }, { offsetMinutes: "desc" }], include: { course: { select: { title: true } }, campaign: { select: { name: true } }, _count: { select: { messages: true } } } }),
   ]);
   return <main className="container admin-shell">
-    <AdminNav />
+    <AdminNav view={view} />
     <AdminPageHeader eyebrow="Automatización" title="Campañas y recordatorios" description="Configura reglas por curso. En Preview todas las ejecuciones permanecen en SIMULATED y no contactan personas." />
     <section className="admin-notice" role="status"><strong>Preview seguro:</strong> activar una regla permite programarla y probar su trazabilidad, pero no habilita proveedores reales.</section>
     <PausedRulesPanel canRecover={session.role === "ADMIN"} />

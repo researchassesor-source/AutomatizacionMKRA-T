@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
+import { COMERCIAL } from "@/lib/auth/roles";
+import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
@@ -20,8 +22,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const filters = await searchParams;
   const page = Math.max(1, Number(filters.page) || 1);
   const session = await currentAdminSession();
-  const canCreate = session?.role === "ADMIN" || session?.role === "VENTAS";
-  const canExport = session.role === "ADMIN" || session.role === "VENTAS";
+  const view = await resolveViewMode(session.role);
+  const canCreate = COMERCIAL.includes(session.role);
+  const canExport = COMERCIAL.includes(session.role);
   const advancedFiltersActive = Boolean(filters.campaign || filters.source || filters.content || filters.term || filters.from || filters.to);
   const hasFilters = Boolean(
     filters.q || filters.stage || filters.course || filters.assignedTo || advancedFiltersActive
@@ -70,7 +73,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   };
   return (
     <main className="container admin-shell">
-      <AdminNav />
+      <AdminNav view={view} />
       <AdminPageHeader
         eyebrow="Gestión comercial"
         title="Contactos"

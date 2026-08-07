@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
+import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
 import { CourseCommunications } from "./CourseCommunications";
 import { buildCourseTimeline } from "@/lib/course-timeline";
 import { resolveCourseSessions } from "@/lib/course-sessions";
-import { isTechnicalProfile } from "@/lib/auth/roles";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { CourseManager, type CourseRow } from "./CourseManager";
 import { CourseSchedulePanel, type ScheduledCourse } from "./CourseSchedulePanel";
@@ -19,9 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function CoursesPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; category?: string; new?: string }> }) {
   const filters = await searchParams;
   const session = await currentAdminSession();
+  const view = await resolveViewMode(session.role);
   const status = filters.status === "inactive" ? "inactive" : filters.status === "all" ? "all" : "active";
   const canEdit = ["ADMIN", "DIRECCION", "MARKETING"].includes(session?.role ?? "");
-  const tecnico = isTechnicalProfile(session.role);
+  const tecnico = view === "tecnica";
   const queryWithoutCreate = new URLSearchParams();
   if (filters.q) queryWithoutCreate.set("q", filters.q);
   queryWithoutCreate.set("status", status);
@@ -35,7 +36,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
       ...(filters.category ? { category: filters.category } : {}),
     },
     orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
-  }), isTechnicalProfile(session.role) ? prisma.course.findMany({
+  }), view === "tecnica" ? prisma.course.findMany({
     select: {
       id: true,
       slug: true,
@@ -50,7 +51,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
       lastSyncedAt: true,
     },
     orderBy: [{ isPublished: "desc" }, { displayOrder: "asc" }, { title: "asc" }],
-  }) : Promise.resolve([]), isTechnicalProfile(session.role) ? prisma.catalogSyncRun.findFirst({ where: { source: "wordpress" }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null)]);
+  }) : Promise.resolve([]), view === "tecnica" ? prisma.catalogSyncRun.findFirst({ where: { source: "wordpress" }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null)]);
   const categories = await prisma.course.findMany({ distinct: ["category"], select: { category: true }, where: { category: { not: null } } });
   const rows: CourseRow[] = courses.map((course) => ({ ...course, price: course.price === null ? null : Number(course.price), startsAt: course.startsAt?.toISOString() ?? null, endsAt: course.endsAt?.toISOString() ?? null }));
   const scheduledCourses = await prisma.course.findMany({
@@ -101,7 +102,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
   }));
   return (
     <main className="container admin-shell">
-      <AdminNav />
+      <AdminNav view={view} />
       <AdminPageHeader
         eyebrow="Catálogo"
         title="Cursos"

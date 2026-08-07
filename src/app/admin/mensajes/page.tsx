@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
-import { isTechnicalProfile } from "@/lib/auth/roles";
+import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
@@ -27,10 +27,11 @@ const ESTADOS_VISIBLES = [
 export default async function MessagesPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const filters = await searchParams;
   const session = await currentAdminSession();
+  const view = await resolveViewMode(session.role);
   if (!["ADMIN", "DIRECCION", "MARKETING", "VENTAS"].includes(session.role)) {
-    return <main className="container admin-shell"><AdminNav /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar mensajes." /></main>;
+    return <main className="container admin-shell"><AdminNav view={view} /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar mensajes." /></main>;
   }
-  const tecnico = isTechnicalProfile(session.role);
+  const tecnico = view === "tecnica";
 
   const where: Prisma.OutboundMessageWhereInput = {
     ...(filters.channel ? { channel: filters.channel as "EMAIL" | "WHATSAPP" } : {}),
@@ -75,7 +76,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
   const hayFiltro = Boolean(filters.channel || filters.status || filters.lead || filters.course || filters.from);
 
   return <main className="container admin-shell">
-    <AdminNav />
+    <AdminNav view={view} />
     <AdminPageHeader
       eyebrow="Comunicación"
       title="Comunicaciones"

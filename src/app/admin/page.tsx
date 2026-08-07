@@ -1,167 +1,151 @@
 import Link from "next/link";
-import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
-import { AdminIcon, type AdminIconName } from "./AdminIcon";
+import { resolveViewMode } from "@/lib/auth/view-mode";
+import { loadDashboard } from "@/lib/dashboard";
+import { formatDay, formatTime, relativeMoment } from "@/lib/message-presentation";
+import { AdminIcon } from "./AdminIcon";
 import { AdminNav } from "./AdminNav";
-import { AdminPageHeader } from "./AdminPageHeader";
+import { HealthStrip } from "./HealthStrip";
 
 export const dynamic = "force-dynamic";
 
-type SummaryItem = {
-  number: number;
-  label: string;
-  href: string;
-  icon: AdminIconName;
-  tone?: "err" | "info" | "ok" | "warn";
-};
-
-function OperationalPanel({
-  title,
-  description,
-  icon,
-  href,
-  action,
-  items,
-}: {
-  title: string;
-  description: string;
-  icon: AdminIconName;
-  href: string;
-  action: string;
-  items: SummaryItem[];
-}) {
-  return (
-    <section className="panel">
-      <div className="panel-header">
-        <div className="panel-heading">
-          <span className="panel-heading-icon"><AdminIcon name={icon} size={18} /></span>
-          <div><h2>{title}</h2><p>{description}</p></div>
-        </div>
-        <Link className="panel-link" href={href}>{action} <AdminIcon name="arrow" size={14} /></Link>
-      </div>
-      <div className="dashboard-summary-list">
-        {items.map((item) => (
-          <Link className="dashboard-summary-item" href={item.href} key={item.label}>
-            <span className="dashboard-summary-icon"><AdminIcon name={item.icon} size={17} /></span>
-            <span><strong>{item.label}</strong><small>Información actual del CRM</small></span>
-            <span className={`pill ${item.tone ?? "info"}`}>{item.number}</span>
-          </Link>
-        ))}
-      </div>
-    </section>
-  );
+function greeting(now: Date): string {
+  const hour = Number(new Intl.DateTimeFormat("es-EC", { hour: "numeric", hour12: false, timeZone: "America/Guayaquil" }).format(now));
+  if (hour < 12) return "Buenos días";
+  if (hour < 19) return "Buenas tardes";
+  return "Buenas noches";
 }
 
-export default async function AdminDashboard() {
-  const session = await currentAdminSession();
-  const now = new Date();
-  const [contacts, opportunities, clients, enrollments, messages, posts, overdue, activeCourses] = await Promise.all([
-    prisma.lead.count({ where: { isArchived: false } }),
-    prisma.lead.count({ where: { stage: "OPORTUNIDAD", isArchived: false } }),
-    prisma.lead.count({ where: { stage: "CLIENTE", isArchived: false } }),
-    prisma.enrollment.count(),
-    prisma.outboundMessage.count({ where: { status: "PROGRAMADO" } }),
-    prisma.socialPost.count({ where: { status: "PROGRAMADO" } }),
-    prisma.followUp.count({ where: { status: { in: ["PENDIENTE", "VENCIDO"] }, dueAt: { lt: now } } }),
-    prisma.course.count({ where: { isPublished: true } }),
-  ]);
+function firstName(fullName: string): string {
+  return fullName.split(/\s+/).filter(Boolean)[0] ?? fullName;
+}
 
-  const accessByRole: Record<string, string[]> = {
-    ADMIN: ["leads", "followups", "sales", "courses", "finance", "messages", "social"],
-    MARKETING: ["leads", "courses", "messages", "social"],
-    VENTAS: ["leads", "followups", "sales", "courses", "finance", "messages"],
-    LECTURA: ["leads", "courses", "finance"],
-  };
-  const canAccess = (module: string) => accessByRole[session.role]?.includes(module) ?? false;
-  const allStats: Array<SummaryItem & { module: string }> = [
-    { number: contacts, label: "Contactos activos", href: "/admin/leads", icon: "contacts", module: "leads" },
-    { number: enrollments, label: "Inscripciones", href: "/admin/leads", icon: "courses", module: "leads" },
-    { number: opportunities, label: "Oportunidades", href: "/admin/ventas", icon: "activity", module: "sales" },
-    { number: clients, label: "Clientes", href: "/admin/ventas", icon: "sales", module: "sales" },
-    { number: overdue, label: "Seguimientos vencidos", href: "/admin/seguimientos?view=overdue", icon: "alert", module: "followups" },
-    { number: messages, label: "Mensajes pendientes", href: "/admin/mensajes", icon: "messages", module: "messages" },
-    { number: posts, label: "Publicaciones programadas", href: "/admin/redes", icon: "social", module: "social" },
-    { number: activeCourses, label: "Cursos activos", href: "/admin/cursos", icon: "courses", module: "courses" },
-  ];
-  const stats = allStats.filter((item) => canAccess(item.module));
+function trend(current: number, previous: number): string | null {
+  // Sin base de comparacion un porcentaje no significa nada: mejor callar.
+  if (previous === 0) return current > 0 ? "primera semana con registros" : null;
+  const change = Math.round(((current - previous) / previous) * 100);
+  if (change === 0) return "igual que la semana pasada";
+  return `${change > 0 ? "+" : ""}${change}% frente a la semana pasada`;
+}
+
+export default async function AdminHome() {
+  const session = await currentAdminSession();
+  const vista = await resolveViewMode(session.role);
+  const now = new Date();
+  const data = await loadDashboard(now);
+
+  const fecha = new Intl.DateTimeFormat("es-EC", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "America/Guayaquil" }).format(now);
+  const pendientes = data.attention.length;
 
   return (
     <main className="container admin-shell">
-      <AdminNav />
-      <AdminPageHeader
-        eyebrow="Visión general"
-        title="Resumen"
-        description="Consulta el estado comercial, los seguimientos y la actividad reciente."
-      />
+      <AdminNav view={vista} />
 
-      <section className="stat-grid" aria-label="Indicadores principales">
-        {stats.map(({ number, label, href, icon }) => (
-          <Link href={href} className="stat stat-link" key={label}>
-            <div className="stat-head">
-              <span className="stat-icon"><AdminIcon name={icon} size={19} /></span>
-              <AdminIcon className="stat-arrow" name="arrow" size={17} />
-            </div>
-            <div className="n">{number}</div>
-            <div className="l">{label}</div>
-          </Link>
-        ))}
+      <header className="home-header">
+        <h1>{greeting(now)}, {firstName(session.name)}</h1>
+        <p className="home-date">{fecha.charAt(0).toUpperCase() + fecha.slice(1)}</p>
+        <p className={`home-state ${pendientes > 0 ? "is-attention" : ""}`}>
+          {pendientes > 0
+            ? `${pendientes} ${pendientes === 1 ? "cosa necesita" : "cosas necesitan"} tu atención.`
+            : "Todo marcha correctamente."}
+        </p>
+      </header>
+
+      {vista === "tecnica" ? <HealthStrip /> : null}
+
+      <section aria-labelledby="atencion-titulo" className="home-block">
+        <h2 id="atencion-titulo" className="home-block-title">Necesita tu atención</h2>
+        {data.attention.length === 0 ? (
+          <div className="attention-empty">
+            <AdminIcon name="secure" size={18} />
+            <span><strong>Todo al día.</strong> No tienes acciones pendientes por ahora.</span>
+          </div>
+        ) : (
+          <div className="attention-list">
+            {data.attention.map((item) => (
+              <article className={`attention-item ${item.severity === "error" ? "is-error" : ""}`} key={item.id}>
+                <div className="attention-copy">
+                  <strong>{item.title}</strong>
+                  <small>{item.detail}</small>
+                </div>
+                <Link className="btn-sm" href={item.href}>{item.actionLabel}</Link>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
-      <div className="admin-notice">
-        <AdminIcon name="secure" size={18} />
-        <span>Las acciones sensibles conservan sus controles y registros de auditoría. Actualizado {new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Guayaquil" }).format(now)}.</span>
-      </div>
+      <section aria-label="Cifras de la semana" className="home-block">
+        <div className="kpi-row">
+          <Link className="kpi" href="/admin/leads">
+            <span>Contactos nuevos</span>
+            <strong>{data.contactsThisWeek}</strong>
+            <small>{trend(data.contactsThisWeek, data.contactsPreviousWeek) ?? "esta semana"}</small>
+          </Link>
+          <Link className="kpi" href="/admin/leads">
+            <span>Inscripciones</span>
+            <strong>{data.enrollments}</strong>
+            <small>{data.enrollmentsThisWeek > 0 ? `${data.enrollmentsThisWeek} esta semana` : "en total"}</small>
+          </Link>
+          <Link className="kpi" href="/admin/cursos">
+            <span>Próximas sesiones</span>
+            <strong>{data.upcomingSessionsCount}</strong>
+            <small>{data.upcomingSessionsCount === 0 ? "sin fechas cargadas" : "programadas"}</small>
+          </Link>
+          <Link className="kpi" href="/admin/mensajes">
+            <span>Mensajes enviados</span>
+            <strong>{data.messagesSent}</strong>
+            <small>{data.messagesSentThisWeek > 0 ? `${data.messagesSentThisWeek} esta semana` : "en total"}</small>
+          </Link>
+        </div>
+      </section>
 
-      <div className="grid dashboard-grid">
-        {canAccess("followups") || canAccess("sales") ?
-        <OperationalPanel
-          title="Prioridades comerciales"
-          description="Señales que requieren atención del equipo."
-          icon="alert"
-          href="/admin/seguimientos?view=overdue"
-          action="Revisar"
-          items={[
-            ...(canAccess("followups") ? [{ number: overdue, label: "Seguimientos vencidos", href: "/admin/seguimientos?view=overdue", icon: "followups" as const, tone: overdue ? "err" as const : "ok" as const }] : []),
-            ...(canAccess("sales") ? [{ number: opportunities, label: "Oportunidades abiertas", href: "/admin/ventas", icon: "activity" as const, tone: "info" as const }] : []),
-          ]}
-        /> : null}
-        {canAccess("sales") ?
-        <OperationalPanel
-          title="Pipeline comercial"
-          description="Panorama de relaciones activas y cierres."
-          icon="sales"
-          href="/admin/ventas"
-          action="Abrir pipeline"
-          items={[
-            { number: contacts, label: "Contactos activos", href: "/admin/leads", icon: "contacts", tone: "info" },
-            { number: clients, label: "Clientes confirmados", href: "/admin/ventas", icon: "sales", tone: "ok" },
-          ]}
-        /> : null}
-        {canAccess("courses") ?
-        <OperationalPanel
-          title="Actividad académica"
-          description="Oferta publicada y participación registrada."
-          icon="courses"
-          href="/admin/cursos"
-          action="Ver catálogo"
-          items={[
-            { number: activeCourses, label: "Cursos activos", href: "/admin/cursos", icon: "courses", tone: "ok" },
-            { number: enrollments, label: "Inscripciones", href: "/admin/leads", icon: "contacts", tone: "info" },
-          ]}
-        /> : null}
-        {canAccess("messages") || canAccess("social") ?
-        <OperationalPanel
-          title="Automatización"
-          description="Tareas programadas de comunicación y contenido."
-          icon="messages"
-          href="/admin/mensajes"
-          action="Gestionar"
-          items={[
-            ...(canAccess("messages") ? [{ number: messages, label: "Mensajes pendientes", href: "/admin/mensajes", icon: "messages" as const, tone: messages ? "warn" as const : "ok" as const }] : []),
-            ...(canAccess("social") ? [{ number: posts, label: "Publicaciones programadas", href: "/admin/redes", icon: "social" as const, tone: posts ? "warn" as const : "ok" as const }] : []),
-          ]}
-        /> : null}
-      </div>
+      <section aria-labelledby="sesiones-titulo" className="home-block">
+        <h2 id="sesiones-titulo" className="home-block-title">Próximas sesiones</h2>
+        {data.sessions.length === 0 ? (
+          <div className="home-empty">
+            <p><strong>Todavía no hay ninguna sesión programada.</strong></p>
+            <p>Los recordatorios se calculan a partir de la fecha de cada sesión, así que hasta que cargues una no puede salir ninguno.</p>
+            <Link className="btn-sm" href="/admin/cursos">Poner fechas a los cursos</Link>
+          </div>
+        ) : (
+          <div className="session-list">
+            {data.sessions.map((session_) => (
+              <article className="session-card" key={`${session_.courseId}-${session_.startAt.toISOString()}`}>
+                <div className="session-main">
+                  <strong>{session_.courseTitle}</strong>
+                  <span className="session-when">{formatDay(session_.startAt)} · {formatTime(session_.startAt)}</span>
+                  <small>
+                    {session_.modality ? `${session_.modality} · ` : ""}
+                    {session_.enrollments} inscrito{session_.enrollments === 1 ? "" : "s"}
+                  </small>
+                </div>
+                <span className={`status-dot ${session_.hasStreamUrl ? "is-done" : "is-attention"}`}>
+                  {session_.hasStreamUrl ? "Listo" : "Falta enlace"}
+                </span>
+                <Link className="btn-sm ghost" href={`/admin/cursos#curso-${session_.courseId}`}>Ver curso</Link>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section aria-labelledby="actividad-titulo" className="home-block">
+        <h2 id="actividad-titulo" className="home-block-title">Actividad reciente</h2>
+        {data.activity.length === 0 ? (
+          <p className="muted">Todavía no hay actividad registrada.</p>
+        ) : (
+          <ul className="activity-list">
+            {data.activity.map((item) => (
+              <li key={item.id}>
+                <AdminIcon name={item.kind === "contacto" ? "contacts" : item.kind === "mensaje" ? "messages" : "social"} size={16} />
+                <span>{item.text}</span>
+                <time dateTime={item.at.toISOString()}>{relativeMoment(item.at, now)}</time>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }

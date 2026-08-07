@@ -7,6 +7,7 @@ import { AdminIcon } from "./AdminIcon";
 import { AdminNav } from "./AdminNav";
 import { HealthStrip } from "./HealthStrip";
 import { ScheduleSessionButton } from "./cursos/ScheduleSessionButton";
+import { ImportScheduleButton } from "./cursos/ImportScheduleButton";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,9 @@ export default async function AdminHome() {
                   <strong>{item.title}</strong>
                   <small>{item.detail}</small>
                 </div>
+                {item.scheduleCourse ? (
+                  <ImportScheduleButton courseId={item.scheduleCourse.id} enrollments={item.scheduleCourse.enrollments} />
+                ) : null}
                 {item.scheduleCourse ? (
                   <ScheduleSessionButton
                     courseId={item.scheduleCourse.id}

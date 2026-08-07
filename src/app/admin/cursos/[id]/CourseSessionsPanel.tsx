@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useFeedback } from "../../Feedback";
 import { ScheduleSessionButton } from "../ScheduleSessionButton";
+import { ImportScheduleButton } from "../ImportScheduleButton";
 import { formatDay, formatTime } from "@/lib/message-presentation";
 
 type SessionRow = { id: string; title: string | null; startAt: string; endAt: string | null; streamUrl: string | null };
@@ -85,8 +86,11 @@ export function CourseSessionsPanel({
 
   return (
     <section className="panel">
-      <div className="panel-head">
+      <div className="panel-head panel-head-actions">
         <h2>Calendario</h2>
+        {canEdit && sessions.length === 0 ? (
+          <ImportScheduleButton courseId={courseId} enrollments={enrollments} />
+        ) : null}
         {canEdit ? (
           <ScheduleSessionButton
             courseId={courseId}

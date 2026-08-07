@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatDay, formatTime } from "@/lib/message-presentation";
 import { ScheduleSessionButton } from "./ScheduleSessionButton";
+import { ImportScheduleButton } from "./ImportScheduleButton";
 
 export type CourseCard = {
   id: string;
@@ -48,6 +49,9 @@ export function CourseCards({ courses, canEdit }: { courses: CourseCard[]; canEd
             <span className={`status-dot ${estado.tone}`}>{estado.text}</span>
 
             <div className="course-card-actions">
+              {sinFecha && canEdit ? (
+                <ImportScheduleButton courseId={course.id} enrollments={course.enrollments} />
+              ) : null}
               {sinFecha && canEdit ? (
                 <ScheduleSessionButton
                   courseId={course.id}

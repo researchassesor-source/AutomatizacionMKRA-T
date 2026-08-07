@@ -1372,3 +1372,33 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
   .toast-stack { right: 12px; left: 12px; bottom: 12px; width: auto; }
   .tabs { overflow-x: auto; }
 }
+
+/* ═══ IMPORTAR FECHAS DE LA WEB ═══════════════════════════════════════════ */
+.import-source {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--brand-bg);
+  font-size: .85rem;
+  color: var(--muted);
+}
+.import-source strong { color: var(--ink); font-weight: 600; }
+.import-list { list-style: none; margin: 0 0 14px; padding: 0; }
+.import-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.import-list li:last-child { border-bottom: 0; }
+.import-list strong { font-size: .92rem; font-weight: 600; color: var(--ink); text-transform: capitalize; }
+.import-list span { font-size: .88rem; color: var(--brand-primary); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.import-note { margin: 0; font-size: .84rem; color: var(--muted); }
+.panel-head-actions { flex-wrap: wrap; }
+.panel-head-actions > *:not(h2) { flex: none; }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Account = {
@@ -59,12 +59,17 @@ export function TikTokPanel() {
   const [data, setData] = useState<{ configuration: Configuration; accounts: Account[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Estado del formulario de subida como borrador.
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [caption, setCaption] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [uploadState, setUploadState] = useState<{ publishId: string; status: string; description: string } | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     const response = await fetch("/api/admin/social/tiktok");
     if (!response.ok) return;
     setData(await response.json());
-  }
+  }, []);
 
   useEffect(() => {
     load();
@@ -77,7 +82,7 @@ export function TikTokPanel() {
       setMessage(`${CALLBACK_MESSAGES[status] ?? "Resultado desconocido."}${detail ? ` (${detail})` : ""}`);
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, []);
+  }, [load]);
 
   async function connect(reconnect: boolean) {
     if (busy) return;
@@ -117,8 +122,89 @@ export function TikTokPanel() {
     }
   }
 
+  /** Sube el archivo al almacenamiento del CRM antes de enviarlo a TikTok. */
+  async function pickVideo(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      setMessage("TikTok solo admite vídeo. Elige un archivo MP4 o MOV.");
+      return;
+    }
+    setBusy("upload-file");
+    setMessage("Subiendo el vídeo al almacenamiento del CRM…");
+    try {
+      const { upload } = await import("@vercel/blob/client");
+      const blob = await upload(`tiktok/${Date.now()}-${file.name}`, file, {
+        access: "public",
+        handleUploadUrl: "/api/admin/upload/token",
+      });
+      setMediaUrl(blob.url);
+      setMessage("Vídeo preparado. Revisa el texto y confirma para enviarlo a TikTok.");
+    } catch {
+      setMessage("No se pudo subir el vídeo al almacenamiento.");
+    }
+    setBusy(null);
+  }
+
+  /**
+   * Envía el vídeo a la bandeja de TikTok como borrador. No publica: la
+   * persona termina desde la aplicación de TikTok.
+   */
+  async function sendDraft(account: Account) {
+    if (busy) return;
+    if (!mediaUrl) { setMessage("Primero elige un vídeo."); return; }
+    if (!consent) { setMessage("Debes aceptar la Confirmación de uso de música de TikTok."); return; }
+    setBusy("draft");
+    setMessage("Creando la publicación…");
+    // 1) Se registra la publicación en el CRM para tener trazabilidad.
+    const created = await fetch("/api/admin/social/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId: account.accountId, caption: caption || "Vídeo de R.A. Training", mediaUrl, linkUrl: "", scheduledAt: "" }),
+    });
+    const createdPayload = await created.json().catch(() => ({}));
+    if (!created.ok || !createdPayload.postId) {
+      setBusy(null);
+      setMessage(String(createdPayload.error ?? "No se pudo registrar la publicación."));
+      return;
+    }
+
+    // 2) Se envía a TikTok.
+    setMessage("Enviando el vídeo a TikTok…");
+    const sent = await fetch("/api/admin/social/tiktok/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ postId: createdPayload.postId, accountId: account.accountId, consentAccepted: true }),
+    });
+    const sentPayload = await sent.json().catch(() => ({}));
+    setBusy(null);
+    if (!sent.ok) {
+      setMessage(String(sentPayload.error ?? "TikTok rechazó el envío."));
+      return;
+    }
+    setUploadState({ publishId: sentPayload.publishId, status: sentPayload.status, description: sentPayload.message });
+    setMessage(sentPayload.message);
+    setMediaUrl("");
+    setCaption("");
+    setConsent(false);
+    // 3) Se consulta el estado real: un HTTP 200 no significa que esté listo.
+    pollStatus(createdPayload.postId, account.accountId);
+    router.refresh();
+  }
+
+  async function pollStatus(postId: string, accountId: string, attempt = 0) {
+    if (attempt > 8) return;
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const response = await fetch(`/api/admin/social/tiktok/upload?postId=${postId}&accountId=${accountId}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return;
+    setUploadState({ publishId: payload.publishId, status: payload.status, description: payload.description });
+    if (!payload.terminal && payload.status !== "SEND_TO_USER_INBOX") pollStatus(postId, accountId, attempt + 1);
+  }
+
   const config = data?.configuration;
   const connected = (data?.accounts ?? []).filter((account) => account.connectionStatus !== "DISCONNECTED");
+  const active = connected.find((account) => account.connectionStatus === "READY");
 
   return (
     <section className="panel">
@@ -187,6 +273,69 @@ export function TikTokPanel() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {active && (
+        <div className="stacked-forms" style={{ marginTop: 18 }}>
+          <h3>Enviar un vídeo a TikTok como borrador</h3>
+          <p className="muted">
+            El vídeo llega a la bandeja de <strong>{active.nickname}</strong> en TikTok. No se publica solo:
+            hay que abrirlo desde la notificación de TikTok, revisarlo y publicarlo desde la aplicación.
+          </p>
+
+          <label className="field">
+            <span>1. Vídeo (MP4 o MOV)</span>
+            <input type="file" accept="video/mp4,video/quicktime" disabled={busy !== null} onChange={pickVideo} />
+          </label>
+          {mediaUrl && (
+            <>
+              <p className="muted">Vista previa:</p>
+              {/* biome-ignore lint/a11y/useMediaCaption: vídeo de trabajo sin pista de subtítulos. */}
+              <video src={mediaUrl} controls style={{ maxWidth: 260, borderRadius: 8, display: "block" }} />
+            </>
+          )}
+
+          <label className="field">
+            <span>2. Texto del vídeo</span>
+            <textarea
+              rows={3}
+              value={caption}
+              maxLength={2200}
+              onChange={(event) => setCaption(event.target.value)}
+              placeholder="Puedes editarlo también en TikTok antes de publicar."
+            />
+          </label>
+
+          {/* El consentimiento no viene marcado: debe ser un acto explícito. */}
+          <label className="checkbox">
+            <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+            <span>
+              3. Confirmo que este contenido cumple la <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/es" target="_blank" rel="noreferrer">Confirmación de uso de música</a> de TikTok.
+            </span>
+          </label>
+
+          <button
+            type="button"
+            className="btn-sm"
+            disabled={busy !== null || !mediaUrl || !consent}
+            onClick={() => sendDraft(active)}
+          >
+            {busy === "draft" ? "Enviando a TikTok…" : busy === "upload-file" ? "Subiendo vídeo…" : "Enviar como borrador a TikTok"}
+          </button>
+
+          {uploadState && (
+            <p className="result-line" role="status">
+              <strong>Estado en TikTok:</strong> {uploadState.description}
+              <br />
+              <span className="muted">Identificador de envío: {uploadState.publishId}</span>
+            </p>
+          )}
+
+          <p className="muted">
+            La publicación automática (sin pasar por la app) requiere que TikTok apruebe la aplicación.
+            Mientras tanto, este es el flujo disponible.
+          </p>
         </div>
       )}
     </section>

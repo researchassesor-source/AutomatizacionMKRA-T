@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db";
 import { DEFAULT_AUTOMATION_PLAN } from "@/lib/nurture/default-automations";
 import { templateFieldsFor, WHATSAPP_AUTOMATION_PLAN } from "@/lib/nurture/default-automations-whatsapp";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 const schema = z.object({
   courseId: z.string().trim().min(1, "Selecciona un curso."),
@@ -79,7 +80,7 @@ function planFor(channel: "EMAIL" | "WHATSAPP"): PlanEntry[] {
  * (solo completa lo que falta).
  */
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });

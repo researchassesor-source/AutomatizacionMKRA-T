@@ -4,12 +4,13 @@ import { requireRole } from "@/lib/auth/authorization";
 import { courseSessionData, courseSessionSchema, courseStreamUrlSchema } from "@/lib/course-session-validation";
 import { prisma } from "@/lib/db";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
 /** Crea una sesion del curso y recalcula los recordatorios pendientes. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = courseSessionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });
@@ -25,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
 /** Actualiza el enlace de transmision por defecto del curso. */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = courseStreamUrlSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });

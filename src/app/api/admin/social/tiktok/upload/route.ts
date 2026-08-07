@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
+import { CONTENIDO } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
 import { isAllowedMediaSource } from "@/lib/media/signed-media";
 import { getUsableAccessToken } from "@/lib/social/tiktok/account";
@@ -33,7 +34,7 @@ const schema = z.object({
  * privado, a diferencia de Direct Post con un cliente sin auditar.
  */
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -160,7 +161,7 @@ async function failPost(postId: string, code: string, message: string) {
 
 /** Consulta el estado real en TikTok. Un HTTP 200 no basta para dar por buena una subida. */
 export async function GET(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const url = new URL(request.url);
   const postId = url.searchParams.get("postId");

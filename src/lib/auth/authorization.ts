@@ -4,6 +4,9 @@ import { resolveActiveAdminSession } from "./active-session";
 
 export const ROLE_PERMISSIONS: Record<SessionRole, readonly string[]> = {
   ADMIN: ["*"],
+  // Direccion hace lo mismo que ADMIN salvo la sala de maquinas: diagnostico,
+  // integraciones, auditoria y borrados irreversibles.
+  DIRECCION: ["courses", "campaigns", "social", "templates", "leads", "notes", "followups", "sales", "messages", "users", "finance"],
   MARKETING: ["courses", "campaigns", "social", "templates", "leads:read", "messages"],
   VENTAS: ["leads", "notes", "followups", "sales", "messages", "courses:read", "finance:read"],
   LECTURA: ["read"],

@@ -4,11 +4,12 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { sendMessage } from "@/lib/nurture/engine";
 import { writeAudit } from "@/lib/audit";
+import { OPERACION } from "@/lib/auth/roles";
 
 const schema = z.object({ action: z.enum(["cancel", "retry"]), confirm: z.literal(true) });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING", "VENTAS"]);
+  const auth = await requireRole(request, OPERACION);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Acción no válida." }, { status: 422 });

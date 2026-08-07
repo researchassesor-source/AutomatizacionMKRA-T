@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth/password";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { GESTION } from "@/lib/auth/roles";
 
 const schema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -13,7 +14,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, GESTION);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });

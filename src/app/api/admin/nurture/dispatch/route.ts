@@ -4,12 +4,13 @@ import { processScheduledMessages } from "@/lib/nurture/engine";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
 import { isMessagingSimulation } from "@/lib/nurture/engine";
+import { OPERACION } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
 // Procesa la cola de nurture desde el panel (envio manual de lo vencido).
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING", "VENTAS"]);
+  const auth = await requireRole(request, OPERACION);
   if (auth.error) return auth.error;
   const parsed = z.object({ confirm: z.literal(true) }).safeParse(
     await request.json().catch(() => null),

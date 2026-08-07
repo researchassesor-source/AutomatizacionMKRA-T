@@ -7,11 +7,12 @@ import { requireRole } from "@/lib/auth/authorization";
 import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { prisma } from "@/lib/db";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { CONTENIDO, GESTION } from "@/lib/auth/roles";
 
 const updateSchema = automationRuleFields.partial().extend({ confirm: z.literal(true) });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });
@@ -46,7 +47,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, GESTION);
   if (auth.error) return auth.error;
   const body = await request.json().catch(() => null);
   if (body?.confirm !== "DELETE_AUTOMATION") return NextResponse.json({ error: "Falta la confirmación requerida." }, { status: 422 });

@@ -29,7 +29,11 @@ model AdminUser {
 }
 
 enum AdminRole {
+  /// Perfil tecnico: ve el diagnostico, las integraciones y la auditoria.
   ADMIN
+  /// Perfil de direccion: hace todo lo operativo y administrativo, pero no ve
+  /// la sala de maquinas. No es un permiso reducido, es otra superficie.
+  DIRECCION
   MARKETING
   VENTAS
   LECTURA

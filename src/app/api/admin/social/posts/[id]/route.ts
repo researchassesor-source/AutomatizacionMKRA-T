@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { canDeleteLocalSocialPost, publishPost } from "@/lib/social/orchestrator";
 import { writeAudit } from "@/lib/audit";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 const schema = z.object({
   action: z.enum(["update", "reschedule", "cancel", "duplicate", "retry", "archive"]),
@@ -16,7 +17,7 @@ const schema = z.object({
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });
@@ -93,7 +94,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const body = await request.json().catch(() => null);
   if (body?.confirm !== "DELETE_LOCAL_DRAFT") return NextResponse.json({ error: "Falta la confirmación de eliminación local." }, { status: 422 });

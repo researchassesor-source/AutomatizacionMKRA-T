@@ -3,6 +3,7 @@ import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 const campaignSchema = z.object({
   name: z.string().trim().min(3).max(120),
@@ -18,7 +19,7 @@ const campaignSchema = z.object({
 }).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt) > new Date(value.startsAt), { message: "La fecha final debe ser posterior a la inicial." });
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = campaignSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });

@@ -48,11 +48,31 @@ describe("autenticación de rutas administrativas", () => {
     }
   });
 
-  it("las acciones más sensibles quedan restringidas a ADMIN", () => {
-    // Reactivar reglas puede desencadenar envíos reales; probar el SMTP y
-    // gestionar usuarios exponen configuración e identidades.
-    for (const route of ["automations/paused/route.ts", "email/test/route.ts", "users/route.ts"]) {
-      expect(source(route), `${route} debe limitarse a ADMIN`).toMatch(/requireRole\(request, \["ADMIN"\]\)/);
+  it("la sala de máquinas queda reservada al perfil técnico", () => {
+    // Reactivar reglas puede desencadenar envíos reales, probar el SMTP expone
+    // configuración y borrar un contacto destruye el historial de una persona.
+    // Nada de esto se entiende sin conocer el funcionamiento interno.
+    for (const route of [
+      "automations/paused/route.ts",
+      "email/test/route.ts",
+      "leads/[id]/route.ts",
+      "courses/catalog/sync/route.ts",
+    ]) {
+      expect(source(route), `${route} debe limitarse al perfil técnico`).toMatch(/requireRole\(request, TECNICO\)/);
+    }
+  });
+
+  it("dirección sí administra usuarios: es un perfil completo, no reducido", () => {
+    for (const route of ["users/route.ts", "users/[id]/route.ts"]) {
+      expect(source(route), `${route} debe estar abierto a dirección`).toMatch(/requireRole\(request, GESTION\)/);
+    }
+  });
+
+  it("ninguna ruta conserva una lista de roles escrita a mano", () => {
+    // Con dos perfiles, una lista literal olvidada deja a dirección fuera sin
+    // motivo aparente. La intención se declara en src/lib/auth/roles.ts.
+    for (const route of ADMIN_ROUTES) {
+      expect(source(route), `${route} debe citar un grupo con nombre`).not.toMatch(/requireRole\(request, \["/);
     }
   });
 

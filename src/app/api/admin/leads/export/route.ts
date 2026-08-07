@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { COMERCIAL } from "@/lib/auth/roles";
 
 function csv(value: unknown): string {
   const text = String(value ?? "");
@@ -8,7 +9,7 @@ function csv(value: unknown): string {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
   const leads = await prisma.lead.findMany({
     where: { isArchived: false, consent: true },

@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
 import { resolveTikTokConfig } from "@/lib/social/tiktok/config";
 import { buildAuthorizeUrl, createOAuthState, oauthIdentity, STATE_COOKIE, STATE_TTL_SECONDS } from "@/lib/social/tiktok/oauth";
+import { TECNICO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
  * son de lectura.
  */
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
 
   const limit = await checkRateLimit(requestKey(request, "tiktok-connect"), { limit: 10, windowMs: 10 * 60_000 });

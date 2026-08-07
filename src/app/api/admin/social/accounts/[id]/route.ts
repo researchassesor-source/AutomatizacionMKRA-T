@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
 import { getAdapter } from "@/lib/social/orchestrator";
+import { CONTENIDO, TECNICO } from "@/lib/auth/roles";
 
 const schema = z.object({
   displayName: z.string().trim().min(1).max(120).optional(),
@@ -13,7 +14,7 @@ const schema = z.object({
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Datos no válidos." }, { status: 422 });
@@ -36,7 +37,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   const confirmation = z.object({ confirm: z.literal(true) }).safeParse(await request.json().catch(() => null));
   if (!confirmation.success) return NextResponse.json({ error: "Debes confirmar la desactivación de la cuenta." }, { status: 422 });

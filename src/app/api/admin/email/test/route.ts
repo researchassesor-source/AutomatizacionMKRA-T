@@ -6,6 +6,7 @@ import { describeEmailConfig, formatSender, resolveEmailConfig } from "@/lib/ema
 import { buildEmailDocument } from "@/lib/email/render";
 import { sendSmtpEmail, verifySmtpConnection } from "@/lib/email/smtp";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
+import { TECNICO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ const schema = z.object({
  * direccion controlada por quien administra.
  */
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
 
   const limit = await checkRateLimit(requestKey(request, "email-test"), { limit: 5, windowMs: 10 * 60_000 });

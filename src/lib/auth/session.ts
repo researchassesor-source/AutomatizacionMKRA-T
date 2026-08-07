@@ -1,7 +1,7 @@
 export const ADMIN_COOKIE = "ra_crm_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 
-export type SessionRole = "ADMIN" | "MARKETING" | "VENTAS" | "LECTURA";
+export type SessionRole = "ADMIN" | "DIRECCION" | "MARKETING" | "VENTAS" | "LECTURA";
 
 export type AdminSession = {
   userId: string | null;
@@ -72,7 +72,7 @@ export async function verifySessionToken(token?: string | null): Promise<AdminSe
   try {
     const parsed = JSON.parse(decode(payload)) as AdminSession;
     if (!parsed.expiresAt || parsed.expiresAt <= Date.now()) return null;
-    if (!["ADMIN", "MARKETING", "VENTAS", "LECTURA"].includes(parsed.role)) return null;
+    if (!["ADMIN", "DIRECCION", "MARKETING", "VENTAS", "LECTURA"].includes(parsed.role)) return null;
     return parsed;
   } catch {
     return null;

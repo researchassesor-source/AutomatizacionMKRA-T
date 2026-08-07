@@ -3,6 +3,10 @@ import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
+import { CourseCommunications } from "./CourseCommunications";
+import { buildCourseTimeline } from "@/lib/course-timeline";
+import { resolveCourseSessions } from "@/lib/course-sessions";
+import { isTechnicalProfile } from "@/lib/auth/roles";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { CourseManager, type CourseRow } from "./CourseManager";
 import { CourseSchedulePanel, type ScheduledCourse } from "./CourseSchedulePanel";
@@ -16,7 +20,8 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
   const filters = await searchParams;
   const session = await currentAdminSession();
   const status = filters.status === "inactive" ? "inactive" : filters.status === "all" ? "all" : "active";
-  const canEdit = session?.role === "ADMIN" || session?.role === "MARKETING";
+  const canEdit = ["ADMIN", "DIRECCION", "MARKETING"].includes(session?.role ?? "");
+  const tecnico = isTechnicalProfile(session.role);
   const queryWithoutCreate = new URLSearchParams();
   if (filters.q) queryWithoutCreate.set("q", filters.q);
   queryWithoutCreate.set("status", status);
@@ -30,7 +35,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
       ...(filters.category ? { category: filters.category } : {}),
     },
     orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
-  }), session.role === "ADMIN" ? prisma.course.findMany({
+  }), isTechnicalProfile(session.role) ? prisma.course.findMany({
     select: {
       id: true,
       slug: true,
@@ -45,7 +50,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
       lastSyncedAt: true,
     },
     orderBy: [{ isPublished: "desc" }, { displayOrder: "asc" }, { title: "asc" }],
-  }) : Promise.resolve([]), session.role === "ADMIN" ? prisma.catalogSyncRun.findFirst({ where: { source: "wordpress" }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null)]);
+  }) : Promise.resolve([]), isTechnicalProfile(session.role) ? prisma.catalogSyncRun.findFirst({ where: { source: "wordpress" }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null)]);
   const categories = await prisma.course.findMany({ distinct: ["category"], select: { category: true }, where: { category: { not: null } } });
   const rows: CourseRow[] = courses.map((course) => ({ ...course, price: course.price === null ? null : Number(course.price), startsAt: course.startsAt?.toISOString() ?? null, endsAt: course.endsAt?.toISOString() ?? null }));
   const scheduledCourses = await prisma.course.findMany({
@@ -53,8 +58,29 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
     orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
     include: {
       sessions: { orderBy: { startAt: "asc" } },
+      automationRules: {
+        where: { status: { not: "ARCHIVED" } },
+        select: { id: true, name: true, planKey: true, channel: true, status: true, trigger: true, offsetMinutes: true, requiresStreamUrl: true, waTemplateName: true },
+      },
       _count: { select: { enrollments: true, automationRules: true } },
     },
+  });
+  // Que recibe cada inscrito de cada curso y cuando. Se calcula en el servidor
+  // para que la pantalla no tenga que saber nada del modelo de reglas.
+  const comunicaciones = scheduledCourses.map((course) => {
+    const sessions = resolveCourseSessions(course, course.sessions);
+    return {
+      id: course.id,
+      title: course.title,
+      enrollments: course._count.enrollments,
+      nextSessionAt: sessions.find((item) => item.startAt.getTime() >= Date.now())?.startAt.toISOString()
+        ?? sessions[0]?.startAt.toISOString() ?? null,
+      steps: buildCourseTimeline({ rules: course.automationRules, sessions }).map((step) => ({
+        ...step,
+        scheduledAt: step.scheduledAt?.toISOString() ?? null,
+      })),
+      hasSchedule: sessions.length > 0,
+    };
   });
   const schedules: ScheduledCourse[] = scheduledCourses.map((course) => ({
     id: course.id,
@@ -79,7 +105,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
       <AdminPageHeader
         eyebrow="Catálogo"
         title="Cursos"
-        description="Organiza la oferta académica, su publicación y la información visible para los estudiantes."
+        description="El catálogo, sus fechas y lo que recibe cada inscrito."
         actions={canEdit ? <Link className="btn-sm" href={createHref} scroll={false}>Crear curso</Link> : null}
       />
       <form>
@@ -92,7 +118,8 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         </div>
         </AdminFilterPanel>
       </form>
-      {session.role === "ADMIN" ? (
+      <CourseCommunications courses={comunicaciones} />
+      {tecnico ? (
         <WordPressCatalogSync
           configured={wordpressCatalogConfigured()}
           latestRun={latestSyncRun ? {
@@ -106,11 +133,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
             lastSyncedAt: course.lastSyncedAt?.toISOString() ?? null,
           }))}
         />
-      ) : (
-        <section className="panel admin-notice" aria-label="Permisos del catálogo oficial">
-          La sincronización del catálogo oficial está disponible únicamente para administradores.
-        </section>
-      )}
+      ) : null}
       <CourseSchedulePanel courses={schedules} canEdit={canEdit} publicOrigin={process.env.APP_URL?.replace(/\/$/, "") || CRM_PUBLIC_URL} />
       <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
     </main>

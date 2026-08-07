@@ -3,9 +3,10 @@ import { prisma } from "@/lib/db";
 import { manualContactInputSchema } from "@/lib/leads";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { COMERCIAL } from "@/lib/auth/roles";
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
 
   const parsed = manualContactInputSchema.safeParse(await request.json().catch(() => null));

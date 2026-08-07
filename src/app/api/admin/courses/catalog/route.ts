@@ -4,17 +4,18 @@ import { requireRole } from "@/lib/auth/authorization";
 import { canApplyCourseCatalog } from "@/lib/course-catalog";
 import { applyOfficialCourseCatalog, loadCourseCatalogReport } from "@/lib/course-catalog-server";
 import { PayloadTooLargeError, readJsonBody } from "@/lib/http";
+import { TECNICO } from "@/lib/auth/roles";
 
 const applySchema = z.object({ confirm: z.literal("IMPORTAR_CATALOGO_OFICIAL") }).strict();
 
 export async function GET(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   return NextResponse.json(await loadCourseCatalogReport());
 }
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   if (!auth.session) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   if (!canApplyCourseCatalog()) {

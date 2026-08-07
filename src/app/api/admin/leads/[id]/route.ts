@@ -5,6 +5,7 @@ import { normalizeEcuadorPhone } from "@/lib/leads";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
 import { cancelPendingMessages } from "@/lib/nurture/engine";
+import { COMERCIAL, TECNICO } from "@/lib/auth/roles";
 
 const updateSchema = z.object({
   firstName: z.string().trim().min(2).max(80).optional(),
@@ -21,7 +22,7 @@ const updateSchema = z.object({
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
   const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Datos no válidos." }, { status: 422 });
@@ -107,7 +108,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   const { id } = await params;
   const lead = await prisma.lead.findUnique({ where: { id } });

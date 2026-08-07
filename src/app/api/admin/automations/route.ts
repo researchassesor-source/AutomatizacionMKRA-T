@@ -5,9 +5,10 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { prisma } from "@/lib/db";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = automationRuleSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Datos no válidos." }, { status: 422 });

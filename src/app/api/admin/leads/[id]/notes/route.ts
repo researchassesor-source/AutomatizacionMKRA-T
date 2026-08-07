@@ -3,11 +3,12 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { COMERCIAL } from "@/lib/auth/roles";
 
 const schema = z.object({ content: z.string().trim().min(2).max(4000) });
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Escribe una nota válida." }, { status: 422 });

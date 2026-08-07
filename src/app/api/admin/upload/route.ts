@@ -3,6 +3,7 @@ import { put } from "@vercel/blob";
 import sharp from "sharp";
 import { requireRole } from "@/lib/auth/authorization";
 import { isPreviewDeployment } from "@/lib/runtime-environment";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
 // Requiere el almacenamiento Blob conectado en Vercel (variable
 // BLOB_READ_WRITE_TOKEN, que Vercel agrega automaticamente).
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   if (isPreviewDeployment()) {
     return NextResponse.json(

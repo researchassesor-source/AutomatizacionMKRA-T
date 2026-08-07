@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
+import { COMERCIAL } from "@/lib/auth/roles";
 import { writeAudit } from "@/lib/audit";
 import {
   describeScheduleResult,
@@ -18,7 +19,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
 
   const parsed = schema.safeParse(await request.json().catch(() => null));

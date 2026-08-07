@@ -5,79 +5,80 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AdminIcon, type AdminIconName } from "./AdminIcon";
-import { presentAdminValue } from "./adminPresentation";
+import { CONSULTA, CONTENIDO, GESTION, OPERACION, TECNICO, isTechnicalProfile, profileLabel } from "@/lib/auth/roles";
+import { useTechnicalDetail } from "./TechnicalDetail";
+import { useAdminSession } from "./AdminSession";
 
 type AdminLink = {
   href: string;
   label: string;
   icon: AdminIconName;
-  roles: string[];
+  roles: readonly string[];
 };
 
-const navigation: Array<{ label: string; links: AdminLink[] }> = [
+/**
+ * Navegacion.
+ *
+ * De once destinos en cinco grupos a cinco destinos sin grupos, mas la sala de
+ * maquinas para el perfil tecnico. Las secciones retiradas (seguimientos,
+ * ventas, campanas, plantillas y envios a Finance) conservan su codigo, sus
+ * datos y sus rutas: simplemente dejan de competir por la atencion hasta que
+ * el negocio las necesite. Ninguna tenia un solo registro.
+ */
+const navigation: Array<{ label: string | null; links: AdminLink[] }> = [
   {
-    label: "General",
+    label: null,
     links: [
-      { href: "/admin", label: "Resumen", icon: "overview", roles: ["ADMIN", "MARKETING", "VENTAS", "LECTURA"] },
+      { href: "/admin", label: "Inicio", icon: "overview", roles: CONSULTA },
+      { href: "/admin/leads", label: "Contactos", icon: "contacts", roles: CONSULTA },
+      { href: "/admin/cursos", label: "Cursos", icon: "courses", roles: CONSULTA },
+      { href: "/admin/mensajes", label: "Comunicaciones", icon: "messages", roles: OPERACION },
+      { href: "/admin/redes", label: "Redes", icon: "social", roles: CONTENIDO },
     ],
   },
   {
-    label: "Gestión comercial",
+    label: "Sistema",
     links: [
-      { href: "/admin/leads", label: "Contactos", icon: "contacts", roles: ["ADMIN", "MARKETING", "VENTAS", "LECTURA"] },
-      { href: "/admin/seguimientos", label: "Seguimientos", icon: "followups", roles: ["ADMIN", "VENTAS"] },
-      { href: "/admin/ventas", label: "Ventas", icon: "sales", roles: ["ADMIN", "VENTAS"] },
-    ],
-  },
-  {
-    label: "Capacitación",
-    links: [
-      { href: "/admin/cursos", label: "Cursos", icon: "courses", roles: ["ADMIN", "MARKETING", "VENTAS", "LECTURA"] },
-      { href: "/admin/certificados", label: "Envíos a Finance", icon: "finance", roles: ["ADMIN", "VENTAS", "LECTURA"] },
-    ],
-  },
-  {
-    label: "Automatización",
-    links: [
-      { href: "/admin/automatizaciones", label: "Campañas y reglas", icon: "calendar", roles: ["ADMIN", "MARKETING"] },
-      { href: "/admin/mensajes", label: "Mensajes", icon: "messages", roles: ["ADMIN", "MARKETING", "VENTAS"] },
-      { href: "/admin/redes", label: "Redes", icon: "social", roles: ["ADMIN", "MARKETING"] },
-    ],
-  },
-  {
-    label: "Administración",
-    links: [
-      { href: "/admin/usuarios", label: "Usuarios", icon: "users", roles: ["ADMIN"] },
-      { href: "/admin/auditoria", label: "Auditoría", icon: "audit", roles: ["ADMIN"] },
+      { href: "/admin/usuarios", label: "Usuarios", icon: "users", roles: GESTION },
+      { href: "/admin/automatizaciones", label: "Reglas y campañas", icon: "calendar", roles: TECNICO },
+      { href: "/admin/certificados", label: "Envíos a Finance", icon: "finance", roles: TECNICO },
+      { href: "/admin/auditoria", label: "Auditoría", icon: "audit", roles: TECNICO },
     ],
   },
 ];
 
 const pageNames = navigation.flatMap((group) => group.links);
 
+/**
+ * Interruptor de detalle tecnico.
+ *
+ * Apagado, el perfil tecnico ve la aplicacion tal como la vera direccion. Es la
+ * unica forma fiable de comprobar que lo que se entrega esta bien.
+ */
+function TechnicalDetailToggle() {
+  const { enabled, toggle } = useTechnicalDetail();
+  return (
+    <button
+      type="button"
+      className={`admin-tech-toggle ${enabled ? "is-on" : ""}`}
+      onClick={toggle}
+      aria-pressed={enabled}
+      title={enabled ? "Ocultar códigos, estados internos e identificadores" : "Mostrar códigos de error, estados internos e identificadores"}
+    >
+      <span className="admin-tech-toggle-track" aria-hidden="true"><span className="admin-tech-toggle-thumb" /></span>
+      <span>Detalle técnico</span>
+    </button>
+  );
+}
+
 export function AdminNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [role, setRole] = useState("LECTURA");
-  const [name, setName] = useState("Usuario");
-  const [legacy, setLegacy] = useState(false);
+  const { role, name, legacy } = useAdminSession();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    fetch("/api/admin/me", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => {
-        if (data) {
-          setRole(data.role);
-          setName(data.name);
-          setLegacy(Boolean(data.legacy));
-        }
-      })
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     if (pathname) setOpen(false);
@@ -153,8 +154,12 @@ export function AdminNav() {
             const allowedLinks = group.links.filter((link) => link.roles.includes(role));
             if (!allowedLinks.length) return null;
             return (
-              <section className="admin-nav-group" key={group.label} aria-labelledby={`nav-${group.label.replaceAll(" ", "-")}`}>
-                <h2 id={`nav-${group.label.replaceAll(" ", "-")}`}>{group.label}</h2>
+              <section
+                className={`admin-nav-group ${group.label ? "" : "is-primary"}`}
+                key={group.label ?? "principal"}
+                aria-label={group.label ?? "Secciones principales"}
+              >
+                {group.label ? <h2>{group.label}</h2> : null}
                 {allowedLinks.map((link) => {
                   const isActive = pathname === link.href || (link.href !== "/admin" && pathname.startsWith(`${link.href}/`));
                   return (
@@ -203,6 +208,7 @@ export function AdminNav() {
         </div>
 
         <div className="admin-topbar-actions">
+          {isTechnicalProfile(role) ? <TechnicalDetailToggle /> : null}
           <a className="admin-site-link" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer" aria-label="Ver catálogo oficial de R.A. Training">
             <AdminIcon name="external" size={17} />
             <span>Ver catálogo oficial</span>
@@ -210,11 +216,11 @@ export function AdminNav() {
           <details className="admin-user-menu">
             <summary aria-label="Abrir menú de usuario">
               <span className="admin-avatar" aria-hidden="true">{initials}</span>
-              <span className="admin-user-copy"><strong>{name}</strong><small>{presentAdminValue(role)}</small></span>
+              <span className="admin-user-copy"><strong>{name}</strong><small>{profileLabel(role)}</small></span>
               <AdminIcon name="chevron" size={16} />
             </summary>
             <div className="admin-user-popover">
-              <div><strong>{name}</strong><span>{presentAdminValue(role)}</span></div>
+              <div><strong>{name}</strong><span>Perfil {profileLabel(role)}</span></div>
               <button type="button" onClick={logout} disabled={loggingOut}>
                 <AdminIcon name="logout" size={17} />
                 {loggingOut ? "Cerrando…" : "Cerrar sesión"}

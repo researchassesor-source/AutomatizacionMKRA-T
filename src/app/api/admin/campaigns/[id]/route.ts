@@ -3,6 +3,7 @@ import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
+import { CONTENIDO, GESTION } from "@/lib/auth/roles";
 
 const updateSchema = z.object({
   name: z.string().trim().min(3).max(120).optional(),
@@ -17,7 +18,7 @@ const updateSchema = z.object({
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Datos o confirmación no válidos." }, { status: 422 });
@@ -33,7 +34,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, GESTION);
   if (auth.error) return auth.error;
   const body = await request.json().catch(() => null);
   if (body?.confirm !== "ARCHIVE_CAMPAIGN") return NextResponse.json({ error: "Falta la confirmación requerida." }, { status: 422 });

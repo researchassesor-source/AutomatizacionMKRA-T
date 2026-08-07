@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/authorization";
 import { safeWordPressErrorCode, synchronizeWordPressCatalog, wordpressCatalogConfigured } from "@/lib/wordpress-catalog";
+import { TECNICO } from "@/lib/auth/roles";
 
 const schema = z.object({ confirm: z.literal("SYNC_WORDPRESS_READ_ONLY") });
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   if (!auth.session) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   if (!wordpressCatalogConfigured()) return NextResponse.json({ error: "Falta configurar el endpoint REST de cursos de WordPress con permiso mínimo de lectura." }, { status: 409 });

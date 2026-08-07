@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { describeMetaConfig, resolveMetaConfig } from "@/lib/social/meta-config";
 import { isSocialSimulation, socialConnectionErrorState, verifyPlatformConnection } from "@/lib/social/orchestrator";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
  * el identificador público y el resultado de la comprobación.
  */
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = z.object({ confirm: z.literal(true) }).safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Debes confirmar la sincronización de cuentas." }, { status: 422 });

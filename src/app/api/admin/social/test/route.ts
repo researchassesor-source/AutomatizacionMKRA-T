@@ -4,6 +4,7 @@ import type { Platform } from "@/lib/social/types";
 import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ const PLATFORMS: Platform[] = [
 ];
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   let platform: string | undefined;
   try {

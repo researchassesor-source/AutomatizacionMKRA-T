@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { TEMPLATE_VARIABLES } from "@/lib/nurture/engine";
 import { writeAudit } from "@/lib/audit";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 const schema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -27,7 +28,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Plantilla no válida." }, { status: 422 });

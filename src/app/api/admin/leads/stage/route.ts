@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { COMERCIAL } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ const schema = z.object({
 
 // Mueve un lead de etapa en el pipeline (ej. OPORTUNIDAD -> CLIENTE / PERDIDO).
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
   let body: unknown;
   try {

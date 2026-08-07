@@ -3,12 +3,13 @@ import { z } from "zod";
 import { diagnosePausedAutomations, recoverPausedAutomations } from "@/lib/automation-pause-diagnostics";
 import { requireRole } from "@/lib/auth/authorization";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { CONTENIDO, TECNICO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
 /** Diagnóstico de solo lectura: qué automatizaciones están pausadas y por qué. */
 export async function GET(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   return NextResponse.json(await diagnosePausedAutomations());
 }
@@ -26,7 +27,7 @@ const recoverySchema = z.object({
  * reactivar una regla puede derivar en envíos reales.
  */
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   const parsed = recoverySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

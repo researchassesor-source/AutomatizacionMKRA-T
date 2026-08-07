@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { describeConnection, disconnectAccount } from "@/lib/social/tiktok/account";
 import { describeTikTokConfig, resolveTikTokConfig } from "@/lib/social/tiktok/config";
+import { CONTENIDO, TECNICO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ const accountSelect = {
 
 /** Estado de la integración. La respuesta nunca incluye tokens ni credenciales. */
 export async function GET(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   const accounts = await prisma.socialAccount.findMany({
     where: { platform: "TIKTOK" },
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
  * historial de publicaciones, que es evidencia.
  */
 export async function DELETE(request: Request) {
-  const auth = await requireRole(request, ["ADMIN"]);
+  const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
   const parsed = z.object({ accountId: z.string().trim().min(1), confirm: z.literal(true) })
     .safeParse(await request.json().catch(() => null));

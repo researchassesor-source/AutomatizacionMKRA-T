@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
 import { isSocialAccountUsable } from "@/lib/social/orchestrator";
+import { CONTENIDO } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const auth = await requireRole(request, ["ADMIN", "MARKETING"]);
+  const auth = await requireRole(request, CONTENIDO);
   if (auth.error) return auth.error;
   let body: unknown;
   try {

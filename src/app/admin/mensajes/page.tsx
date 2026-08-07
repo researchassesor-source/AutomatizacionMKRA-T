@@ -2,28 +2,36 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
+import { isTechnicalProfile } from "@/lib/auth/roles";
 import { AdminEmptyState } from "../AdminEmptyState";
-import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
-import { presentAdminValue } from "../adminPresentation";
 import { IntegrationStatusPanel } from "../IntegrationStatusPanel";
 import { DispatchButton } from "./DispatchButton";
 import { EmailTestPanel } from "./EmailTestPanel";
-import { MessageActions } from "./MessageActions";
+import { MessageList, type MessageRow } from "./MessageList";
 import { TemplateManager } from "./TemplateManager";
-import { TemplateActions } from "./TemplateActions";
 import { WhatsAppStatusPanel } from "./WhatsAppStatusPanel";
 import { isMessagingSimulation } from "@/lib/nurture/engine";
 
 export const dynamic = "force-dynamic";
 
+const ESTADOS_VISIBLES = [
+  { value: "PROGRAMADO", label: "Programados" },
+  { value: "ENVIADO", label: "Enviados" },
+  { value: "ENTREGADO", label: "Recibidos" },
+  { value: "FALLIDO", label: "Con problema" },
+  { value: "SIMULADO", label: "Pruebas" },
+] as const;
+
 export default async function MessagesPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const filters = await searchParams;
   const session = await currentAdminSession();
-  if (!["ADMIN", "MARKETING", "VENTAS"].includes(session.role)) {
+  if (!["ADMIN", "DIRECCION", "MARKETING", "VENTAS"].includes(session.role)) {
     return <main className="container admin-shell"><AdminNav /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar mensajes." /></main>;
   }
+  const tecnico = isTechnicalProfile(session.role);
+
   const where: Prisma.OutboundMessageWhereInput = {
     ...(filters.channel ? { channel: filters.channel as "EMAIL" | "WHATSAPP" } : {}),
     ...(filters.status ? { status: filters.status as Prisma.EnumMessageStatusFilter } : {}),
@@ -31,25 +39,104 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     ...(filters.course ? { enrollment: { courseId: filters.course } } : {}),
     ...(filters.from ? { scheduledAt: { gte: new Date(`${filters.from}T00:00:00-05:00`) } } : {}),
   };
-  const [messages, courses, templates, pendingCount, waRulesWithoutTemplate, waQueued] = await Promise.all([
-    prisma.outboundMessage.findMany({ where, orderBy: { scheduledAt: "desc" }, take: 200, include: { lead: true, enrollment: { include: { course: true } } } }),
+
+  const [messages, courses, pendingCount, waRulesWithoutTemplate, waQueued, conProblema] = await Promise.all([
+    prisma.outboundMessage.findMany({ where, orderBy: { scheduledAt: "desc" }, take: 150, include: { lead: true, enrollment: { include: { course: true } } } }),
     prisma.course.findMany({ where: { isPublished: true }, orderBy: { title: "asc" }, select: { id: true, title: true } }),
-    prisma.messageTemplate.findMany({ orderBy: { updatedAt: "desc" }, take: 100 }),
     prisma.outboundMessage.count({ where: { OR: [{ status: "PROGRAMADO", scheduledAt: { lte: new Date() } }, { status: "FALLIDO", attemptCount: { lt: 5 }, nextAttemptAt: { lte: new Date() } }] } }),
     prisma.automationRule.count({ where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] } }),
     prisma.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
+    prisma.outboundMessage.count({ where: { status: { in: ["FALLIDO", "REBOTADO", "OMITIDO"] } } }),
   ]);
-  const canManageTemplates = session?.role === "ADMIN" || session?.role === "MARKETING";
+
+  const rows: MessageRow[] = messages.map((message) => ({
+    id: message.id,
+    leadId: message.leadId,
+    channel: message.channel,
+    status: message.status,
+    toAddress: message.toAddress,
+    subject: message.subject,
+    body: message.body,
+    scheduledAt: message.scheduledAt,
+    acceptedAt: message.acceptedAt,
+    deliveredAt: message.deliveredAt,
+    readAt: message.readAt,
+    errorCode: message.errorCode,
+    errorMessage: message.errorMessage,
+    error: message.error,
+    providerName: message.providerName,
+    providerMessageId: message.providerMessageId,
+    attemptCount: message.attemptCount,
+    isSimulation: message.isSimulation,
+    leadName: message.lead.fullName,
+    courseTitle: message.enrollment?.course.title ?? null,
+  }));
+
+  const hayFiltro = Boolean(filters.channel || filters.status || filters.lead || filters.course || filters.from);
+
   return <main className="container admin-shell">
     <AdminNav />
-    <AdminPageHeader eyebrow="Comunicación" title="Seguimiento · mensajes" description="Supervisa los envíos programados, sus resultados y las plantillas de comunicación." actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={pendingCount} />} />
-    {isMessagingSimulation() ? <section className="admin-notice" role="status"><strong>Modo SIMULATED:</strong> procesar la cola solo registra el resultado de la prueba dentro del CRM. No se envían correos ni WhatsApp y ningún contacto recibe una notificación.</section> : null}
-    <IntegrationStatusPanel only={["email", "whatsapp", "cron"]} />
-    <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
-    {session.role === "ADMIN" ? <EmailTestPanel /> : null}
-    <form><AdminFilterPanel><div className="filter-bar"><select name="channel" aria-label="Filtrar por canal" defaultValue={filters.channel ?? ""}><option value="">Todos los canales</option><option value="EMAIL">Correo</option><option value="WHATSAPP">WhatsApp</option></select><select name="status" aria-label="Filtrar por estado" defaultValue={filters.status ?? ""}><option value="">Todos los estados</option>{["PROGRAMADO","ENVIANDO","ACEPTADO","ENVIADO","ENTREGADO","REBOTADO","SIMULADO","FALLIDO","CANCELADO","OMITIDO"].map((status) => <option key={status} value={status}>{presentAdminValue(status)}</option>)}</select><select name="course" aria-label="Filtrar mensajes por curso" defaultValue={filters.course ?? ""}><option value="">Todos los cursos activos</option>{courses.map((course) => <option value={course.id} key={course.id}>{course.title}</option>)}</select><input name="lead" aria-label="Buscar mensajes por contacto" defaultValue={filters.lead} placeholder="Buscar contacto" /><input name="from" type="date" defaultValue={filters.from} aria-label="Fecha desde" /><button type="submit" className="btn-sm">Filtrar</button><Link className="btn-sm ghost" href="/admin/mensajes">Limpiar</Link></div></AdminFilterPanel></form>
-    <section className="panel">{messages.length === 0 ? <AdminEmptyState icon="messages" title="No hay mensajes con estos filtros" description="Ajusta los criterios de búsqueda o limpia los filtros." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Canal</th><th>Contacto</th><th>Curso</th><th>Contenido</th><th>Estado verificable</th><th>Programado</th><th>Acciones</th></tr></thead><tbody>{messages.map((message) => <tr key={message.id}><td>{presentAdminValue(message.channel)}</td><td><Link href={`/admin/leads/${message.leadId}`}>{message.lead.fullName}</Link><div className="muted">{message.toAddress}</div></td><td>{message.enrollment?.course.title ?? "—"}</td><td><strong>{message.subject ?? "Sin asunto"}</strong><details><summary>Ver mensaje</summary><p className="message-body">{message.body}</p></details></td><td><span className={`pill ${message.status === "ENTREGADO" ? "ok" : ["FALLIDO","REBOTADO"].includes(message.status) ? "err" : message.status === "PROGRAMADO" ? "warn" : "info"}`}>{presentAdminValue(message.status)}</span>{message.isSimulation && <div className="muted">Simulación segura · sin envío</div>}<div className="muted">Intentos: {message.attemptCount}{message.providerName ? ` · ${message.providerName}` : ""}</div>{message.providerMessageId && <div className="muted">ID proveedor: {message.providerMessageId}</div>}{message.acceptedAt && <div className="muted">Aceptado: {new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(message.acceptedAt)}</div>}{message.deliveredAt && <div className="muted">Entregado: {new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(message.deliveredAt)}</div>}{(message.errorMessage ?? message.error) && <div className="muted">{message.errorCode ? `${message.errorCode}: ` : ""}{message.errorMessage ?? message.error}</div>}</td><td>{new Intl.DateTimeFormat("es-EC", { dateStyle: "short", timeStyle: "short", timeZone: "America/Guayaquil" }).format(message.scheduledAt)}</td><td><MessageActions id={message.id} status={message.status} /></td></tr>)}</tbody></table></div>}</section>
-    {canManageTemplates && <TemplateManager />}
-    <section className="panel"><h2>Plantillas</h2>{templates.length === 0 ? <AdminEmptyState icon="messages" title="Todavía no hay plantillas" description="Las plantillas administrables aparecerán aquí." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Nombre</th><th>Canal</th><th>Categoría</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td>{template.name}</td><td>{presentAdminValue(template.channel)}</td><td>{template.category ?? "—"}</td><td><span className={`pill ${template.isActive ? "ok" : ""}`}>{template.isActive ? "Activa" : "Inactiva"}</span></td><td><TemplateActions template={{ id: template.id, name: template.name, channel: template.channel, subject: template.subject, body: template.body, category: template.category, isActive: template.isActive }} /></td></tr>)}</tbody></table></div>}</section>
+    <AdminPageHeader
+      eyebrow="Comunicación"
+      title="Comunicaciones"
+      description="Todo lo que el sistema envía a los contactos: qué salió, a quién y si llegó."
+      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={pendingCount} />}
+    />
+
+    <section className={`summary-line ${conProblema > 0 ? "is-attention" : ""}`}>
+      <strong>{messages.length}</strong> mensaje{messages.length === 1 ? "" : "s"} en la vista
+      <span className="summary-sep">·</span>
+      <strong>{pendingCount}</strong> esperando salir
+      {conProblema > 0 ? <>
+        <span className="summary-sep">·</span>
+        <strong>{conProblema}</strong> con problema
+        <span className="summary-actions"><Link className="btn-sm" href="/admin/mensajes?status=FALLIDO">Ver los que fallaron</Link></span>
+      </> : null}
+    </section>
+
+    <form>
+      <div className="filter-bar">
+        <input name="lead" aria-label="Buscar por contacto" defaultValue={filters.lead ?? ""} placeholder="Buscar contacto…" />
+        <select name="channel" aria-label="Canal" defaultValue={filters.channel ?? ""}>
+          <option value="">Correo y WhatsApp</option>
+          <option value="EMAIL">Solo correo</option>
+          <option value="WHATSAPP">Solo WhatsApp</option>
+        </select>
+        <select name="status" aria-label="Estado" defaultValue={filters.status ?? ""}>
+          <option value="">Todos los estados</option>
+          {ESTADOS_VISIBLES.map((estado) => <option key={estado.value} value={estado.value}>{estado.label}</option>)}
+        </select>
+        <button type="submit" className="btn-sm">Filtrar</button>
+        {hayFiltro ? <Link className="btn-sm ghost" href="/admin/mensajes">Quitar filtros</Link> : null}
+      </div>
+      <details className="disclosure">
+        <summary>Más filtros</summary>
+        <div className="disclosure-body filter-bar">
+          <select name="course" aria-label="Curso" defaultValue={filters.course ?? ""}>
+            <option value="">Todos los cursos</option>
+            {courses.map((course) => <option value={course.id} key={course.id}>{course.title}</option>)}
+          </select>
+          <input name="from" type="date" defaultValue={filters.from ?? ""} aria-label="Desde esta fecha" />
+          <button type="submit" className="btn-sm">Aplicar</button>
+        </div>
+      </details>
+    </form>
+
+    <section className="panel">
+      {rows.length === 0
+        ? <AdminEmptyState
+            icon="messages"
+            title={hayFiltro ? "No hay mensajes con estos filtros" : "Todavía no se ha enviado nada"}
+            description={hayFiltro ? "Prueba a quitar algún filtro." : "Cuando alguien se inscriba, su confirmación aparecerá aquí."}
+          />
+        : <MessageList messages={rows} now={new Date()} />}
+    </section>
+
+    {tecnico ? <>
+      <IntegrationStatusPanel only={["email", "whatsapp", "cron"]} />
+      <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
+      <EmailTestPanel />
+      <TemplateManager />
+    </> : null}
   </main>;
 }

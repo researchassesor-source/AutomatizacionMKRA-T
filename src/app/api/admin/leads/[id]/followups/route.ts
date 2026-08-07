@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
+import { COMERCIAL } from "@/lib/auth/roles";
 
 const schema = z.object({
   type: z.enum(["LLAMADA", "WHATSAPP", "CORREO", "REUNION", "RECORDATORIO", "OTRO"]),
@@ -12,7 +13,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole(request, ["ADMIN", "VENTAS"]);
+  const auth = await requireRole(request, COMERCIAL);
   if (auth.error) return auth.error;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Datos de seguimiento no válidos." }, { status: 422 });

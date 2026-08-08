@@ -21,6 +21,15 @@ const guayaquil = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeSt
  */
 export type IntegrationState =
   | "READY"
+  /**
+   * Credenciales y destino en su sitio, pero ningun envio real correcto todavia.
+   *
+   * Existe porque decir "Operativa en producción" con solo mirar la
+   * configuracion resulto ser falso: Facebook aparecia asi el mismo dia en que
+   * su ultima publicacion real habia fallado por permisos. Configurar y
+   * publicar son dos cosas distintas y merecen dos estados distintos.
+   */
+  | "CONNECTED_UNVERIFIED"
   | "SIMULATED"
   | "PENDING_CONFIGURATION"
   | "PENDING_EXTERNAL_VERIFICATION"
@@ -80,7 +89,16 @@ function emailStatus(): IntegrationStatus {
   };
 }
 
-function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
+/**
+ * Redes cuyo ultimo envio real se completo correctamente.
+ *
+ * Lo aporta quien llama, porque exige consultar el historial y este modulo no
+ * habla con la base. Ausente significa "no se sabe", y no saberlo nunca puede
+ * leerse como verificado.
+ */
+export type PublicacionesVerificadas = Partial<Record<"FACEBOOK" | "INSTAGRAM", boolean>>;
+
+function metaStatus(platform: "FACEBOOK" | "INSTAGRAM", verificadas: PublicacionesVerificadas = {}): IntegrationStatus {
   const config = describeMetaConfig(resolveMetaConfig());
   const isFacebook = platform === "FACEBOOK";
   const name = isFacebook ? "Facebook (publicación orgánica)" : "Instagram (publicación orgánica)";
@@ -115,14 +133,28 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM"): IntegrationStatus {
       nextStep: "Para publicar de verdad, SOCIAL_MODE debe ser live en Producción.",
     };
   }
+  const ventana = window.state === "live"
+    ? `Solo se publica lo programado desde el ${guayaquil.format(window.liveFrom)}. Lo anterior queda visible pero no sale.`
+    : null;
+
+  // Sin un envio real correcto, lo unico demostrado es que la configuracion
+  // esta puesta. Afirmar mas fue exactamente el error anterior.
+  if (!verificadas[platform]) {
+    return {
+      key: platform.toLowerCase(),
+      name,
+      state: "CONNECTED_UNVERIFIED",
+      detail: `Credenciales y ${isFacebook ? "página" : "cuenta"} ${identifier} configuradas con Graph ${config.graphVersion}, pero todavía no hay ninguna publicación real correcta.`,
+      nextStep: "Publica una vez para verificar el canal de extremo a extremo. Hasta entonces no se puede dar por operativo.",
+    };
+  }
+
   return {
     key: platform.toLowerCase(),
     name,
     state: "READY",
-    detail: `Publicación real habilitada con Graph ${config.graphVersion} (${isFacebook ? "página" : "cuenta"} ${identifier}).`,
-    nextStep: window.state === "live"
-      ? `Solo se publica lo programado desde el ${guayaquil.format(window.liveFrom)}. Lo anterior queda visible pero no sale.`
-      : null,
+    detail: `Publicación real verificada con Graph ${config.graphVersion} (${isFacebook ? "página" : "cuenta"} ${identifier}).`,
+    nextStep: ventana,
   };
 }
 
@@ -222,11 +254,11 @@ function cronStatus(): IntegrationStatus {
   };
 }
 
-export function integrationStatuses(): IntegrationStatus[] {
+export function integrationStatuses(verificadas: PublicacionesVerificadas = {}): IntegrationStatus[] {
   return [
     emailStatus(),
-    metaStatus("FACEBOOK"),
-    metaStatus("INSTAGRAM"),
+    metaStatus("FACEBOOK", verificadas),
+    metaStatus("INSTAGRAM", verificadas),
     tiktokStatus(),
     whatsappStatus(),
     adsStatus(),
@@ -239,7 +271,8 @@ export function integrationStatuses(): IntegrationStatus[] {
  * código y credenciales pero no ejecución automática comprobada.
  */
 export const INTEGRATION_STATE_LABELS: Record<IntegrationState, string> = {
-  READY: "Operativa en producción",
+  READY: "Publicación verificada",
+  CONNECTED_UNVERIFIED: "Conexión configurada",
   SIMULATED: "Aprobada en simulación",
   PENDING_CONFIGURATION: "Falta configuración",
   PENDING_EXTERNAL_VERIFICATION: "Bloqueada por verificación externa",

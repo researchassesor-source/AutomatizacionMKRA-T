@@ -74,22 +74,27 @@ export class MetaAdapter implements SocialAdapter {
       if (page.error) return { ok: false, ...describeMetaError(page.error) };
       const typed = page as GraphResponse & { name?: string; instagram_business_account?: { id?: string } };
       const linkedInstagram = typed.instagram_business_account?.id ?? null;
-      // Leer la pagina NO prueba que se pueda publicar en ella: son permisos
-      // distintos. Por eso se comprueba tambien la capacidad de publicacion;
-      // sin esto el panel decia "Listo" y la publicacion fallaba igualmente.
-      const publicacion = await this.checkPublishCapability();
+      /**
+       * La conexion esta bien si la pagina responde. Ni mas ni menos.
+       *
+       * Antes esto devolvia `ok: false` cuando no lograba confirmar la
+       * capacidad de publicar, y como esa comprobacion estaba mal hecha el
+       * panel acusaba de "permisos insuficientes" a una configuracion sana.
+       * Fallar la conexion por no poder verificar OTRA cosa es afirmar de mas.
+       *
+       * Que la conexion este configurada no implica que publicar funcione: esa
+       * distincion la hace el estado de integracion, que mira si hubo un envio
+       * real correcto.
+       */
       return {
-        ok: publicacion.puedePublicar,
+        ok: true,
         name: typed.name,
-        errorCode: publicacion.puedePublicar ? undefined : "FB_SIN_PERMISO_PUBLICAR",
-        error: publicacion.puedePublicar ? undefined : publicacion.motivo,
         details: {
           pageId: String(typed.id ?? ""),
           instagramLinked: Boolean(linkedInstagram),
           instagramMatchesConfig: Boolean(linkedInstagram && linkedInstagram === this.igUserId),
-          puedePublicar: publicacion.puedePublicar,
-          tareasSobreLaPagina: publicacion.tareas.join(", ") || "(ninguna)",
-          tokenDePaginaDisponible: publicacion.tokenDePaginaDisponible,
+          conexionConfigurada: true,
+          publicacionVerificada: false,
         },
       };
     } catch {
@@ -114,100 +119,160 @@ export class MetaAdapter implements SocialAdapter {
   }
 
   /**
-   * ¿Puede este token publicar en la pagina, o solo leerla?
+   * Diagnostico de permisos de Facebook. Solo lecturas; no publica nada.
    *
-   * Meta responde con el mismo `code: 200` tanto si al token le faltan
-   * permisos como si al usuario del sistema no le han asignado la pagina. Esta
-   * comprobacion separa ambos casos ANTES de intentar publicar, mirando dos
-   * cosas que no requieren escribir nada: las tareas que se tienen sobre la
-   * pagina y si se puede derivar un token de pagina.
-   */
-  private async checkPublishCapability(): Promise<{
-    puedePublicar: boolean;
-    tareas: string[];
-    tokenDePaginaDisponible: boolean;
-    motivo?: string;
-  }> {
-    const data = await this.get(`${this.pageId}?fields=tasks,access_token`);
-    const typed = data as GraphResponse & { tasks?: string[]; access_token?: string };
-    const tareas = typed.tasks ?? [];
-    const tokenDePaginaDisponible = Boolean(typed.access_token);
-    // CREATE_CONTENT es la tarea que Meta exige para publicar en una pagina.
-    const puedeCrear = tareas.includes("CREATE_CONTENT");
-
-    if (data.error) {
-      return {
-        puedePublicar: false,
-        tareas,
-        tokenDePaginaDisponible,
-        motivo: `Meta no permite consultar los permisos sobre esta página: ${data.error.message ?? "sin detalle"}. Suele significar que al token le falta pages_show_list o que la página no está asignada al usuario del sistema.`,
-      };
-    }
-    if (!puedeCrear) {
-      return {
-        puedePublicar: false,
-        tareas,
-        tokenDePaginaDisponible,
-        motivo: tareas.length === 0
-          ? "El usuario del sistema no tiene ninguna tarea asignada sobre esta página. Hay que asignársela en Business Settings con la tarea «Crear contenido»."
-          : `El usuario del sistema tiene ${tareas.join(", ")} sobre esta página, pero le falta CREATE_CONTENT, que es la tarea que exige Meta para publicar.`,
-      };
-    }
-    if (!tokenDePaginaDisponible) {
-      return {
-        puedePublicar: false,
-        tareas,
-        tokenDePaginaDisponible,
-        motivo: "No se puede derivar un token de página. Al token le falta el permiso pages_show_list o pages_read_engagement.",
-      };
-    }
-    return { puedePublicar: true, tareas, tokenDePaginaDisponible };
-  }
-
-  /**
-   * Diagnostico ampliado para el panel. Nunca devuelve el token ni un fragmento.
+   * La primera version de esto pedia `/{pageId}?fields=tasks`, y `tasks` no es
+   * un campo del nodo Page: Meta respondia `(#100) Tried accessing nonexisting
+   * field (tasks)` y el diagnostico lo traducia como "permisos insuficientes".
+   * Es el peor fallo posible en una herramienta de diagnostico: acusar a la
+   * configuracion de un error propio, y mandar a alguien a cambiar permisos
+   * que estaban bien.
    *
-   * Existe porque "permisos insuficientes" no le dice a nadie que tiene que
-   * cambiar. Esto nombra el permiso o la tarea que falta.
+   * De ahi las dos reglas que gobiernan este metodo:
+   *
+   *   - Una consulta que falla por culpa NUESTRA (campo inexistente, peticion
+   *     mal formada) nunca se reporta como permiso ausente. Se reporta como
+   *     "no verificable".
+   *   - Poder LEER la pagina no prueba que se pueda publicar en ella. Solo un
+   *     envio real verifica eso, y ese dato no vive aqui.
+   *
+   * Cada comprobacion es independiente: que una no se pueda hacer no invalida
+   * las demas.
    */
   async diagnose(): Promise<Record<string, unknown>> {
-    const identidad = await this.get("me?fields=id,name");
-    const capacidad = this.platform === "FACEBOOK"
-      ? await this.checkPublishCapability()
-      : { puedePublicar: true, tareas: [], tokenDePaginaDisponible: false };
-    const permisos = await this.inspectToken();
+    const [identidad, pagina, permisos, tareas, tokenDePagina] = await Promise.all([
+      this.get("me?fields=id,name"),
+      // Identidad de la pagina: id y name son campos validos del nodo Page.
+      this.get(`${this.pageId}?fields=id,name`),
+      this.leerPermisos(),
+      this.leerTareasDeLaPagina(),
+      this.comprobarTokenDePagina(),
+    ]);
+
+    const paginaAccesible = !pagina.error;
+    const nombreDeLaPagina = (pagina as GraphResponse & { name?: string }).name ?? null;
+
     return {
       plataforma: this.platform,
       destinoConfigurado: this.platform === "FACEBOOK" ? Boolean(this.pageId) : Boolean(this.igUserId),
       /** De donde sale el destino: de la cuenta elegida o de la variable. */
       origenDelDestino: this.targetId ? "cuenta seleccionada" : "variable de entorno",
-      identidadDelToken: identidad.error ? `error: ${identidad.error.message ?? "sin detalle"}` : ((identidad as { name?: string }).name ?? "sin nombre"),
+
       tokenValido: !identidad.error,
+      identidadDelToken: identidad.error
+        ? `error: ${identidad.error.message ?? "sin detalle"}`
+        : ((identidad as { name?: string }).name ?? "sin nombre"),
+
+      paginaAccesible,
+      nombreDeLaPagina,
+      paginaMotivo: paginaAccesible ? null : (pagina.error?.message ?? "sin detalle"),
+
       ...permisos,
-      tareasSobreLaPagina: capacidad.tareas,
-      puedePublicar: capacidad.puedePublicar,
-      motivo: capacidad.motivo ?? null,
-      tokenDePaginaDisponible: capacidad.tokenDePaginaDisponible,
+      ...tareas,
+      ...tokenDePagina,
+
+      // Leer la pagina no prueba nada sobre publicar. Solo un envio real lo
+      // verifica, y ese dato lo aporta el historial, no la Graph API.
+      publicacionVerificada: false,
+      publicacionMotivo: "Solo un envío real correcto verifica la publicación. Este diagnóstico no publica nada.",
     };
   }
 
-  /** Scopes reales del token, via debug_token. Requiere appId y appSecret. */
-  private async inspectToken(): Promise<{ scopes: string[]; tipoDeToken: string | null; caduca: string | null }> {
-    const { appId, appSecret, accessToken } = this.config;
-    if (!appId || !appSecret || !accessToken) return { scopes: [], tipoDeToken: null, caduca: null };
-    try {
-      const res = await fetch(`${this.graph}/debug_token?input_token=${encodeURIComponent(accessToken)}`, {
-        headers: { Authorization: `Bearer ${appId}|${appSecret}` },
-      });
-      const info = ((await res.json().catch(() => ({}))) as { data?: { scopes?: string[]; type?: string; expires_at?: number } }).data ?? {};
+  /**
+   * Permisos concedidos al token, via `/me/permissions`.
+   *
+   * Es la consulta documentada y no necesita el secreto de la app, a
+   * diferencia de `debug_token`.
+   */
+  private async leerPermisos(): Promise<{
+    scopesVerificables: boolean;
+    scopesConcedidos: string[];
+    scopesRequeridosAusentes: string[];
+    scopesMotivo: string | null;
+  }> {
+    const REQUERIDOS = ["pages_manage_posts", "pages_read_engagement"];
+    const data = await this.get("me/permissions");
+    const typed = data as GraphResponse & { data?: Array<{ permission?: string; status?: string }> };
+
+    if (data.error || !Array.isArray(typed.data)) {
       return {
-        scopes: info.scopes ?? [],
-        tipoDeToken: info.type ?? null,
-        caduca: info.expires_at === 0 ? "nunca" : info.expires_at ? new Date(info.expires_at * 1000).toISOString() : null,
+        scopesVerificables: false,
+        scopesConcedidos: [],
+        scopesRequeridosAusentes: [],
+        scopesMotivo: `No se pudieron leer los permisos del token: ${data.error?.message ?? "respuesta inesperada"}.`,
       };
-    } catch {
-      return { scopes: [], tipoDeToken: null, caduca: null };
     }
+
+    const concedidos = typed.data
+      .filter((item) => item.status === "granted" && item.permission)
+      .map((item) => item.permission as string);
+    return {
+      scopesVerificables: true,
+      scopesConcedidos: concedidos.sort(),
+      scopesRequeridosAusentes: REQUERIDOS.filter((permiso) => !concedidos.includes(permiso)),
+      scopesMotivo: null,
+    };
+  }
+
+  /**
+   * Tareas sobre la pagina, buscandola dentro de `/me/accounts`.
+   *
+   * `tasks` solo existe como campo de las entradas de esa arista, nunca como
+   * campo del nodo Page. Y con un token de usuario del sistema la arista puede
+   * venir vacia siendo todo correcto: un sistema no "tiene paginas" del mismo
+   * modo que una persona. Por eso la ausencia se informa como NO VERIFICABLE y
+   * jamas como permiso que falta.
+   */
+  private async leerTareasDeLaPagina(): Promise<{
+    tareasVerificables: boolean;
+    tareasSobreLaPagina: string[];
+    tareasMotivo: string | null;
+  }> {
+    const data = await this.get("me/accounts?fields=id,name,tasks&limit=100");
+    const typed = data as GraphResponse & { data?: Array<{ id?: string; tasks?: string[] }> };
+
+    if (data.error || !Array.isArray(typed.data)) {
+      return {
+        tareasVerificables: false,
+        tareasSobreLaPagina: [],
+        tareasMotivo: "Tareas no verificables con este tipo de token",
+      };
+    }
+
+    const encontrada = typed.data.find((item) => item.id === this.pageId);
+    if (!encontrada) {
+      return {
+        tareasVerificables: false,
+        tareasSobreLaPagina: [],
+        tareasMotivo: "Tareas no verificables con este tipo de token",
+      };
+    }
+    return {
+      tareasVerificables: true,
+      tareasSobreLaPagina: encontrada.tasks ?? [],
+      tareasMotivo: null,
+    };
+  }
+
+  /**
+   * ¿Se puede derivar un token de pagina? Comprobacion aparte y best-effort.
+   *
+   * No poder derivarlo NO significa que falten permisos para publicar: un
+   * usuario del sistema puede publicar sin que esta arista le responda.
+   */
+  private async comprobarTokenDePagina(): Promise<{
+    tokenDePaginaDisponible: boolean;
+    tokenDePaginaMotivo: string | null;
+  }> {
+    const data = await this.get(`${this.pageId}?fields=access_token`);
+    const disponible = Boolean((data as GraphResponse & { access_token?: string }).access_token);
+    if (disponible) return { tokenDePaginaDisponible: true, tokenDePaginaMotivo: null };
+    return {
+      tokenDePaginaDisponible: false,
+      tokenDePaginaMotivo: data.error
+        ? `No verificable: ${data.error.message ?? "sin detalle"}. Con un usuario del sistema esto puede ser normal y no impide publicar.`
+        : "No verificable con este tipo de token. Con un usuario del sistema puede ser normal y no impide publicar.",
+    };
   }
 
   private async publishInstagram(input: PublishInput): Promise<PublishResult> {

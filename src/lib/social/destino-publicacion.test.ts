@@ -61,8 +61,10 @@ describe("el caption ya no se compone al publicar", () => {
   it("el camino de publicación no cambia mientras no se confirme la causa", () => {
     // Publicar con token de pagina es candidato a resolver el rechazo 200 de
     // Meta, pero cambiarlo antes de confirmar la causa podria enmascarar el
-    // problema. De momento solo se DIAGNOSTICA si ese token puede derivarse.
-    expect(adaptador).toMatch(/fields=tasks,access_token/);
+    // problema. De momento solo se DIAGNOSTICA si ese token puede derivarse,
+    // en una consulta aparte y como best-effort. La comprobacion concreta de
+    // esas consultas vive en `diagnostico-meta.test.ts`.
+    expect(adaptador).toMatch(/fields=access_token/);
     expect(adaptador).not.toMatch(/pageAccessToken/);
   });
 });

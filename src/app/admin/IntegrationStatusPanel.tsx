@@ -1,7 +1,9 @@
-import { INTEGRATION_STATE_LABELS, integrationStatuses, type IntegrationState } from "@/lib/integration-status";
+import { INTEGRATION_STATE_LABELS, integrationStatuses, type IntegrationState, type PublicacionesVerificadas } from "@/lib/integration-status";
+import { prisma } from "@/lib/db";
 
 const pillClass: Record<IntegrationState, string> = {
   READY: "ok",
+  CONNECTED_UNVERIFIED: "info",
   SIMULATED: "info",
   PENDING_CONFIGURATION: "warn",
   PENDING_EXTERNAL_VERIFICATION: "warn",
@@ -20,7 +22,8 @@ const pillClass: Record<IntegrationState, string> = {
  * dentro; eso vive en la vista tecnica.
  */
 const RESUMEN_SIMPLE: Record<IntegrationState, string> = {
-  READY: "Listo para publicar",
+  READY: "Publicando correctamente",
+  CONNECTED_UNVERIFIED: "Configurada, sin publicación verificada",
   SIMULATED: "En pruebas, todavía no publica",
   PENDING_CONFIGURATION: "Falta terminar de configurar",
   PENDING_EXTERNAL_VERIFICATION: "Esperando verificación externa",
@@ -30,8 +33,29 @@ const RESUMEN_SIMPLE: Record<IntegrationState, string> = {
   ERROR: "Con un problema",
 };
 
-export function IntegrationStatusPanel({ only, technical = true }: { only?: string[]; technical?: boolean } = {}) {
-  const statuses = integrationStatuses().filter((item) => !only || only.includes(item.key));
+/**
+ * Redes con al menos una publicacion real completada.
+ *
+ * Una publicacion SIMULADA no cuenta: no demuestra que el canal funcione, que
+ * es justo lo que este estado afirma.
+ */
+async function publicacionesVerificadas(): Promise<PublicacionesVerificadas> {
+  const redes = await prisma.socialPost.findMany({
+    where: { status: "PUBLICADO", externalPostId: { not: null }, account: { platform: { in: ["FACEBOOK", "INSTAGRAM"] } } },
+    select: { account: { select: { platform: true } } },
+    distinct: ["accountId"],
+  });
+  const verificadas: PublicacionesVerificadas = {};
+  for (const item of redes) {
+    if (item.account.platform === "FACEBOOK" || item.account.platform === "INSTAGRAM") {
+      verificadas[item.account.platform] = true;
+    }
+  }
+  return verificadas;
+}
+
+export async function IntegrationStatusPanel({ only, technical = true }: { only?: string[]; technical?: boolean } = {}) {
+  const statuses = integrationStatuses(await publicacionesVerificadas()).filter((item) => !only || only.includes(item.key));
 
   if (!technical) {
     return (

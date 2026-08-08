@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
 
 const TABS = [
   { key: "resumen", label: "Resumen" },
-  { key: "calendario", label: "Calendario" },
+  { key: "calendario", label: "Sesiones" },
+  { key: "inscritos", label: "Inscritos" },
   { key: "comunicaciones", label: "Comunicaciones" },
 ] as const;
 
@@ -135,8 +136,12 @@ export default async function CoursePage({
             {course.externalId ? <TechnicalOnly>{`${course.externalSource}:${course.externalId}`}</TechnicalOnly> : null}
           </section>
 
+        </>
+      ) : null}
+
+      {tab === "inscritos" ? (
           <section className="panel">
-            <h2>Últimas inscripciones</h2>
+            <h2>Personas inscritas</h2>
             {inscritos.length === 0 ? (
               <p className="muted">Todavía no hay nadie inscrito en este curso.</p>
             ) : (
@@ -157,7 +162,6 @@ export default async function CoursePage({
               </div>
             )}
           </section>
-        </>
       ) : null}
 
       {tab === "calendario" ? (

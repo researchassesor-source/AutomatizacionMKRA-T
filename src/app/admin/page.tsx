@@ -6,8 +6,6 @@ import { formatDay, formatTime, relativeMoment } from "@/lib/message-presentatio
 import { AdminIcon } from "./AdminIcon";
 import { AdminNav } from "./AdminNav";
 import { HealthStrip } from "./HealthStrip";
-import { ScheduleSessionButton } from "./cursos/ScheduleSessionButton";
-import { ImportScheduleButton } from "./cursos/ImportScheduleButton";
 
 export const dynamic = "force-dynamic";
 
@@ -57,9 +55,9 @@ export default async function AdminHome() {
 
       <section className={`home-review ${pendientes > 0 ? "is-attention" : ""}`}>
         {pendientes > 0
-          ? <><strong>{pendientes}</strong> {pendientes === 1 ? "cosa necesita revisión" : "cosas necesitan revisión"}. Puedes verlas al final de esta página.</>
+          ? <><strong>{pendientes}</strong> {pendientes === 1 ? "cosa necesita revisión" : "cosas necesitan revisión"}. Están reunidas en Revisar.</>
           : <>Nada pendiente de revisar.</>}
-        {pendientes > 0 ? <a className="btn-sm ghost" href="#revisar">Ver qué falta</a> : null}
+        {pendientes > 0 ? <Link className="btn-sm ghost" href="/admin/revisar">Ver qué falta</Link> : null}
       </section>
 
 
@@ -134,40 +132,6 @@ export default async function AdminHome() {
           </ul>
         )}
       </section>
-      <details className="home-attention" id="revisar" open={pendientes > 0}>
-        <summary>Qué necesita revisión</summary>
-        {data.attention.length === 0 ? (
-          <div className="attention-empty">
-            <AdminIcon name="secure" size={18} />
-            <span><strong>Todo al día.</strong> No tienes acciones pendientes por ahora.</span>
-          </div>
-        ) : (
-          <div className="attention-list">
-            {data.attention.map((item) => (
-              <article className={`attention-item ${item.severity === "error" ? "is-error" : ""}`} key={item.id}>
-                <div className="attention-copy">
-                  <strong>{item.title}</strong>
-                  <small>{item.detail}</small>
-                </div>
-                {item.scheduleCourse ? (
-                  <ImportScheduleButton courseId={item.scheduleCourse.id} enrollments={item.scheduleCourse.enrollments} />
-                ) : null}
-                {item.scheduleCourse ? (
-                  <ScheduleSessionButton
-                    courseId={item.scheduleCourse.id}
-                    courseTitle={item.scheduleCourse.title}
-                    enrollments={item.scheduleCourse.enrollments}
-                    modality={item.scheduleCourse.modality}
-                    label={item.actionLabel}
-                  />
-                ) : (
-                  <Link className="btn-sm" href={item.href}>{item.actionLabel}</Link>
-                )}
-              </article>
-            ))}
-          </div>
-        )}
-      </details>
     </main>
   );
 }

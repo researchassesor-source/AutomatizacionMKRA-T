@@ -27,7 +27,8 @@ const TRABAJO: AdminLink[] = [
   { href: "/admin/leads", label: "Contactos", icon: "contacts" },
   { href: "/admin/cursos", label: "Cursos", icon: "courses" },
   { href: "/admin/mensajes", label: "Comunicaciones", icon: "messages" },
-  { href: "/admin/redes", label: "Redes", icon: "social" },
+  { href: "/admin/revisar", label: "Revisar", icon: "alert" },
+  { href: "/admin/redes", label: "Publicaciones", icon: "social" },
 ];
 
 const GESTION_LINKS: AdminLink[] = [

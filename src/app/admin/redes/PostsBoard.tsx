@@ -18,10 +18,14 @@ export type BoardPost = {
   providerPostUrl: string | null;
 };
 
-const PESTANAS: ReadonlyArray<{ key: "programadas" | "publicadas" | "fallidas"; label: string; estados: readonly string[] }> = [
+type Clave = "programadas" | "publicadas" | "fallidas" | "guardadas" | "recurrentes";
+
+const PESTANAS: ReadonlyArray<{ key: Clave; label: string; estados: readonly string[] }> = [
   { key: "programadas", label: "Programadas", estados: ["PROGRAMADO", "BORRADOR"] },
   { key: "publicadas", label: "Publicadas", estados: ["PUBLICADO", "ACEPTADO", "SIMULADO"] },
   { key: "fallidas", label: "No salieron", estados: ["FALLIDO", "CANCELADO"] },
+  { key: "guardadas", label: "Guardadas", estados: ["ARCHIVADO"] },
+  { key: "recurrentes", label: "Recurrentes", estados: [] },
 ];
 
 /**
@@ -29,10 +33,14 @@ const PESTANAS: ReadonlyArray<{ key: "programadas" | "publicadas" | "fallidas"; 
  * esta por salir, lo que ya salio y lo que fallo. El estado interno del
  * proveedor no aporta nada en esta pantalla.
  */
-export function PostsBoard({ posts }: { posts: BoardPost[] }) {
+export type Recurrente = { id: string; name: string; caption: string; weekday: number; localTime: string; isActive: boolean; nextRunAt: string; platform: string };
+
+const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurrentes: Recurrente[] }) {
   const router = useRouter();
   const { toast, confirm } = useFeedback();
-  const [pestana, setPestana] = useState<"programadas" | "publicadas" | "fallidas">("programadas");
+  const [pestana, setPestana] = useState<Clave>("programadas");
   const [busy, setBusy] = useState<string | null>(null);
 
   const activa = PESTANAS.find((item) => item.key === pestana) ?? PESTANAS[0];
@@ -70,13 +78,36 @@ export function PostsBoard({ posts }: { posts: BoardPost[] }) {
     router.refresh();
   }
 
+  /**
+   * Pausar o reactivar una recurrencia.
+   *
+   * Pausar no borra: la publicacion sigue definida y vuelve a salir cuando se
+   * reactiva. Es la salida segura cuando algo hay que detener con prisa.
+   */
+  async function recurrencia(item: Recurrente) {
+    setBusy(item.id);
+    const response = await fetch(`/api/admin/social/schedules/${item.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: item.isActive ? "pause" : "resume", confirm: true }),
+    });
+    setBusy(null);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      toast({ tone: "error", title: "No se pudo cambiar la recurrencia", detail: result.error ?? "Inténtalo de nuevo." });
+      return;
+    }
+    toast({ tone: "success", title: item.isActive ? "Recurrencia pausada" : "Recurrencia reactivada" });
+    router.refresh();
+  }
+
   return (
     <section className="panel">
       <h2>Publicaciones</h2>
 
       <nav className="tabs" aria-label="Estado de las publicaciones">
         {PESTANAS.map((item) => {
-          const total = posts.filter((post) => item.estados.includes(post.status)).length;
+          const total = item.key === "recurrentes" ? recurrentes.length : posts.filter((post) => item.estados.includes(post.status)).length;
           return (
             <button
               type="button"
@@ -91,9 +122,33 @@ export function PostsBoard({ posts }: { posts: BoardPost[] }) {
         })}
       </nav>
 
-      {visibles.length === 0 ? (
+      {pestana === "recurrentes" ? (
+        recurrentes.length === 0 ? (
+          <p className="muted">No hay ninguna publicación recurrente. Al programar una, marca «Repetir cada semana».</p>
+        ) : (
+          <div className="post-list">
+            {recurrentes.map((item) => (
+              <article className="post-row" key={item.id}>
+                <div className="post-main">
+                  <span className="post-network">{nombreRed(item.platform)}</span>
+                  <p>{item.caption.slice(0, 140)}{item.caption.length > 140 ? "…" : ""}</p>
+                  <small>
+                    Cada {DIAS[item.weekday] ?? "semana"} a las {item.localTime} · próxima {formatMoment(item.nextRunAt)}
+                  </small>
+                </div>
+                <span className={`status-dot ${item.isActive ? "is-done" : "is-waiting"}`}>{item.isActive ? "Activa" : "En pausa"}</span>
+                <div className="post-actions">
+                  <button type="button" className="btn-sm ghost" disabled={busy === item.id} onClick={() => recurrencia(item)}>
+                    {item.isActive ? "Pausar" : "Reactivar"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )
+      ) : visibles.length === 0 ? (
         <p className="muted">
-          {pestana === "programadas" ? "No hay nada esperando salir." : pestana === "publicadas" ? "Todavía no se ha publicado nada." : "Ninguna publicación ha fallado."}
+          {pestana === "programadas" ? "No hay nada esperando salir." : pestana === "publicadas" ? "Todavía no se ha publicado nada." : pestana === "guardadas" ? "No has guardado ninguna publicación para reutilizar." : "Ninguna publicación ha fallado."}
         </p>
       ) : (
         <div className="post-list">
@@ -123,6 +178,9 @@ export function PostsBoard({ posts }: { posts: BoardPost[] }) {
                     <button type="button" className="btn-sm" disabled={busy === post.id} onClick={() => accion(post, "retry")}>Reintentar</button>
                     <button type="button" className="btn-sm ghost" disabled={busy === post.id} onClick={() => accion(post, "duplicate")}>Duplicar</button>
                   </>
+                ) : null}
+                {activa.key === "guardadas" ? (
+                  <button type="button" className="btn-sm" disabled={busy === post.id} onClick={() => accion(post, "duplicate")}>Reutilizar</button>
                 ) : null}
                 {activa.key === "publicadas" ? (
                   <button type="button" className="btn-sm ghost" disabled={busy === post.id} onClick={() => accion(post, "duplicate")}>Volver a usar</button>

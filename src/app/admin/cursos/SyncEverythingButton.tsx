@@ -116,7 +116,7 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
   return (
     <>
       <button type="button" className="btn-sm" onClick={actualizar} disabled={fase === "trabajando"}>
-        {fase === "trabajando" ? "Actualizando…" : "Actualizar catálogo y fechas"}
+        {fase === "trabajando" ? "Sincronizando…" : "Sincronizar con la web"}
       </button>
 
       {fase === "trabajando" && paso ? (

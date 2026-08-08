@@ -5,6 +5,7 @@ import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
 import { CourseCards } from "./CourseCards";
+import { SyncEverythingButton } from "./SyncEverythingButton";
 import { resolveCourseSessions } from "@/lib/course-sessions";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { CourseManager, type CourseRow } from "./CourseManager";
@@ -76,6 +77,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         description="El catálogo, sus fechas y lo que recibe cada inscrito."
         actions={<span className="header-actions">
           <a className="btn-sm ghost" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">Ver catálogo oficial</a>
+          {canEdit ? <SyncEverythingButton canSyncCatalog={tecnico} courses={scheduledCourses.map((course) => ({ id: course.id, title: course.title, enrollments: course._count.enrollments, sessionsCount: resolveCourseSessions(course, course.sessions).length }))} /> : null}
           {canEdit ? <Link className="btn-sm" href={createHref} scroll={false}>Crear curso</Link> : null}
         </span>}
       />
@@ -99,6 +101,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         </> : null}
       </section>
 
+      <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
       <section className="panel">
         <h2>Cursos publicados</h2>
         <CourseCards canEdit={canEdit} courses={scheduledCourses.map((course) => {
@@ -132,7 +135,6 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
           }))}
         />
       ) : null}
-      <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
     </main>
   );
 }

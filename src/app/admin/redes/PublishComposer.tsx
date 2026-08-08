@@ -2,11 +2,20 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ecuadorLocalDateTimeToIso } from "@/lib/time";
 import { useFeedback } from "../Feedback";
 
 export type ComposerAccount = { id: string; platform: string; displayName: string };
+
+type Plantilla = { id: string; nombre: string; texto: string; enlace: string; imagen: string };
+
+/**
+ * Las plantillas viven en el navegador a proposito: son borradores de trabajo
+ * de quien escribe, no contenido del CRM, y no tiene sentido que ocupen la base
+ * ni que se compartan entre personas sin pedirlo.
+ */
+const PLANTILLAS_KEY = "ra-crm:plantillas-publicacion";
 
 const REDES = [
   { platform: "FACEBOOK", label: "Facebook" },
@@ -34,6 +43,43 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
   const [seleccion, setSeleccion] = useState<string[]>(() => accounts.slice(0, 1).map((a) => a.id));
   const [repetir, setRepetir] = useState(false);
   const [guardando, setGuardando] = useState<string | null>(null);
+  const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
+
+  useEffect(() => {
+    try {
+      const crudo = window.localStorage.getItem(PLANTILLAS_KEY);
+      if (crudo) setPlantillas(JSON.parse(crudo) as Plantilla[]);
+    } catch {
+      // Un navegador sin almacenamiento no debe romper el compositor.
+    }
+  }, []);
+
+  function persistir(lista: Plantilla[]) {
+    setPlantillas(lista);
+    try {
+      window.localStorage.setItem(PLANTILLAS_KEY, JSON.stringify(lista));
+    } catch {
+      toast({ tone: "warning", title: "No se pudo guardar la plantilla en este navegador" });
+    }
+  }
+
+  function guardarPlantilla() {
+    if (!texto.trim()) {
+      toast({ tone: "warning", title: "Escribe el texto antes de guardarlo" });
+      return;
+    }
+    // La primera linea del texto sirve de nombre: es lo que quien escribe
+    // reconoce, y evita pedir un titulo mas solo para guardar.
+    const nombre = texto.trim().split(String.fromCharCode(10))[0].slice(0, 44);
+    persistir([{ id: String(Date.now()), nombre, texto, enlace, imagen }, ...plantillas].slice(0, 12));
+    toast({ tone: "success", title: "Plantilla guardada", detail: "Aparecerá aquí la próxima vez que publiques." });
+  }
+
+  function usarPlantilla(plantilla: Plantilla) {
+    setTexto(plantilla.texto);
+    setEnlace(plantilla.enlace);
+    setImagen(plantilla.imagen);
+  }
 
   const porRed = useMemo(() => {
     const mapa = new Map<string, ComposerAccount[]>();
@@ -229,7 +275,20 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
             <button type="button" className="btn-sm" disabled={guardando !== null} onClick={() => publicar(Boolean(cuando))}>
               {guardando === "publicar" ? "Guardando…" : cuando ? "Programar publicación" : "Crear publicación"}
             </button>
+            <button type="button" className="btn-sm ghost" onClick={guardarPlantilla}>Guardar como plantilla</button>
           </div>
+
+          {plantillas.length > 0 ? (
+            <div className="composer-templates">
+              <span>Plantillas guardadas</span>
+              {plantillas.map((plantilla) => (
+                <span className="composer-template" key={plantilla.id}>
+                  <button type="button" onClick={() => usarPlantilla(plantilla)} title="Usar esta plantilla">{plantilla.nombre}</button>
+                  <button type="button" className="composer-template-remove" aria-label={`Borrar ${plantilla.nombre}`} onClick={() => persistir(plantillas.filter((item) => item.id !== plantilla.id))}>×</button>
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <aside className="composer-preview" aria-label="Vista previa">

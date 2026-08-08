@@ -156,11 +156,25 @@ describe("requisitos reales de Instagram", () => {
     fetchSpy.mockRestore();
   });
 
+  /**
+   * Graph simulada con una respuesta NUEVA por llamada.
+   *
+   * `mockResolvedValue` devuelve siempre el mismo objeto `Response`, y el
+   * cuerpo de una Response solo puede leerse una vez. Desde que Facebook pide
+   * la credencial de pagina antes de publicar hay dos llamadas, y la segunda
+   * recibia un cuerpo ya consumido.
+   */
+  function graphSimulada() {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).includes("fields=access_token")
+        ? new Response(JSON.stringify({ id: "1190", access_token: "token-de-pagina" }), { status: 200 })
+        : new Response(JSON.stringify({ id: "1190_777" }), { status: 200 }),
+    );
+  }
+
   it("Facebook sí admite publicación de solo texto", async () => {
     const { MetaAdapter } = await vi.importActual<typeof import("./adapters/meta")>("./adapters/meta");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ id: "1190_777" }), { status: 200 }),
-    );
+    const fetchSpy = graphSimulada();
     const adapter = new MetaAdapter("FACEBOOK", { accessToken: "t", pageId: "1190", graphVersion: "v25.0" });
     const result = await adapter.publish({ caption: "Solo texto" });
     expect(result).toMatchObject({ ok: true, externalPostId: "1190_777" });
@@ -169,16 +183,20 @@ describe("requisitos reales de Instagram", () => {
 
   it("el token viaja en la cabecera, nunca en la URL", async () => {
     const { MetaAdapter } = await vi.importActual<typeof import("./adapters/meta")>("./adapters/meta");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ id: "1190_777" }), { status: 200 }),
-    );
+    const fetchSpy = graphSimulada();
     const adapter = new MetaAdapter("FACEBOOK", { accessToken: "token-secreto", pageId: "1190", graphVersion: "v25.0" });
     await adapter.publish({ caption: "Hola" });
-    const [url, init] = fetchSpy.mock.calls[0];
-    const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(String(url)).not.toContain("token-secreto");
-    expect(headers.Authorization).toContain("token-secreto");
-    expect(String(init?.body ?? "")).not.toContain("token-secreto");
+    // Se comprueban TODAS las llamadas: la del token de pagina va con el del
+    // sistema, y la publicacion con el de pagina. Ninguna puede llevarlo en la
+    // URL ni en el cuerpo.
+    for (const [url, init] of fetchSpy.mock.calls) {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      expect(String(url)).not.toContain("token-secreto");
+      expect(String(url)).not.toContain("token-de-pagina");
+      expect(String(init?.body ?? "")).not.toContain("token-secreto");
+      expect(String(init?.body ?? "")).not.toContain("token-de-pagina");
+      expect(headers.Authorization).toMatch(/^Bearer (token-secreto|token-de-pagina)$/);
+    }
     fetchSpy.mockRestore();
   });
 });

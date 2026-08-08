@@ -375,32 +375,67 @@ export class MetaAdapter implements SocialAdapter {
     return { ok: false, errorCode: "IG_PROCESSING", error: "Instagram todavía está procesando el contenido. Reintenta en unos minutos." };
   }
 
+  /**
+   * Credencial de la pagina con la que Facebook admite publicar.
+   *
+   * El diagnostico de produccion dejo el caso cerrado: el token del usuario
+   * del sistema tiene `pages_manage_posts` y `pages_read_engagement`, la tarea
+   * CREATE_CONTENT sobre la pagina y el identificador correcto, y aun asi
+   * `/{pageId}/photos` respondia 200. Lo que faltaba era publicar con la
+   * credencial DE LA PAGINA, que es lo que Meta documenta para las
+   * publicaciones de pagina.
+   *
+   * Se pide en cada operacion y vive solo en la variable local de quien la
+   * pide: no se guarda en la base, ni en el adaptador, ni en una variable de
+   * entorno. Un valor que no se almacena no se puede filtrar despues, y ademas
+   * caduca sin que nadie tenga que acordarse de rotarlo.
+   *
+   * Falla cerrado a proposito. Publicar con el token del sistema como respaldo
+   * seria volver al fallo que esto corrige, y ademas lo dejaria enmascarado.
+   */
+  private async fetchPageAccessToken(): Promise<
+    { ok: true; token: string } | { ok: false; errorCode: string; error: string; graphCode: number | null }
+  > {
+    const data = await this.get(`${this.pageId}?fields=access_token`);
+    const token = (data as GraphResponse & { access_token?: string }).access_token;
+    if (token) return { ok: true, token };
+    return {
+      ok: false,
+      errorCode: "FB_PAGE_TOKEN_UNAVAILABLE",
+      // Redactado para quien dirige: dice que pasa y que hacer, sin nombrar
+      // credenciales. El detalle tecnico viaja en errorCode y providerResponse.
+      error: "No se pudo obtener el permiso de publicación de la página en Facebook, así que no se publicó nada. Comprueba desde el panel técnico que la página sigue asignada a R.A. Training.",
+      graphCode: data.error?.code ?? null,
+    };
+  }
+
   private async publishFacebook(input: PublishInput): Promise<PublishResult> {
     const pageId = this.pageId;
     // Igual que en Instagram: el caption viene compuesto desde `lib/social/cta`
     // y aqui no se le añade nada, para no duplicar la URL que ya lleva dentro.
     const caption = input.caption;
 
-    /**
-     * Se publica con el token del usuario del sistema, como hasta ahora.
-     *
-     * Meta documenta que las publicaciones de pagina se hacen con un token DE
-     * PAGINA, y cambiarlo es un candidato a resolver el rechazo 200. Pero
-     * todavia no sabemos si esa es la causa: cambiar el camino de publicacion
-     * a ciegas podria enmascarar el problema en vez de arreglarlo, y añade una
-     * llamada a Graph en cada envio. El diagnostico ya informa de si se puede
-     * derivar ese token; cuando se confirme la causa, se cambia con criterio.
-     */
+    const credencial = await this.fetchPageAccessToken();
+    if (!credencial.ok) {
+      return {
+        ok: false,
+        errorCode: credencial.errorCode,
+        error: credencial.error,
+        providerResponse: { step: "page_token", metaCode: credencial.graphCode },
+      };
+    }
+    // Solo existe dentro de esta llamada. Nunca se registra ni se devuelve.
+    const tokenDePagina = credencial.token;
 
     // Video -> /videos ; imagen -> /photos ; solo texto -> /feed
     if (input.mediaUrl && isVideo(input.mediaUrl)) {
-      const res = await this.post(`${pageId}/videos`, { file_url: input.mediaUrl, description: caption });
+      const res = await this.post(`${pageId}/videos`, { file_url: input.mediaUrl, description: caption }, tokenDePagina);
       if (!res.id) return { ok: false, ...describeMetaError(res.error), providerResponse: { step: "video", metaCode: res.error?.code ?? null } };
       return { ok: true, externalPostId: res.id, providerResponse: { platform: "FACEBOOK", kind: "video" } };
     }
 
     if (input.mediaUrl) {
-      const res = await this.post(`${pageId}/photos`, { url: input.mediaUrl, caption });
+      const res = await this.post(`${pageId}/photos`, { url: input.mediaUrl, caption }, tokenDePagina);
       const id = res.post_id ?? res.id;
       if (!id) return { ok: false, ...describeMetaError(res.error), providerResponse: { step: "photo", metaCode: res.error?.code ?? null } };
       return { ok: true, externalPostId: id, providerPostUrl: `https://www.facebook.com/${id}`, providerResponse: { platform: "FACEBOOK", kind: "photo" } };
@@ -410,7 +445,7 @@ export class MetaAdapter implements SocialAdapter {
     // que la URL suelta en el texto. El caption compuesto ya no la lleva.
     const params: Record<string, string> = { message: caption };
     if (input.linkUrl) params.link = input.linkUrl;
-    const res = await this.post(`${pageId}/feed`, params);
+    const res = await this.post(`${pageId}/feed`, params, tokenDePagina);
     if (!res.id) return { ok: false, ...describeMetaError(res.error), providerResponse: { step: "feed", metaCode: res.error?.code ?? null } };
     return { ok: true, externalPostId: res.id, providerPostUrl: `https://www.facebook.com/${res.id}`, providerResponse: { platform: "FACEBOOK", kind: "feed" } };
   }
@@ -422,10 +457,15 @@ export class MetaAdapter implements SocialAdapter {
     return (await res.json().catch(() => ({}))) as GraphResponse;
   }
 
-  private async post(path: string, params: Record<string, string>): Promise<GraphResponse> {
+  /**
+   * `token` permite publicar con la credencial de la pagina. Por omision se usa
+   * la del usuario del sistema, que es lo que necesita Instagram y todo lo
+   * demas; solo Facebook la sustituye.
+   */
+  private async post(path: string, params: Record<string, string>, token = this.config.accessToken): Promise<GraphResponse> {
     const res = await fetch(`${this.graph}/${path}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${this.config.accessToken}` },
+      headers: { Authorization: `Bearer ${token}` },
       body: new URLSearchParams(params),
     });
     return (await res.json().catch(() => ({}))) as GraphResponse;

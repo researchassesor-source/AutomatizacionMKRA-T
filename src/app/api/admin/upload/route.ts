@@ -31,20 +31,26 @@ export async function POST(request: Request) {
   try {
     form = await request.formData();
   } catch {
-    return NextResponse.json({ error: "peticion invalida" }, { status: 400 });
+    return NextResponse.json({ error: "No se recibió el archivo correctamente. Vuelve a intentarlo." }, { status: 400 });
   }
 
   const file = form.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "falta el archivo" }, { status: 422 });
+    return NextResponse.json({ error: "No llegó ninguna imagen. Elige un archivo y vuelve a intentarlo." }, { status: 422 });
   }
   if (!file.type.startsWith("image/")) {
-    return NextResponse.json({ error: "el archivo debe ser una imagen" }, { status: 422 });
-  }
-  // Limite razonable para el body de una funcion serverless (~4.5 MB).
-  if (file.size > 4_400_000) {
     return NextResponse.json(
-      { error: "La imagen es muy grande (max 4 MB). Reducela e intenta de nuevo." },
+      { error: "Ese archivo no es una imagen. Usa JPG, PNG o WebP." },
+      { status: 422 },
+    );
+  }
+  // Limite del cuerpo de una funcion serverless (~4.5 MB). Se comprueba aqui
+  // para poder explicarlo; si no, la plataforma corta la peticion y quien
+  // sube ve un fallo de red sin motivo.
+  if (file.size > 4_400_000) {
+    const megas = (file.size / 1_000_000).toFixed(1);
+    return NextResponse.json(
+      { error: `La imagen pesa ${megas} MB y el máximo son 4 MB. Redúcela e inténtalo de nuevo.` },
       { status: 413 },
     );
   }
@@ -65,8 +71,14 @@ export async function POST(request: Request) {
       contentType: "image/jpeg",
     });
     return NextResponse.json({ url: blob.url });
-  } catch {
-    console.error("[admin/upload] No se pudo procesar una imagen autorizada.");
-    return NextResponse.json({ error: "no se pudo procesar la imagen" }, { status: 500 });
+  } catch (error) {
+    // Sin distinguir estos dos casos, un archivo corrupto y una caida del
+    // almacenamiento se leen igual en pantalla, y solo uno lo puede resolver
+    // quien esta subiendo la imagen.
+    const esImagenIlegible = error instanceof Error && /unsupported image format|Input buffer|premature end/i.test(error.message);
+    console.error(`[admin/upload] fallo al procesar la imagen: ${esImagenIlegible ? "archivo ilegible" : "almacenamiento"}`);
+    return esImagenIlegible
+      ? NextResponse.json({ error: "No se pudo leer la imagen. Puede estar dañada o en un formato no admitido; prueba con un JPG o PNG." }, { status: 422 })
+      : NextResponse.json({ error: "El almacenamiento de imágenes no respondió. Inténtalo de nuevo en unos minutos." }, { status: 502 });
   }
 }

@@ -98,34 +98,46 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
     setSeleccion((actual) => (actual.includes(id) ? actual.filter((x) => x !== id) : [...actual, id]));
   }
 
+  /**
+   * Sube la imagen y deja su URL publica lista para la publicacion.
+   *
+   * Va contra `/api/admin/upload`, que recibe el archivo por multipart, lo
+   * normaliza a JPEG y devuelve la URL. Antes esto llamaba a
+   * `/api/admin/upload/token` esperando `{ uploadUrl, publicUrl }`, pero esa
+   * ruta implementa el protocolo de subida directa de Vercel Blob: espera un
+   * cuerpo con `type: "blob.generate-client-token"` y responde con un
+   * `clientToken`. Ni el cuerpo que se enviaba era el que esa ruta entiende,
+   * ni la respuesta contenia los campos que se leian aqui, asi que la subida
+   * no podia funcionar en ningun entorno. La ruta de token sigue en pie para
+   * los videos, que es para lo que existe.
+   */
   async function subir(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    // Permite volver a elegir el mismo archivo despues de un fallo: sin esto
+    // el input no dispara `change` la segunda vez y parece que no responde.
+    event.target.value = "";
     setGuardando("imagen");
     try {
-      const token = await fetch("/api/admin/upload/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, contentType: file.type }),
-      });
-      const info = await token.json().catch(() => ({}));
-      if (!token.ok || !info.uploadUrl) {
-        toast({ tone: "error", title: "No se pudo preparar la subida", detail: info.error ?? "Inténtalo de nuevo." });
-        setGuardando(null);
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/admin/upload", { method: "POST", body: form });
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || !resultado.url) {
+        toast({
+          tone: "error",
+          title: "No se pudo subir la imagen",
+          detail: resultado.error ?? "Inténtalo de nuevo en un momento.",
+        });
         return;
       }
-      const subida = await fetch(info.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-      if (!subida.ok) {
-        toast({ tone: "error", title: "No se pudo subir la imagen" });
-        setGuardando(null);
-        return;
-      }
-      setImagen(info.publicUrl ?? "");
-      toast({ tone: "success", title: "Imagen lista" });
+      setImagen(resultado.url);
+      toast({ tone: "success", title: "Imagen lista", detail: "Se usará en todas las redes seleccionadas." });
     } catch {
-      toast({ tone: "error", title: "No se pudo subir la imagen" });
+      toast({ tone: "error", title: "No se pudo subir la imagen", detail: "Revisa tu conexión e inténtalo de nuevo." });
+    } finally {
+      setGuardando(null);
     }
-    setGuardando(null);
   }
 
   async function publicar(programar: boolean) {

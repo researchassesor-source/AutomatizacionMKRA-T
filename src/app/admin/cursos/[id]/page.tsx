@@ -55,14 +55,16 @@ export default async function CoursePage({
   const steps = buildCourseTimeline({ rules: course.automationRules, sessions });
   const sinFecha = sessions.length === 0;
 
-  const [inscritos, mensajes] = await Promise.all([
+  const [inscritos, enviados, programados, bloqueados] = await Promise.all([
     prisma.enrollment.findMany({
       where: { courseId: id },
       orderBy: { createdAt: "desc" },
       take: 12,
       select: { id: true, createdAt: true, status: true, lead: { select: { id: true, fullName: true, email: true } } },
     }),
-    prisma.outboundMessage.count({ where: { enrollment: { courseId: id } } }),
+    prisma.outboundMessage.count({ where: { enrollment: { courseId: id }, status: { in: ["ACEPTADO", "ENVIADO", "ENTREGADO", "LEIDO"] } } }),
+    prisma.outboundMessage.count({ where: { enrollment: { courseId: id }, status: "PROGRAMADO" } }),
+    prisma.outboundMessage.count({ where: { enrollment: { courseId: id }, status: "OMITIDO", scheduledAt: { gt: new Date() } } }),
   ]);
 
   function tabHref(key: string) {
@@ -114,7 +116,6 @@ export default async function CoursePage({
       </nav>
 
       {tab === "resumen" ? (
-        <>
           <section className="panel">
             <h2>Datos del curso</h2>
             <dl className="data-grid">
@@ -122,7 +123,9 @@ export default async function CoursePage({
               <div><dt>Próxima sesión</dt><dd>{proxima ? `${formatDay(proxima.startAt)} · ${formatTime(proxima.startAt)}` : <span className="muted">Pendiente de programar</span>}</dd></div>
               <div><dt>Sesiones registradas</dt><dd>{sessions.length}</dd></div>
               <div><dt>Inscritos</dt><dd>{course._count.enrollments}</dd></div>
-              <div><dt>Mensajes generados</dt><dd>{mensajes}</dd></div>
+              <div><dt title="Correos que el proveedor ya aceptó para este curso.">Comunicaciones enviadas</dt><dd>{enviados}</dd></div>
+              <div><dt title="Listas y esperando su hora.">Programadas</dt><dd>{programados}</dd></div>
+              {bloqueados > 0 ? <div><dt title="Futuras, pero les falta el enlace de la reunión.">Esperan enlace</dt><dd>{bloqueados}</dd></div> : null}
               <div><dt>Duración</dt><dd>{course.duration ?? <span className="muted">No especificada</span>}</dd></div>
               <div><dt>Categoría</dt><dd>{course.category ?? <span className="muted">Sin categoría</span>}</dd></div>
               <div><dt>Creado</dt><dd>{formatMoment(course.createdAt)}</dd></div>
@@ -135,8 +138,6 @@ export default async function CoursePage({
             <TechnicalOnly>{course.slug}</TechnicalOnly>
             {course.externalId ? <TechnicalOnly>{`${course.externalSource}:${course.externalId}`}</TechnicalOnly> : null}
           </section>
-
-        </>
       ) : null}
 
       {tab === "inscritos" ? (

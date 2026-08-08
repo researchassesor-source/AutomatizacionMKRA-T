@@ -20,7 +20,8 @@ const ESTADOS_VISIBLES = [
   { value: "PROGRAMADO", label: "Programados" },
   { value: "ENVIADO", label: "Enviados" },
   { value: "ENTREGADO", label: "Recibidos" },
-  { value: "FALLIDO", label: "Con problema" },
+  { value: "OMITIDO", label: "Requieren configuración" },
+  { value: "FALLIDO", label: "No salieron" },
   { value: "SIMULADO", label: "Pruebas" },
 ] as const;
 
@@ -41,13 +42,16 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     ...(filters.from ? { scheduledAt: { gte: new Date(`${filters.from}T00:00:00-05:00`) } } : {}),
   };
 
-  const [messages, courses, pendingCount, waRulesWithoutTemplate, waQueued, conProblema] = await Promise.all([
+  const [messages, courses, pendingCount, waRulesWithoutTemplate, waQueued, conProblema, requierenConfig] = await Promise.all([
     prisma.outboundMessage.findMany({ where, orderBy: { scheduledAt: "desc" }, take: 150, include: { lead: true, enrollment: { include: { course: true } } } }),
     prisma.course.findMany({ where: { isPublished: true }, orderBy: { title: "asc" }, select: { id: true, title: true } }),
     prisma.outboundMessage.count({ where: { OR: [{ status: "PROGRAMADO", scheduledAt: { lte: new Date() } }, { status: "FALLIDO", attemptCount: { lt: 5 }, nextAttemptAt: { lte: new Date() } }] } }),
     prisma.automationRule.count({ where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] } }),
     prisma.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
-    prisma.outboundMessage.count({ where: { status: { in: ["FALLIDO", "REBOTADO", "OMITIDO"] } } }),
+    // Fallo real: el proveedor lo rechazo, o le tocaba salir y no pudo.
+    prisma.outboundMessage.count({ where: { OR: [{ status: { in: ["FALLIDO", "REBOTADO"] } }, { status: "OMITIDO", scheduledAt: { lte: new Date() } }] } }),
+    // Bloqueado: es futuro y le falta un dato. Nadie lo ha intentado.
+    prisma.outboundMessage.count({ where: { status: "OMITIDO", scheduledAt: { gt: new Date() } } }),
   ]);
 
   const rows: MessageRow[] = messages.map((message) => ({
@@ -71,6 +75,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     isSimulation: message.isSimulation,
     leadName: message.lead.fullName,
     courseTitle: message.enrollment?.course.title ?? null,
+    courseId: message.enrollment?.courseId ?? null,
   }));
 
   const hayFiltro = Boolean(filters.channel || filters.status || filters.lead || filters.course || filters.from);
@@ -84,15 +89,25 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
       actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={pendingCount} />}
     />
 
-    <section className={`summary-line ${conProblema > 0 ? "is-attention" : ""}`}>
+    <section className={`summary-line ${conProblema > 0 || requierenConfig > 0 ? "is-attention" : ""}`}>
       <strong>{messages.length}</strong> mensaje{messages.length === 1 ? "" : "s"} en la vista
       <span className="summary-sep">·</span>
       <strong>{pendingCount}</strong> esperando salir
+      {requierenConfig > 0 ? <>
+        <span className="summary-sep">·</span>
+        <strong>{requierenConfig}</strong> requieren configuración
+      </> : null}
       {conProblema > 0 ? <>
         <span className="summary-sep">·</span>
-        <strong>{conProblema}</strong> con problema
-        <span className="summary-actions"><Link className="btn-sm" href="/admin/mensajes?status=FALLIDO">Ver los que fallaron</Link></span>
+        <strong>{conProblema}</strong> no salieron
       </> : null}
+      {requierenConfig > 0 || conProblema > 0 ? (
+        <span className="summary-actions">
+          <Link className="btn-sm" href={`/admin/mensajes?status=${requierenConfig > 0 ? "OMITIDO" : "FALLIDO"}`}>
+            {requierenConfig > 0 ? "Ver los que esperan configuración" : "Ver los que fallaron"}
+          </Link>
+        </span>
+      ) : null}
     </section>
 
     <form>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { presentAdminValue } from "../../adminPresentation";
+import { useFeedback } from "../../Feedback";
 import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
 
 type LeadDetail = {
@@ -74,6 +75,7 @@ export function LeadDetailManager({
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm } = useFeedback();
   const canEdit = role === "ADMIN" || role === "VENTAS";
   const canDelete = role === "ADMIN";
   const isRealContact = !["TEST", "DEMO"].includes(lead.classification);
@@ -83,23 +85,27 @@ export function LeadDetailManager({
     setBusy(true);
     const data = new FormData(event.currentTarget);
     const stage = String(data.get("stage"));
-    const lostReason = String(data.get("lostReason") || "").trim();
     const sensitiveStageChange = stage !== lead.stage && ["CLIENTE", "PERDIDO"].includes(stage);
-    const classification = String(data.get("classification"));
-    const classificationChange = classification !== lead.classification;
-    if (stage === "PERDIDO" && !lostReason) { setBusy(false); setMessage("Indica el motivo de pérdida."); return; }
-    if ((sensitiveStageChange || classificationChange) && !window.confirm(classificationChange ? `¿Confirmas clasificar este contacto como ${classification}? TEST y DEMO quedan excluidos de automatizaciones.` : stage === "CLIENTE" ? "¿Confirmas el cierre como cliente? Esto no emite certificados." : "¿Confirmas el cierre como perdido?")) { setBusy(false); return; }
+    if (sensitiveStageChange) {
+      const ok = await confirm({
+        title: stage === "CLIENTE" ? "Marcar como cliente" : "Marcar como perdido",
+        body: stage === "CLIENTE"
+          ? "Se registra el cierre comercial. No emite ningún certificado."
+          : "El contacto deja de considerarse activo. Sus mensajes ya enviados se conservan.",
+        confirmLabel: "Confirmar",
+      });
+      if (!ok) { setBusy(false); return; }
+    }
+    // Responsable, clasificación y motivo de pérdida ya no se editan desde
+    // aquí: sus campos salieron de la ficha. Enviarlos como null borraría el
+    // valor guardado, así que sencillamente no se mandan.
     const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "PATCH", {
       firstName: data.get("firstName"),
       lastName: data.get("lastName"),
       email: data.get("email"),
       phone: data.get("phone"),
       stage,
-      classification,
-      assignedToId: data.get("assignedToId") || null,
-      lostReason: lostReason || null,
-      nextActionAt: data.get("nextActionAt") ? ecuadorLocalDateTimeToIso(String(data.get("nextActionAt"))) : null,
-      confirm: sensitiveStageChange || classificationChange,
+      confirm: sensitiveStageChange,
     });
     setBusy(false);
     setMessage(result.ok ? "Contacto actualizado." : result.data.error);
@@ -212,12 +218,12 @@ ${lead.fullName}`);
           <div className="form-row"><input name="email" aria-label="Correo electrónico" type="email" defaultValue={lead.email} disabled={!canEdit} /><input name="phone" aria-label="WhatsApp" defaultValue={lead.phone ?? ""} disabled={!canEdit} /></div>
           <div className="form-row">
             <select name="stage" aria-label="Etapa comercial" defaultValue={lead.stage} disabled={!canEdit}>{["NUEVO","INSCRITO","EN_CURSO","CERTIFICADO","OPORTUNIDAD","CLIENTE","PERDIDO"].map((stage) => <option key={stage} value={stage}>{presentAdminValue(stage)}</option>)}</select>
-            <select name="assignedToId" aria-label="Responsable" defaultValue={lead.assignedToId ?? ""} disabled={!canEdit}><option value="">Sin responsable</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>
+            
           </div>
-          <div className="form-row"><label className="field"><span>Clasificación</span><select name="classification" aria-label="Clasificación del registro" defaultValue={lead.classification} disabled={!canEdit}><option value="REAL">Real</option><option value="TEST">Prueba técnica</option><option value="DEMO">Demostración</option><option value="UNKNOWN">Por clasificar</option></select></label></div>
-          <div className="form-row"><input name="lostReason" aria-label="Motivo de pérdida" defaultValue={lead.lostReason ?? ""} placeholder="Motivo de pérdida" disabled={!canEdit} /><input name="nextActionAt" aria-label="Próxima acción" type="datetime-local" defaultValue={lead.nextActionAt ? isoToEcuadorLocalInput(lead.nextActionAt) : ""} disabled={!canEdit} /></div>
+          <div className="form-row"><label className="field"><span>Clasificación</span></label></div>
+          <div className="form-row"></div>
           {canEdit && <button type="submit" className="btn-sm" disabled={busy}>Guardar cambios</button>}
-          <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Landing</dt><dd>{lead.landingUrl ? <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir landing ↗</a> : "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>
+          <dl className="detail-list"><dt>Procedencia</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Página de origen</dt><dd>{lead.landingUrl ? <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir página ↗</a> : "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje</dt><dd>{lead.score}</dd></dl>
         </form>
 
         <section>

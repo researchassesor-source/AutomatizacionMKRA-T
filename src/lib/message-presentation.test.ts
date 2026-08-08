@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { humanReason, humanStatus, relativeMoment, statusDotClass } from "./message-presentation";
+import { humanReason, humanStatus, humanStatusFor, isRealFailure, relativeMoment, statusDotClass } from "./message-presentation";
 
 describe("vocabulario humano de estados", () => {
   it("traduce los once estados internos sin dejar ninguno fuera", () => {
@@ -20,10 +20,10 @@ describe("vocabulario humano de estados", () => {
     }
   });
 
-  it("agrupa los estados en cinco tonos, no en once", () => {
+  it("agrupa los once estados en seis tonos legibles", () => {
     const tonos = new Set(["PROGRAMADO","ENVIANDO","ACEPTADO","ENVIADO","ENTREGADO","LEIDO","REBOTADO","SIMULADO","FALLIDO","CANCELADO","OMITIDO"]
       .map((estado) => humanStatus(estado as never).tone));
-    expect(tonos.size).toBe(5);
+    expect(tonos.size).toBe(6);
   });
 
   it("aceptado y enviado se leen igual: la diferencia es interna", () => {
@@ -37,10 +37,46 @@ describe("vocabulario humano de estados", () => {
   });
 });
 
+describe("futuro bloqueado frente a fallo real", () => {
+  const AHORA = new Date("2026-08-07T18:00:00.000Z");
+  const FUTURO = new Date("2026-08-13T18:00:00.000Z");
+  const PASADO = new Date("2026-08-01T18:00:00.000Z");
+
+  it("un mensaje futuro sin enlace no ha fallado: nadie lo intentó", () => {
+    // Es el caso de los 93 avisos de acceso bloqueados en producción: contarlos
+    // como fallos alarma sin motivo y esconde los fallos de verdad.
+    const humano = humanStatusFor("OMITIDO", FUTURO, AHORA);
+    expect(humano.label).toBe("Requiere configuración");
+    expect(humano.tone).toBe("blocked");
+    expect(isRealFailure("OMITIDO", FUTURO, AHORA)).toBe(false);
+  });
+
+  it("si ya le tocaba salir y no pudo, entonces sí es un fallo", () => {
+    expect(humanStatusFor("OMITIDO", PASADO, AHORA).tone).toBe("problem");
+    expect(isRealFailure("OMITIDO", PASADO, AHORA)).toBe(true);
+  });
+
+  it("los rechazos del proveedor siempre son fallos reales", () => {
+    expect(isRealFailure("FALLIDO", FUTURO, AHORA)).toBe(true);
+    expect(isRealFailure("REBOTADO", FUTURO, AHORA)).toBe(true);
+  });
+
+  it("lo que salió bien nunca cuenta como fallo", () => {
+    for (const estado of ["PROGRAMADO", "ENVIADO", "ENTREGADO", "LEIDO", "SIMULADO"] as const) {
+      expect(isRealFailure(estado, FUTURO, AHORA)).toBe(false);
+    }
+  });
+
+  it("el punto de color distingue bloqueado de fallido", () => {
+    expect(statusDotClass("OMITIDO", FUTURO)).toContain("is-blocked");
+    expect(statusDotClass("OMITIDO", PASADO)).toContain("is-problem");
+  });
+});
+
 describe("motivos legibles", () => {
   it("explica dónde se arregla un enlace que falta", () => {
     const motivo = humanReason("MISSING_STREAM_URL", "La sesión no tiene un enlace de transmisión configurado.");
-    expect(motivo).toContain("Calendario");
+    expect(motivo).toContain("Sesiones");
     expect(motivo).not.toContain("MISSING_STREAM_URL");
   });
 

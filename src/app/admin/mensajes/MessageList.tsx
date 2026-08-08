@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TechnicalOnly } from "../TechnicalDetail";
 import { MessageActions } from "./MessageActions";
-import { formatDay, formatTime, humanReason, humanStatus, relativeMoment, statusDotClass } from "@/lib/message-presentation";
+import { formatDay, formatTime, humanReason, humanStatusFor, relativeMoment, statusDotClass } from "@/lib/message-presentation";
 import type { MessageChannel, MessageStatus } from "@prisma/client";
 
 export type MessageRow = {
@@ -25,6 +25,7 @@ export type MessageRow = {
   isSimulation: boolean;
   leadName: string;
   courseTitle: string | null;
+  courseId: string | null;
 };
 
 /**
@@ -84,8 +85,8 @@ export function MessageList({ messages, now }: { messages: MessageRow[]; now: Da
               </thead>
               <tbody>
                 {grupo.items.map((message) => {
-                  const humano = humanStatus(message.status);
-                  const motivo = humano.tone === "problem" ? humanReason(message.errorCode, message.errorMessage ?? message.error) : null;
+                  const humano = humanStatusFor(message.status, message.scheduledAt, now);
+                  const motivo = humano.tone === "problem" || humano.tone === "blocked" ? humanReason(message.errorCode, message.errorMessage ?? message.error) : null;
                   const cuando = moment(message);
                   return (
                     <tr key={message.id}>
@@ -102,10 +103,13 @@ export function MessageList({ messages, now }: { messages: MessageRow[]; now: Da
                         </details>
                       </td>
                       <td>
-                        <span className={statusDotClass(message.status)}>
+                        <span className={statusDotClass(message.status, message.scheduledAt)}>
                           {humano.label}
                         </span>
                         <div className="muted">{motivo ?? humano.hint}</div>
+                        {humano.tone === "blocked" && message.courseId ? (
+                          <Link className="row-fix" href={`/admin/cursos/${message.courseId}?tab=calendario`}>Ir a Sesiones →</Link>
+                        ) : null}
                         <TechnicalOnly>{message.status}</TechnicalOnly>
                         {message.errorCode ? <TechnicalOnly>{message.errorCode}</TechnicalOnly> : null}
                         {message.providerMessageId ? <TechnicalOnly>{message.providerMessageId}</TechnicalOnly> : null}

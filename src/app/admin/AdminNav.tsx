@@ -48,7 +48,7 @@ const TODOS = [...TRABAJO, ...GESTION_LINKS, ...SISTEMA];
 export function AdminNav({ view }: { view: ViewMode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { role, name, legacy, technical } = useAdminSession();
+  const { role, name, email, legacy, technical } = useAdminSession();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -180,7 +180,7 @@ export function AdminNav({ view }: { view: ViewMode }) {
               <AdminIcon name="chevron" size={15} />
             </summary>
             <div className="admin-user-popover">
-              <div><strong>{name}</strong><span>{profileLabel(role)}</span></div>
+              <div className="admin-user-identity"><strong>{name}</strong><span>{email}</span><em>Perfil {profileLabel(role)}</em></div>
               <a href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">
                 <AdminIcon name="external" size={16} />
                 Ver catálogo público

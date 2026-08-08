@@ -73,7 +73,7 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
       orderBy: { title: "asc" },
     }),
     prisma.socialPost.findMany({ where: { status: "FALLIDO" }, orderBy: { updatedAt: "desc" }, take: 3, select: { id: true, error: true, updatedAt: true, account: { select: { platform: true } } } }),
-    prisma.outboundMessage.count({ where: { status: { in: ["FALLIDO", "REBOTADO"] } } }),
+    prisma.outboundMessage.count({ where: { OR: [{ status: { in: ["FALLIDO", "REBOTADO"] } }, { status: "OMITIDO", scheduledAt: { lte: now } }] } }),
     prisma.lead.findMany({ where: { isArchived: false }, orderBy: { createdAt: "desc" }, take: 6, select: { id: true, fullName: true, createdAt: true } }),
     prisma.outboundMessage.findMany({ where: { status: { in: ["ACEPTADO", "ENVIADO", "ENTREGADO", "LEIDO"] } }, orderBy: { createdAt: "desc" }, take: 6, select: { id: true, subject: true, createdAt: true, lead: { select: { fullName: true } } } }),
     prisma.socialPost.findMany({ where: { status: "PUBLICADO" }, orderBy: { updatedAt: "desc" }, take: 4, select: { id: true, updatedAt: true, account: { select: { platform: true } } } }),
@@ -82,7 +82,7 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
   // Sesiones reales de los cursos publicados, ordenadas por proximidad.
   const sessions: UpcomingSession[] = [];
   const sinFecha: Array<{ id: string; title: string; enrollments: number; modality: string | null }> = [];
-  const sinEnlace: Array<{ id: string; title: string; startAt: Date }> = [];
+  const sinEnlace: Array<{ id: string; title: string; startAt: Date; totalSessions: number }> = [];
 
   for (const course of courses) {
     const resolved = resolveCourseSessions(course, course.sessions);
@@ -102,21 +102,29 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
         enrollments: course._count.enrollments,
         hasStreamUrl: Boolean(session.streamUrl),
       });
-      if (!session.streamUrl) sinEnlace.push({ id: course.id, title: course.title, startAt: session.startAt });
+      if (!session.streamUrl) sinEnlace.push({ id: course.id, title: course.title, startAt: session.startAt, totalSessions: resolved.length });
     }
   }
   sessions.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 
-  const dateFormat = new Intl.DateTimeFormat("es-EC", { day: "numeric", month: "short", timeZone: "America/Guayaquil" });
-  const timeFormat = new Intl.DateTimeFormat("es-EC", { timeStyle: "short", timeZone: "America/Guayaquil" });
 
   const attention: AttentionItem[] = [];
-  for (const item of sinEnlace.slice(0, 2)) {
+  // Varias sesiones del mismo curso sin enlace son UN problema, no tres: la
+  // solucion es el mismo enlace para todas.
+  const enlacePorCurso = new Map<string, { title: string; total: number; sesiones: number }>();
+  for (const item of sinEnlace) {
+    const actual = enlacePorCurso.get(item.id) ?? { title: item.title, total: item.totalSessions, sesiones: 0 };
+    actual.sesiones++;
+    enlacePorCurso.set(item.id, actual);
+  }
+  for (const [courseId, dato] of [...enlacePorCurso].slice(0, 2)) {
     attention.push({
-      id: `enlace-${item.id}`,
-      title: "Falta el enlace de acceso de una sesión",
-      detail: `${item.title} · ${dateFormat.format(item.startAt)} · ${timeFormat.format(item.startAt)}. Sin él no pueden salir los avisos de acceso.`,
-      href: `/admin/cursos#curso-${item.id}`,
+      id: `enlace-${courseId}`,
+      title: dato.sesiones === 1
+        ? `Una sesión de ${dato.title} necesita enlace`
+        : `${dato.sesiones} de ${dato.total} sesiones de ${dato.title} necesitan enlace`,
+      detail: "Sin el enlace de la reunión no pueden salir los avisos de acceso. Si la reunión es la misma todos los días, un solo enlace vale para todas.",
+      href: `/admin/cursos/${courseId}?tab=calendario`,
       actionLabel: "Agregar enlace",
       severity: "warn",
     });
@@ -135,10 +143,12 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
   for (const post of failedPosts.slice(0, 2)) {
     attention.push({
       id: `post-${post.id}`,
-      title: `Una publicación no salió en ${redLegible(post.account.platform)}`,
-      detail: post.error?.slice(0, 140) ?? "La red rechazó la publicación.",
+      title: `Una publicación no pudo enviarse a ${redLegible(post.account.platform)}`,
+      // El cuerpo del error de Meta es JSON con codigos y permisos: util para
+      // diagnosticar, ilegible para decidir. Vive en la vista tecnica.
+      detail: `${redLegible(post.account.platform)} rechazó la publicación. Revisa la cuenta o vuelve a intentarlo.`,
       href: "/admin/redes",
-      actionLabel: "Revisar",
+      actionLabel: "Revisar publicación",
       severity: "error",
     });
   }

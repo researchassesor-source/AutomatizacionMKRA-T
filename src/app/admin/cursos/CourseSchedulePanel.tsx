@@ -150,7 +150,7 @@ export function CourseSchedulePanel({ courses, canEdit, publicOrigin }: { course
         <div className="table-wrap">
           <table className="data">
             <thead>
-              <tr><th>Curso</th><th>Calendario</th><th>Enlace de transmisión</th><th>Inscritos</th><th>Acciones</th></tr>
+              <tr><th>Curso</th><th>Sesiones</th><th>Enlace de transmisión</th><th>Inscritos</th><th>Acciones</th></tr>
             </thead>
             <tbody>
               {courses.map((course) => (

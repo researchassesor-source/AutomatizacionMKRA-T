@@ -119,7 +119,7 @@ export function CourseSessionsPanel({
   return (
     <section className="panel">
       <div className="panel-head panel-head-actions">
-        <h2>Calendario</h2>
+        <h2>Sesiones</h2>
         {canEdit && sessions.length === 0 ? (
           <ImportScheduleButton courseId={courseId} enrollments={enrollments} />
         ) : null}

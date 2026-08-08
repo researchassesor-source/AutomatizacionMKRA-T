@@ -25,7 +25,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const view = await resolveViewMode(session.role);
   const canCreate = COMERCIAL.includes(session.role);
   const canExport = COMERCIAL.includes(session.role);
-  const advancedFiltersActive = Boolean(filters.campaign || filters.source || filters.content || filters.term || filters.from || filters.to);
+  const advancedFiltersActive = Boolean(filters.from || filters.to);
   const hasFilters = Boolean(
     filters.q || filters.stage || filters.course || filters.assignedTo || advancedFiltersActive
     || filters.classification || (filters.sort && filters.sort !== "newest") || filters.archived === "true",
@@ -101,26 +101,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               <span>Curso</span>
               <select name="course" defaultValue={filters.course ?? ""}><option value="">Todos los cursos activos</option>{activeCourses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
             </label>
-            <label className="filter-field">
-              <span>Clasificación</span>
-              <select name="classification" defaultValue={filters.classification ?? ""}><option value="">Todas</option>{["REAL","TEST","DEMO","UNKNOWN"].map((value) => <option key={value} value={value}>{presentAdminValue(value)}</option>)}</select>
-            </label>
           </div>
-
-          <details className="advanced-filters" open={advancedFiltersActive}>
-            <summary>
-              <span>Más filtros</span>
-              <small>{advancedFiltersActive ? "Filtros adicionales activos" : "Opcional"}</small>
-            </summary>
-            <div className="advanced-filter-grid">
-              <label className="filter-field"><span>Campaña</span><input name="campaign" defaultValue={filters.campaign} /></label>
-              <label className="filter-field"><span>Origen</span><input name="source" defaultValue={filters.source} /></label>
-              <label className="filter-field"><span>Contenido UTM</span><input name="content" defaultValue={filters.content} /></label>
-              <label className="filter-field"><span>Término UTM</span><input name="term" defaultValue={filters.term} /></label>
-              <label className="filter-field"><span>Registrado desde</span><input name="from" type="date" defaultValue={filters.from} /></label>
-              <label className="filter-field"><span>Registrado hasta</span><input name="to" type="date" defaultValue={filters.to} /></label>
-            </div>
-          </details>
+          <label className="filter-field"><span>Registrado desde</span><input name="from" type="date" defaultValue={filters.from} /></label>
+          <label className="filter-field"><span>Registrado hasta</span><input name="to" type="date" defaultValue={filters.to} /></label>
 
           <div className="contact-filter-actions">
             <label className="filter-field filter-sort"><span>Ordenar por</span><select name="sort" defaultValue={filters.sort ?? "newest"}><option value="newest">Más recientes</option><option value="oldest">Más antiguos</option><option value="score">Mayor puntaje</option></select></label>

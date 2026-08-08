@@ -1,0 +1,128 @@
+"use client";
+
+import { useState } from "react";
+import { useFeedback } from "../Feedback";
+
+type Parametro = { posicion: string; variable: string; valorDeEjemplo: string };
+type Preview = { plantilla: string; idioma: string; parametros: Parametro[]; textoDeReferencia: string };
+type Respuesta = { ok?: boolean; sent?: boolean; preview?: Preview; message?: string; error?: string };
+
+const PLANTILLAS = [
+  { key: "welcome", label: "Bienvenida al inscribirse" },
+  { key: "reminder_24h", label: "Recordatorio 24 horas antes" },
+  { key: "reminder_2h", label: "Acceso 2 horas antes" },
+  { key: "reminder_15m", label: "Acceso 15 minutos antes" },
+  { key: "thank_you", label: "Agradecimiento final" },
+] as const;
+
+/**
+ * Prueba de WhatsApp con vista previa.
+ *
+ * La vista previa es la parte util: enseña el numero exacto de parametros que
+ * viajaria a Meta y en que orden. Un desajuste ahi es el fallo mas caro de este
+ * canal, porque no se manifiesta hasta el primer envio real.
+ *
+ * El envio a un numero solo funciona si el canal esta en real. Estando en
+ * simulacion, el servidor responde con la vista previa y lo explica, en lugar
+ * de saltarse el interruptor.
+ */
+export function WhatsAppTestPanel() {
+  const { toast, confirm } = useFeedback();
+  const [plantilla, setPlantilla] = useState<string>(PLANTILLAS[0].key);
+  const [numero, setNumero] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  async function ejecutar(conNumero: boolean) {
+    const destino = numero.trim();
+    if (conNumero && !destino) {
+      setAviso({ ok: false, texto: "Indica un número que controles para la prueba." });
+      return;
+    }
+    if (conNumero) {
+      const seguro = await confirm({
+        title: "Enviar un WhatsApp de prueba",
+        body: `Se enviará una sola plantilla a ${destino}. Úsalo solo con un número propio.`,
+        confirmLabel: "Enviar prueba",
+      });
+      if (!seguro) return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await fetch("/api/admin/whatsapp/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, template: plantilla, ...(conNumero ? { to: destino } : {}) }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Respuesta;
+      if (payload.preview) setPreview(payload.preview);
+      const correcto = response.ok && payload.ok === true;
+      setAviso({
+        ok: correcto,
+        texto: correcto ? payload.message ?? "Comprobación completada." : payload.error ?? "No se pudo completar la prueba.",
+      });
+      if (conNumero) {
+        toast({
+          tone: correcto ? "success" : "error",
+          title: correcto ? "WhatsApp de prueba enviado" : "No se envió el WhatsApp de prueba",
+          detail: correcto ? undefined : payload.error,
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <h2>Probar una plantilla de WhatsApp</h2>
+      <p className="muted">
+        La vista previa arma el mensaje igual que lo haría el envío real y muestra los parámetros que viajarían a Meta,
+        sin contactar con nadie. El envío a un número solo funciona cuando el canal está enviando de verdad.
+      </p>
+      <div className="form-row">
+        <select value={plantilla} onChange={(event) => setPlantilla(event.target.value)} aria-label="Plantilla">
+          {PLANTILLAS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+        </select>
+        <input
+          type="tel"
+          value={numero}
+          onChange={(event) => setNumero(event.target.value)}
+          placeholder="Número para la prueba (opcional)"
+          aria-label="Número de WhatsApp para la prueba"
+        />
+        <button type="button" className="btn-sm ghost" disabled={busy} onClick={() => ejecutar(false)}>
+          Ver vista previa
+        </button>
+        <button type="button" className="btn-sm" disabled={busy} onClick={() => ejecutar(true)}>
+          Enviar prueba
+        </button>
+      </div>
+
+      {preview ? (
+        <div className="table-wrap">
+          <p className="muted">
+            <strong>{preview.plantilla}</strong> · idioma {preview.idioma} · {preview.parametros.length} parámetro(s)
+          </p>
+          <table className="data">
+            <thead><tr><th>Posición</th><th>Variable</th><th>Valor de ejemplo</th></tr></thead>
+            <tbody>
+              {preview.parametros.map((parametro) => (
+                <tr key={parametro.posicion}>
+                  <td>{parametro.posicion}</td>
+                  <td>{parametro.variable}</td>
+                  <td className="muted">{parametro.valorDeEjemplo}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted">{preview.textoDeReferencia}</p>
+        </div>
+      ) : null}
+
+      {aviso && <p className={`result-line ${aviso.ok ? "" : "is-error"}`} role="status">{aviso.texto}</p>}
+    </section>
+  );
+}

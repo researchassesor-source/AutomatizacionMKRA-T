@@ -18,7 +18,7 @@ import {
   resolveMessagingWindow,
 } from "@/lib/live-activation";
 import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
-import { resolveWhatsAppConfig, resolveWhatsAppWindow, WHATSAPP_LIVE_FROM } from "@/lib/whatsapp/config";
+import { resolveWhatsAppConfig, resolveWhatsAppWindow, toWhatsAppRecipient, WHATSAPP_LIVE_FROM } from "@/lib/whatsapp/config";
 import { buildTemplateComponents, templateBindingOf } from "@/lib/whatsapp/templates";
 import { EmailChannel } from "./channels/email";
 import { WhatsAppChannel } from "./channels/whatsapp";
@@ -757,10 +757,11 @@ export async function sendMessage(messageId: string) {
   }
 
   const result = await buildChannel(message.channel).send({
-    to: message.toAddress,
+    to: message.channel === "WHATSAPP" ? toWhatsAppRecipient(message.toAddress) : message.toAddress,
     subject: message.subject ?? undefined,
     body: message.body,
     template: template ?? undefined,
+    reference: message.id,
   });
   const completedAt = new Date();
   await prisma.outboundMessage.update({

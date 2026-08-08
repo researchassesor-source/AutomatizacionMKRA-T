@@ -126,3 +126,19 @@ export function describeWhatsAppConfig(env: EnvSource = process.env) {
     graphVersion: config.graphVersion,
   };
 }
+
+/**
+ * Destinatario tal como lo espera la Cloud API.
+ *
+ * El CRM guarda el telefono en E.164 con "+" porque es lo correcto para
+ * mostrarlo y para marcar. Meta acepta ambas formas, pero la documentada es
+ * sin el prefijo, asi que se normaliza en el borde en lugar de cambiar como se
+ * almacena: un cambio de almacenamiento afectaria al correo, al panel y a la
+ * exportacion sin ninguna necesidad.
+ *
+ * "0959015655" ya llega convertido a "+593959015655" por normalizeEcuadorPhone,
+ * de modo que aqui solo se retira el "+". Nunca se produce "5930959015655".
+ */
+export function toWhatsAppRecipient(phone: string): string {
+  return phone.replace(/[^\d]/g, "");
+}

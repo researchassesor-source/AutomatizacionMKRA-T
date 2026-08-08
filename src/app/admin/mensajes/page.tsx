@@ -6,24 +6,18 @@ import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
+import { ChannelModeBanner } from "../ChannelModeBanner";
 import { IntegrationStatusPanel } from "../IntegrationStatusPanel";
 import { DispatchButton } from "./DispatchButton";
 import { EmailTestPanel } from "./EmailTestPanel";
 import { MessageList, type MessageRow } from "./MessageList";
 import { TemplateManager } from "./TemplateManager";
 import { WhatsAppStatusPanel } from "./WhatsAppStatusPanel";
+import { WhatsAppTestPanel } from "./WhatsAppTestPanel";
 import { isMessagingSimulation } from "@/lib/nurture/engine";
+import { ESTADOS_VISIBLES, esEstadoVisible, filtroDe } from "@/lib/message-states";
 
 export const dynamic = "force-dynamic";
-
-const ESTADOS_VISIBLES = [
-  { value: "PROGRAMADO", label: "Programados" },
-  { value: "ENVIADO", label: "Enviados" },
-  { value: "ENTREGADO", label: "Recibidos" },
-  { value: "OMITIDO", label: "Requieren configuración" },
-  { value: "FALLIDO", label: "No salieron" },
-  { value: "SIMULADO", label: "Pruebas" },
-] as const;
 
 export default async function MessagesPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const filters = await searchParams;
@@ -34,24 +28,45 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
   }
   const tecnico = view === "tecnica";
 
+  /**
+   * Un unico instante para toda la pantalla.
+   *
+   * Los contadores y la lista se resuelven en consultas distintas. Si cada una
+   * llamara a `new Date()` por su cuenta, un mensaje programado justo en medio
+   * podria contarse como "listo para enviar" y aparecer como "programado" en
+   * la tabla de al lado. Es raro, pero cuando ocurre destruye la confianza en
+   * la pantalla entera y no deja rastro para investigarlo.
+   */
+  const ahora = new Date();
+
+  const estadoFiltrado = esEstadoVisible(filters.status) ? filters.status : undefined;
   const where: Prisma.OutboundMessageWhereInput = {
     ...(filters.channel ? { channel: filters.channel as "EMAIL" | "WHATSAPP" } : {}),
-    ...(filters.status ? { status: filters.status as Prisma.EnumMessageStatusFilter } : {}),
+    ...(estadoFiltrado ? filtroDe(estadoFiltrado, ahora) : {}),
     ...(filters.lead ? { lead: { fullName: { contains: filters.lead, mode: "insensitive" } } } : {}),
     ...(filters.course ? { enrollment: { courseId: filters.course } } : {}),
-    ...(filters.from ? { scheduledAt: { gte: new Date(`${filters.from}T00:00:00-05:00`) } } : {}),
+    // El filtro por fecha se combina con el del estado, que tambien usa
+    // scheduledAt: `AND` los mantiene a los dos en lugar de pisar uno.
+    ...(filters.from ? { AND: [{ scheduledAt: { gte: new Date(`${filters.from}T00:00:00-05:00`) } }] } : {}),
   };
 
-  const [messages, courses, pendingCount, waRulesWithoutTemplate, waQueued, conProblema, requierenConfig] = await Promise.all([
+  /**
+   * Cada cifra del resumen se cuenta con la MISMA consulta que usara el filtro
+   * al que enlaza. Antes se escribian por separado y ya divergieron una vez:
+   * el resumen anuncio "87 con problema" cuando no habia ninguno, porque
+   * contaba como fallos avisos futuros que nadie habia intentado enviar.
+   */
+  const [messages, courses, dispatchQueue, waRulesWithoutTemplate, waQueued, listos, requierenConfig, noEntregados] = await Promise.all([
     prisma.outboundMessage.findMany({ where, orderBy: { scheduledAt: "desc" }, take: 150, include: { lead: true, enrollment: { include: { course: true } } } }),
     prisma.course.findMany({ where: { isPublished: true }, orderBy: { title: "asc" }, select: { id: true, title: true } }),
-    prisma.outboundMessage.count({ where: { OR: [{ status: "PROGRAMADO", scheduledAt: { lte: new Date() } }, { status: "FALLIDO", attemptCount: { lt: 5 }, nextAttemptAt: { lte: new Date() } }] } }),
+    // Cola real del envio automatico: incluye los reintentos, que no son un
+    // estado que Direccion necesite ver pero si trabajo pendiente de verdad.
+    prisma.outboundMessage.count({ where: { OR: [{ status: "PROGRAMADO", scheduledAt: { lte: ahora } }, { status: "FALLIDO", attemptCount: { lt: 5 }, nextAttemptAt: { lte: ahora } }] } }),
     prisma.automationRule.count({ where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] } }),
     prisma.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
-    // Fallo real: el proveedor lo rechazo, o le tocaba salir y no pudo.
-    prisma.outboundMessage.count({ where: { OR: [{ status: { in: ["FALLIDO", "REBOTADO"] } }, { status: "OMITIDO", scheduledAt: { lte: new Date() } }] } }),
-    // Bloqueado: es futuro y le falta un dato. Nadie lo ha intentado.
-    prisma.outboundMessage.count({ where: { status: "OMITIDO", scheduledAt: { gt: new Date() } } }),
+    prisma.outboundMessage.count({ where: filtroDe("listo", ahora) }),
+    prisma.outboundMessage.count({ where: filtroDe("requiere_config", ahora) }),
+    prisma.outboundMessage.count({ where: filtroDe("no_entregado", ahora) }),
   ]);
 
   const rows: MessageRow[] = messages.map((message) => ({
@@ -78,7 +93,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     courseId: message.enrollment?.courseId ?? null,
   }));
 
-  const hayFiltro = Boolean(filters.channel || filters.status || filters.lead || filters.course || filters.from);
+  const hayFiltro = Boolean(filters.channel || estadoFiltrado || filters.lead || filters.course || filters.from);
 
   return <main className="container admin-shell">
     <AdminNav view={view} />
@@ -86,28 +101,31 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
       eyebrow="Comunicación"
       title="Comunicaciones"
       description="Todo lo que el sistema envía a los contactos: qué salió, a quién y si llegó."
-      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={pendingCount} blockedCount={requierenConfig} />}
+      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={dispatchQueue} blockedCount={requierenConfig} />}
     />
 
-    <section className={`summary-line ${conProblema > 0 || requierenConfig > 0 ? "is-attention" : ""}`}>
+    <ChannelModeBanner />
+
+    <section className={`summary-line ${noEntregados > 0 || requierenConfig > 0 ? "is-attention" : ""}`}>
       <strong>{messages.length}</strong> mensaje{messages.length === 1 ? "" : "s"} en la vista
-      <span className="summary-sep">·</span>
-      <strong>{pendingCount}</strong> esperando salir
+      {/* Cada cifra enlaza al filtro que la produce, y por construcción ese
+          filtro devuelve exactamente esos mensajes. */}
+      {listos > 0 ? <>
+        <span className="summary-sep">·</span>
+        <Link href="/admin/mensajes?status=listo"><strong>{listos}</strong> listos para enviar</Link>
+      </> : null}
       {requierenConfig > 0 ? <>
         <span className="summary-sep">·</span>
-        <strong>{requierenConfig}</strong> requieren configuración
+        <Link href="/admin/mensajes?status=requiere_config"><strong>{requierenConfig}</strong> requieren configuración</Link>
       </> : null}
-      {conProblema > 0 ? <>
+      {noEntregados > 0 ? <>
         <span className="summary-sep">·</span>
-        <strong>{conProblema}</strong> no salieron
+        <Link href="/admin/mensajes?status=no_entregado"><strong>{noEntregados}</strong> no entregados</Link>
       </> : null}
-      {requierenConfig > 0 || conProblema > 0 ? (
-        <span className="summary-actions">
-          <Link className="btn-sm" href={`/admin/mensajes?status=${requierenConfig > 0 ? "OMITIDO" : "FALLIDO"}`}>
-            {requierenConfig > 0 ? "Ver los que esperan configuración" : "Ver los que fallaron"}
-          </Link>
-        </span>
-      ) : null}
+      {listos === 0 && requierenConfig === 0 && noEntregados === 0 ? <>
+        <span className="summary-sep">·</span>
+        todo al día
+      </> : null}
     </section>
 
     <form>
@@ -118,9 +136,9 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
           <option value="EMAIL">Solo correo</option>
           <option value="WHATSAPP">Solo WhatsApp</option>
         </select>
-        <select name="status" aria-label="Estado" defaultValue={filters.status ?? ""}>
+        <select name="status" aria-label="Estado" defaultValue={estadoFiltrado ?? ""}>
           <option value="">Todos los estados</option>
-          {ESTADOS_VISIBLES.map((estado) => <option key={estado.value} value={estado.value}>{estado.label}</option>)}
+          {ESTADOS_VISIBLES.map((estado) => <option key={estado.key} value={estado.key}>{estado.label}</option>)}
         </select>
         <button type="submit" className="btn-sm">Filtrar</button>
         {hayFiltro ? <Link className="btn-sm ghost" href="/admin/mensajes">Quitar filtros</Link> : null}
@@ -145,12 +163,13 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
             title={hayFiltro ? "No hay mensajes con estos filtros" : "Todavía no se ha enviado nada"}
             description={hayFiltro ? "Prueba a quitar algún filtro." : "Cuando alguien se inscriba, su confirmación aparecerá aquí."}
           />
-        : <MessageList messages={rows} now={new Date()} />}
+        : <MessageList messages={rows} now={ahora} />}
     </section>
 
     {tecnico ? <>
       <IntegrationStatusPanel technical only={["email", "whatsapp", "cron"]} />
       <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
+      <WhatsAppTestPanel />
       <EmailTestPanel />
       <TemplateManager />
     </> : null}

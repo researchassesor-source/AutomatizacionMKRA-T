@@ -865,6 +865,29 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .summary-line .summary-sep { color: #c3ccd8; }
 .summary-line.is-attention { border-color: #f7d3bd; background: #fff8f4; }
 .summary-line .summary-actions { margin-left: auto; display: flex; gap: 8px; }
+/* Cada cifra del resumen lleva a su filtro; el subrayado solo al apuntar para
+   que la linea no parezca una fila de enlaces sueltos. */
+.summary-line a { color: inherit; text-decoration: none; border-bottom: 1px dashed #c3ccd8; }
+.summary-line a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+/* ── Aviso de lo que va a pasar de verdad con los envios ────────────────── */
+.mode-banners { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.mode-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: .82rem;
+  color: var(--muted);
+}
+.mode-banner strong { color: var(--ink); font-weight: 700; }
+.mode-banner.is-warn { border-color: #f7d3bd; background: #fff8f4; }
+.mode-banner.is-info { border-color: #cfe0f7; background: #f5f9ff; }
+.result-line.is-error { color: var(--danger); }
 
 /* ── Linea de tiempo de comunicaciones ─────────────────────────────────── */
 .timeline { display: flex; flex-direction: column; gap: 0; }

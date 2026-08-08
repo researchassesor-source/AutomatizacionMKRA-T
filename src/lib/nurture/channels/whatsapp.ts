@@ -1,4 +1,5 @@
 import { DEFAULT_GRAPH_API_VERSION } from "@/lib/social/meta-config";
+import { logWhatsAppEvent } from "@/lib/whatsapp/observability";
 import type { MessageChannelAdapter, SendInput, SendResult } from "./types";
 
 /**
@@ -88,7 +89,16 @@ export class WhatsAppChannel implements MessageChannelAdapter {
   }
 
   async send(input: SendInput): Promise<SendResult> {
+    // Contexto comun de la traza. Nunca incluye destinatario ni contenido:
+    // ver la justificacion en `lib/whatsapp/observability`.
+    const traza = {
+      mensajeId: input.reference ?? "sin-referencia",
+      plantilla: input.template?.name ?? null,
+      idioma: input.template?.language ?? null,
+    };
+
     if (!this.isConfigured()) {
+      logWhatsAppEvent({ evento: "envio_bloqueado", codigo: "WHATSAPP_CREDENTIALS_MISSING", mensajeId: traza.mensajeId, plantilla: traza.plantilla });
       return {
         ok: false,
         errorCode: "WHATSAPP_CREDENTIALS_MISSING",
@@ -130,6 +140,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
         body: JSON.stringify(payload),
       });
     } catch (err) {
+      logWhatsAppEvent({ evento: "envio_rechazado", ...traza, codigo: "NETWORK_ERROR", httpStatus: null, graphCode: null, permanente: false });
       return { ok: false, errorCode: "NETWORK_ERROR", error: (err as Error).message.slice(0, 300), providerName: "whatsapp_cloud" };
     }
 
@@ -141,6 +152,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
     } catch {
       // Un cuerpo que no es JSON casi siempre es una pagina de error de la
       // pasarela. No es aceptacion aunque el codigo HTTP sea 200.
+      logWhatsAppEvent({ evento: "envio_rechazado", ...traza, codigo: "INVALID_JSON", httpStatus: res.status, graphCode: null, permanente: false });
       return {
         ok: false,
         errorCode: "INVALID_JSON",
@@ -154,6 +166,14 @@ export class WhatsAppChannel implements MessageChannelAdapter {
     // error en algunos casos, y darlo por bueno inventaria una aceptacion.
     if (data?.error || !res.ok) {
       const described = describeWhatsAppError(data?.error, res.status);
+      logWhatsAppEvent({
+        evento: "envio_rechazado",
+        ...traza,
+        codigo: described.errorCode,
+        httpStatus: res.status,
+        graphCode: data?.error?.code ?? null,
+        permanente: described.permanent,
+      });
       return {
         ok: false,
         errorCode: described.errorCode,
@@ -170,6 +190,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
 
     const providerMessageId = data?.messages?.[0]?.id;
     if (!providerMessageId) {
+      logWhatsAppEvent({ evento: "envio_rechazado", ...traza, codigo: "MISSING_PROVIDER_ID", httpStatus: res.status, graphCode: null, permanente: false });
       return {
         ok: false,
         errorCode: "MISSING_PROVIDER_ID",
@@ -179,6 +200,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
       };
     }
 
+    logWhatsAppEvent({ evento: "envio_aceptado", ...traza, wamid: providerMessageId, httpStatus: res.status });
     return {
       ok: true,
       providerName: "whatsapp_cloud",

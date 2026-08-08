@@ -47,35 +47,51 @@ export const WHATSAPP_TEMPLATES: Record<
     name: "ra_training_bienvenida_inscripcion",
     language: "es",
     bodyVars: ["nombre", "curso", "fecha", "hora"],
-    sample: "Hola {{1}}, tu inscripción a {{2}} quedó registrada. Fecha: {{3}}. Hora: {{4}}. Te avisaremos antes de cada sesión.",
+    sample: "Hola {{1}}. Tu inscripción a *{{2}}* quedó registrada. Fecha: {{3}}. Hora: {{4}}. Por este medio recibirás los recordatorios y la información de acceso. R.A. Training",
   },
   reminder_24h: {
     name: "ra_training_recordatorio_24h",
     language: "es",
     bodyVars: ["nombre", "curso", "fechaSesion", "horaSesion"],
-    sample: "Hola {{1}}, mañana tienes una sesión de {{2}}. Fecha: {{3}}. Hora: {{4}}. El enlace de acceso te llegará 2 horas antes.",
+    sample: "Hola {{1}}. Mañana tienes una sesión de *{{2}}*. Fecha: {{3}}. Hora: {{4}}. El enlace de acceso te llegará 2 horas antes. R.A. Training",
   },
   reminder_2h: {
     name: "ra_training_acceso_2h",
     language: "es",
     bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "Hola {{1}}, tu sesión de {{2}} comienza a las {{3}}. Este es tu enlace de acceso: {{4}}",
+    sample: "Hola {{1}}. Tu sesión de *{{2}}* comienza en 2 horas. Hora: {{3}}. Enlace de acceso: {{4}}. R.A. Training",
   },
   reminder_15m: {
     name: "ra_training_acceso_15min",
     language: "es",
-    bodyVars: ["nombre", "curso", "streamUrl"],
-    sample: "Hola {{1}}, la sesión de {{2}} empieza en 15 minutos. Ingresa aquí: {{3}}",
+    // Cuatro variables, igual que la plantilla registrada en Meta. Declarar
+    // tres producia el error 132000 ("numero de parametros incorrecto") en el
+    // primer envio real, que es justo donde no conviene descubrirlo.
+    bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
+    sample: "Hola {{1}}. Tu sesión de *{{2}}* comienza en 15 minutos. Hora: {{3}}. Enlace de acceso: {{4}}. R.A. Training",
   },
   thank_you: {
     name: "ra_training_agradecimiento_final",
     language: "es",
     bodyVars: ["nombre", "curso"],
-    sample: "¡Felicitaciones {{1}}! Completaste {{2}}. Gracias por acompañarnos.",
+    sample: "¡Felicitaciones {{1}}! Completaste *{{2}}*. Gracias por acompañarnos. R.A. Training",
   },
 };
 
 export type WhatsAppTemplateKey = keyof typeof WHATSAPP_TEMPLATES;
+
+/** Indice por el nombre exacto con el que la plantilla esta dada de alta en Meta. */
+const BY_META_NAME = new Map<string, WhatsAppTemplateSpec>(
+  Object.values(WHATSAPP_TEMPLATES).map((spec) => [spec.name, spec]),
+);
+
+/**
+ * Ficha del catalogo para un nombre registrado en Meta, o `null` si el nombre
+ * no es de las cinco plantillas del plan (por ejemplo una dada de alta a mano).
+ */
+export function canonicalTemplate(name: string): WhatsAppTemplateSpec | null {
+  return BY_META_NAME.get(name.trim()) ?? null;
+}
 
 export type TemplateBinding = {
   name: string;
@@ -175,6 +191,33 @@ export type RuleTemplateFields = {
 export function templateBindingOf(rule: RuleTemplateFields): TemplateBinding | null {
   const name = rule.waTemplateName?.trim();
   if (!name) return null;
+
+  /**
+   * Cuando el nombre es una de las cinco plantillas del plan, manda el
+   * catalogo del codigo y no la copia guardada en la regla.
+   *
+   * La regla guarda una copia de las variables el dia que se creo. Si mas
+   * tarde se corrige el catalogo —por ejemplo porque la plantilla registrada
+   * en Meta tenia cuatro variables y aqui figuraban tres— las reglas ya
+   * existentes seguirian mandando el numero viejo, y Meta responde 132000
+   * ("numero de parametros incorrecto"): el fallo aparece en el primer envio
+   * real, que es el peor sitio posible para descubrirlo. El catalogo es lo que
+   * esta bajo pruebas y lo que se compara con el alta en Meta, asi que es la
+   * fuente de verdad; la fila es cache.
+   *
+   * Las plantillas ajenas al plan conservan lo que diga la regla: de esas el
+   * codigo no sabe nada y sobrescribirlas seria inventar.
+   */
+  const canonical = canonicalTemplate(name);
+  if (canonical) {
+    return {
+      name: canonical.name,
+      language: canonical.language,
+      bodyVars: [...canonical.bodyVars],
+      urlVar: canonical.urlVar ?? null,
+    };
+  }
+
   return {
     name,
     language: rule.waTemplateLanguage?.trim() || "es",

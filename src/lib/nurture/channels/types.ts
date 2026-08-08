@@ -18,6 +18,12 @@ export interface SendInput {
     language: string;
     components: unknown[];
   };
+  /**
+   * Identificador del mensaje en el CRM. Sirve solo para poder cruzar una
+   * linea de registro con la fila de la base al investigar un fallo; no viaja
+   * a ningun proveedor.
+   */
+  reference?: string;
 }
 
 export interface SendResult {

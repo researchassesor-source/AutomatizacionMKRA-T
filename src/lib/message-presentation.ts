@@ -1,4 +1,5 @@
 import type { MessageStatus } from "@prisma/client";
+import { estadoVisible, estadoVisibleDe, type EstadoTono } from "./message-states";
 
 /**
  * Traduccion de los estados internos al lenguaje de quien usa el panel.
@@ -8,10 +9,15 @@ import type { MessageStatus } from "@prisma/client";
  * ¿ya salio?, ¿llego?, ¿fallo?, ¿fue una prueba? Mostrar los once obliga a
  * aprender vocabulario del sistema para leer una tabla.
  *
+ * Las etiquetas salen del catalogo de `message-states`, que es tambien el que
+ * construye los filtros y los contadores. Escribirlas otra vez aqui seria
+ * garantizar que algun dia el filtro "No entregado" y la etiqueta "No entregado"
+ * dejen de significar lo mismo.
+ *
  * El estado interno no se pierde: aparece junto al humano cuando el perfil
  * tecnico enciende el detalle.
  */
-export type HumanStatusTone = "waiting" | "blocked" | "sent" | "done" | "problem" | "test";
+export type HumanStatusTone = EstadoTono;
 
 export type HumanStatus = {
   label: string;
@@ -20,20 +26,30 @@ export type HumanStatus = {
   hint: string;
 };
 
+function desde(key: Parameters<typeof estadoVisible>[0], hint?: string): HumanStatus {
+  const estado = estadoVisible(key);
+  return { label: estado.label, tone: estado.tono, hint: hint ?? estado.hint };
+}
+
+/**
+ * Lectura sin contexto temporal, para leyendas y resumenes donde no hay una
+ * fila concreta. Cuando si la hay, se usa `humanStatusFor`, que ademas
+ * distingue lo que espera su turno de lo que ya deberia haber salido.
+ */
 const MAP: Record<MessageStatus, HumanStatus> = {
-  PROGRAMADO: { label: "Programado", tone: "waiting", hint: "Todavía no ha salido; saldrá a la hora prevista." },
-  ENVIANDO: { label: "Saliendo", tone: "sent", hint: "Se está enviando en este momento." },
-  ACEPTADO: { label: "Enviado", tone: "sent", hint: "El proveedor lo aceptó y lo está entregando." },
-  ENVIADO: { label: "Enviado", tone: "sent", hint: "Salió correctamente." },
-  ENTREGADO: { label: "Recibido", tone: "done", hint: "Llegó al destinatario." },
-  LEIDO: { label: "Leído", tone: "done", hint: "El destinatario lo abrió." },
-  REBOTADO: { label: "No llegó", tone: "problem", hint: "La dirección rechazó el mensaje." },
-  FALLIDO: { label: "No salió", tone: "problem", hint: "Hubo un problema al enviarlo." },
+  PROGRAMADO: desde("programado", "Todavía no ha salido; saldrá a la hora prevista."),
+  ENVIANDO: desde("enviado", "Se está enviando en este momento."),
+  ACEPTADO: desde("enviado", "El proveedor lo aceptó y lo está entregando."),
+  ENVIADO: desde("enviado", "Salió correctamente."),
+  ENTREGADO: desde("entregado"),
+  LEIDO: desde("leido"),
+  REBOTADO: desde("no_entregado", "La dirección rechazó el mensaje."),
+  FALLIDO: desde("no_entregado", "Hubo un problema al enviarlo."),
   // OMITIDO no se traduce solo: un mensaje futuro al que le falta un dato no
   // ha fallado, nadie lo ha intentado todavia. Ver `humanStatusFor`.
-  OMITIDO: { label: "Requiere configuración", tone: "blocked", hint: "Falta un dato para poder enviarlo." },
-  CANCELADO: { label: "Cancelado", tone: "problem", hint: "Se canceló antes de salir." },
-  SIMULADO: { label: "Prueba", tone: "test", hint: "Prueba interna: nadie lo recibió." },
+  OMITIDO: desde("requiere_config", "Falta un dato para poder enviarlo."),
+  CANCELADO: desde("cancelado"),
+  SIMULADO: desde("prueba", "Prueba interna: nadie lo recibió."),
 };
 
 export function humanStatus(status: MessageStatus): HumanStatus {
@@ -54,19 +70,18 @@ export function humanStatusFor(
   scheduledAt: Date | string | null | undefined,
   now = new Date(),
 ): HumanStatus {
-  if (status !== "OMITIDO") return humanStatus(status);
-  const fecha = typeof scheduledAt === "string" ? new Date(scheduledAt) : scheduledAt;
-  const futuro = fecha instanceof Date && !Number.isNaN(fecha.getTime()) && fecha.getTime() > now.getTime();
-  return futuro
-    ? { label: "Requiere configuración", tone: "blocked", hint: "Todavía no le toca salir, pero falta un dato para poder prepararlo." }
-    : { label: "No se envió", tone: "problem", hint: "Le tocaba salir pero faltaba un dato, así que no se intentó." };
+  const estado = estadoVisibleDe(status, scheduledAt, now);
+  // Un OMITIDO vencido merece un motivo mas concreto que el generico del
+  // catalogo: quien lo lee necesita saber que ni siquiera se intento.
+  if (status === "OMITIDO" && estado.key === "no_entregado") {
+    return { label: estado.label, tone: estado.tono, hint: "Le tocaba salir pero faltaba un dato, así que no se intentó." };
+  }
+  return { label: estado.label, tone: estado.tono, hint: estado.hint };
 }
 
 /** ¿Este mensaje representa un fallo real del proveedor? */
 export function isRealFailure(status: MessageStatus, scheduledAt: Date | string | null | undefined, now = new Date()): boolean {
-  if (status === "FALLIDO" || status === "REBOTADO") return true;
-  if (status !== "OMITIDO") return false;
-  return humanStatusFor(status, scheduledAt, now).tone === "problem";
+  return estadoVisibleDe(status, scheduledAt, now).key === "no_entregado";
 }
 
 /** Clase del punto de color que acompaña al estado. */

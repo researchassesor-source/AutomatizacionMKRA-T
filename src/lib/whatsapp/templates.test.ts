@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplateComponents, templateBindingOf, WHATSAPP_TEMPLATES } from "./templates";
+import { buildTemplateComponents, canonicalTemplate, templateBindingOf, WHATSAPP_TEMPLATES } from "./templates";
 import { WHATSAPP_AUTOMATION_PLAN, templateFieldsFor } from "@/lib/nurture/default-automations-whatsapp";
 import { DEFAULT_AUTOMATION_PLAN } from "@/lib/nurture/default-automations";
 import { TEMPLATE_VARIABLES } from "@/lib/nurture/engine";
@@ -137,6 +137,57 @@ describe("plan estándar de WhatsApp", () => {
   it("el agradecimiento incluye a quien ya figura como COMPLETADO", () => {
     const gracias = WHATSAPP_AUTOMATION_PLAN.find((entry) => entry.planKey === "thank_you");
     expect(gracias?.enrollmentStatuses).toContain("COMPLETADO");
+  });
+
+  /**
+   * Este bloque es una copia literal del alta en Meta. No se toca para que las
+   * pruebas pasen: si falla, o el codigo se desvio del alta real o alguien
+   * cambio la plantilla en Meta sin avisar. Ambas cosas terminan en un 132000
+   * en el primer envio, y ese es exactamente el fallo que esto existe para
+   * atrapar antes. Si la plantilla cambia en Meta, primero se edita aqui.
+   */
+  const REGISTRADAS_EN_META = {
+    ra_training_bienvenida_inscripcion: { idioma: "es", variables: 4 },
+    ra_training_recordatorio_24h: { idioma: "es", variables: 4 },
+    ra_training_acceso_2h: { idioma: "es", variables: 4 },
+    ra_training_acceso_15min: { idioma: "es", variables: 4 },
+    ra_training_agradecimiento_final: { idioma: "es", variables: 2 },
+  } as const;
+
+  it("cada plantilla del código coincide con su alta en Meta: nombre, idioma y número de variables", () => {
+    const enCodigo = Object.values(WHATSAPP_TEMPLATES);
+    expect(enCodigo.map((spec) => spec.name).sort()).toEqual(Object.keys(REGISTRADAS_EN_META).sort());
+    for (const spec of enCodigo) {
+      const alta = REGISTRADAS_EN_META[spec.name as keyof typeof REGISTRADAS_EN_META];
+      expect(alta, `La plantilla ${spec.name} no figura entre las registradas en Meta.`).toBeDefined();
+      expect(spec.language, `Idioma de ${spec.name}`).toBe(alta.idioma);
+      expect(spec.bodyVars.length, `Número de variables de ${spec.name}`).toBe(alta.variables);
+    }
+  });
+
+  it("una regla guardada con variables desfasadas se corrige con el catálogo", () => {
+    // Situacion real: la regla se creo cuando el codigo declaraba tres
+    // variables para el aviso de 15 minutos. Mandar esa copia significaria un
+    // rechazo 132000 de Meta en el primer envio real.
+    const binding = templateBindingOf({
+      waTemplateName: "ra_training_acceso_15min",
+      waTemplateLanguage: "es_ES",
+      waTemplateBodyVars: ["nombre", "curso", "streamUrl"],
+      waTemplateUrlVar: null,
+    });
+    expect(binding?.bodyVars).toEqual(["nombre", "curso", "horaSesion", "streamUrl"]);
+    expect(binding?.language).toBe("es");
+  });
+
+  it("una plantilla ajena al plan conserva lo que declara su regla", () => {
+    expect(canonicalTemplate("plantilla_dada_de_alta_a_mano")).toBeNull();
+    const binding = templateBindingOf({
+      waTemplateName: "plantilla_dada_de_alta_a_mano",
+      waTemplateLanguage: "en_US",
+      waTemplateBodyVars: ["nombre"],
+      waTemplateUrlVar: null,
+    });
+    expect(binding).toMatchObject({ language: "en_US", bodyVars: ["nombre"] });
   });
 
   it("las cinco plantillas se construyen con las variables reales del motor", () => {

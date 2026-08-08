@@ -3,6 +3,7 @@ import { describeEmailConfig, resolveEmailConfig } from "@/lib/email/config";
 import { parseLiveFrom } from "@/lib/live-activation";
 import { describeMetaConfig, resolveMetaConfig } from "@/lib/social/meta-config";
 import { describeWhatsAppConfig } from "@/lib/whatsapp/config";
+import { canonicalTemplate, parseBodyVars } from "@/lib/whatsapp/templates";
 
 /**
  * Comprobación previa al despliegue. ESTRICTAMENTE DE SOLO LECTURA.
@@ -215,7 +216,7 @@ async function catalogChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
 }
 
 async function operationalChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
-  const [staleMessages, stalePosts, whatsappRules, activeAccounts, enrolledWithoutMessages, whatsappRulesWithoutTemplate, whatsappQueued] = await Promise.all([
+  const [staleMessages, stalePosts, whatsappRules, activeAccounts, enrolledWithoutMessages, whatsappRulesWithoutTemplate, whatsappQueued, whatsappRulesWithStoredTemplate] = await Promise.all([
     db.outboundMessage.count({ where: { status: "PROGRAMADO", scheduledAt: { lt: new Date(now.getTime() - 6 * 60 * 60_000) } } }),
     db.socialPost.count({ where: { status: "PROGRAMADO", scheduledAt: { lt: new Date(now.getTime() - 6 * 60 * 60_000) } } }),
     db.automationRule.count({ where: { status: "ACTIVE", channel: "WHATSAPP" } }),
@@ -232,9 +233,30 @@ async function operationalChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
       where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] },
     }),
     db.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
+    db.automationRule.findMany({
+      where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, NOT: { waTemplateName: null } },
+      select: { name: true, waTemplateName: true, waTemplateLanguage: true, waTemplateBodyVars: true },
+    }),
   ]);
   const legacyAccounts = activeAccounts.filter((account) => !account.externalId);
   const whatsappDisabled = describeWhatsAppConfig().mode === "disabled";
+
+  /**
+   * Reglas cuya copia guardada de la plantilla ya no coincide con el catalogo.
+   *
+   * No es una averia: al enviar manda el catalogo, justamente para que un
+   * desfase asi no acabe en un rechazo de Meta. Pero si conviene verlo, porque
+   * significa que la fila quedo vieja y quien lea la regla en la base leera
+   * algo que no es lo que se envia. Se arregla reaplicando el plan.
+   */
+  const desfasadas = whatsappRulesWithStoredTemplate.filter((rule) => {
+    const canonical = rule.waTemplateName ? canonicalTemplate(rule.waTemplateName) : null;
+    if (!canonical) return false;
+    const guardadas = parseBodyVars(rule.waTemplateBodyVars);
+    return guardadas.length !== canonical.bodyVars.length
+      || guardadas.some((variable, index) => variable !== canonical.bodyVars[index])
+      || (rule.waTemplateLanguage ?? "es") !== canonical.language;
+  });
 
   return [
     check("stale_messages_6h", "Cron", "Cola de correo estancada", staleMessages > 0 ? "WARN" : "PASS",
@@ -251,6 +273,10 @@ async function operationalChecks(db: Db, now: Date): Promise<PreflightCheck[]> {
       whatsappRulesWithoutTemplate > 0
         ? `${whatsappRulesWithoutTemplate} regla(s) de WhatsApp no declaran plantilla aprobada. Sus mensajes se registran como OMITIDO en lugar de enviarse como texto libre, que Meta rechazaría.`
         : "Todas las reglas de WhatsApp declaran su plantilla."),
+    check("whatsapp_template_drift", "WhatsApp", "Reglas con la plantilla desfasada", desfasadas.length > 0 ? "WARN" : "PASS",
+      desfasadas.length > 0
+        ? `${desfasadas.length} regla(s) guardan una versión antigua de su plantilla (${[...new Set(desfasadas.map((rule) => rule.waTemplateName))].join(", ")}). El envío usa el catálogo del código, así que no falla, pero conviene reaplicar el plan para que la base coincida.`
+        : "Las reglas guardan la misma plantilla que declara el código."),
     check("whatsapp_queue", "WhatsApp", "Cola de WhatsApp", whatsappQueued > 0 && whatsappDisabled ? "WARN" : "PASS",
       whatsappQueued > 0 && whatsappDisabled
         ? `${whatsappQueued} mensaje(s) de WhatsApp esperan con el canal deshabilitado. Al activarlo saldrán solo los posteriores a WHATSAPP_LIVE_FROM.`

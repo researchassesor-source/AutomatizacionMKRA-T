@@ -32,7 +32,10 @@ function forbidden(name: string) {
   });
 }
 
-function db(overrides: { tables?: string[]; columns?: string[]; indexes?: string[]; migrationsBroken?: boolean; counts?: Record<string, number> } = {}) {
+/** Regla de WhatsApp tal como queda guardada, para comparar con el catálogo. */
+type ReglaGuardada = { name: string; waTemplateName: string | null; waTemplateLanguage: string | null; waTemplateBodyVars: unknown };
+
+function db(overrides: { tables?: string[]; columns?: string[]; indexes?: string[]; migrationsBroken?: boolean; counts?: Record<string, number>; reglasGuardadas?: ReglaGuardada[] } = {}) {
   const counts = { published: 3, withoutSessions: 0, withoutStream: 0, withActiveRules: 3, pausedRules: 0, stale1h: 0, stale6h: 0, stalePosts: 0, whatsappRules: 0, whatsappWithoutTemplate: 0, whatsappQueued: 0, enrolledWithout: 0, ...overrides.counts };
   let messageCountCall = 0;
   return {
@@ -71,6 +74,9 @@ function db(overrides: { tables?: string[]; columns?: string[]; indexes?: string
         // La consulta de reglas sin plantilla se distingue por su filtro OR.
         return where?.OR ? counts.whatsappWithoutTemplate : counts.whatsappRules;
       }),
+      // Reglas de WhatsApp con plantilla guardada, para comparar esa copia con
+      // el catalogo del codigo. Por omision no hay ninguna desfasada.
+      findMany: vi.fn(async () => overrides.reglasGuardadas ?? []),
       updateMany: forbidden("automationRule.updateMany"),
     },
     outboundMessage: {
@@ -200,6 +206,33 @@ describe("preflight", () => {
     healthyEnv();
     await runPreflight(db({ counts: { pausedRules: 60, stale6h: 9, whatsappRules: 2 } }), NOW);
     expect(mutations).toEqual([]);
+  });
+
+  it("avisa cuando una regla guarda una versión antigua de su plantilla", async () => {
+    healthyEnv();
+    // Caso real: la regla se creó cuando el código declaraba tres variables
+    // para el aviso de 15 minutos, y en Meta hay cuatro.
+    const report = await runPreflight(db({
+      reglasGuardadas: [
+        { name: "Acceso 15 minutos antes · WhatsApp", waTemplateName: "ra_training_acceso_15min", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso", "streamUrl"] },
+        { name: "Acceso 2 horas antes · WhatsApp", waTemplateName: "ra_training_acceso_2h", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso", "horaSesion", "streamUrl"] },
+      ],
+    }), NOW);
+    const drift = report.checks.find((check) => check.id === "whatsapp_template_drift");
+    expect(drift?.level).toBe("WARN");
+    expect(drift?.detail).toContain("ra_training_acceso_15min");
+    // La que sí coincide no debe salir señalada.
+    expect(drift?.detail).not.toContain("ra_training_acceso_2h");
+  });
+
+  it("no señala nada cuando las reglas coinciden con el catálogo", async () => {
+    healthyEnv();
+    const report = await runPreflight(db({
+      reglasGuardadas: [
+        { name: "Agradecimiento final · WhatsApp", waTemplateName: "ra_training_agradecimiento_final", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso"] },
+      ],
+    }), NOW);
+    expect(report.checks.find((check) => check.id === "whatsapp_template_drift")?.level).toBe("PASS");
   });
 
   it("no expone secretos en el informe", async () => {

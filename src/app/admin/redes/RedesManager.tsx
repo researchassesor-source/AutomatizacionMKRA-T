@@ -9,6 +9,42 @@ import { presentAdminValue } from "../adminPresentation";
 type Account = { id: string; platform: string; displayName: string; externalId: string | null; isActive: boolean; connectorState: "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED"; connectionStatus: string; connectionCheckedAt: string | null; connectionError: string | null };
 type Post = { id: string; caption: string; mediaUrl: string | null; linkUrl: string | null; status: string; account: string; scheduledAt: string | null; error: string | null; errorCode: string | null; providerPostUrl: string | null; externalPostId: string | null };
 type Schedule = { id: string; name: string; caption: string; mediaUrl: string | null; linkUrl: string | null; weekday: number; localTime: string; isActive: boolean; nextRunAt: string; account: string };
+/**
+ * Respuesta de `/api/admin/social/diagnose`.
+ *
+ * No incluye ningun token ni secreto: el endpoint no los devuelve, y estos
+ * campos son la lista completa de lo que llega.
+ */
+type Diagnostico = {
+  error?: string;
+  pageIdSolicitado?: string | null;
+  pageIdEfectivo?: string | null;
+  nombreDeLaPagina?: string | null;
+  paginaAccesible?: boolean;
+  paginaMotivo?: string | null;
+  tokenValido?: boolean;
+  identidadDelToken?: string;
+  tipoDeToken?: string | null;
+  tipoDeTokenMotivo?: string | null;
+  origenDelDestino?: string;
+  scopesVerificables?: boolean;
+  scopesRequeridosPresentes?: string[];
+  scopesRequeridosAusentes?: string[];
+  scopesMotivo?: string | null;
+  tareasVerificables?: boolean;
+  tareasSobreLaPagina?: string[];
+  tareasMotivo?: string | null;
+  tokenDePaginaDisponible?: boolean;
+  tokenDePaginaMotivo?: string | null;
+  publicacionVerificada?: boolean;
+  publicacionMotivo?: string | null;
+  ultimoFallo?: { cuando: string; motivo: string } | null;
+  motivoFinal?: string;
+};
+
+const si = (valor: boolean | undefined) => (valor ? "Sí" : "No");
+const lista = (valores: string[] | undefined) => (valores?.length ? valores.join(", ") : "—");
+
 const platforms = [{ value: "INSTAGRAM", label: "Instagram" }, { value: "FACEBOOK", label: "Facebook" }, { value: "TIKTOK", label: "TikTok" }];
 const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -21,6 +57,8 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** Diagnóstico detallado por cuenta, solo tras pulsar «Comprobar estado». */
+  const [diagnostico, setDiagnostico] = useState<Record<string, Diagnostico>>({});
   const [mediaUrl, setMediaUrl] = useState("");
   // TikTok se excluye a proposito: este formulario publica por el orquestador de
   // Meta y para TikTok solo generaria un registro "Simulado" que nunca sale.
@@ -71,8 +109,30 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
     await run(account.id, () => request(`/api/admin/social/accounts/${account.id}`, "PATCH", { isActive: !account.isActive, confirm: true }), "Cuenta actualizada.");
   }
 
+  /**
+   * Comprobar estado: actualiza el badge y, en Meta, trae el detalle.
+   *
+   * Antes solo se refrescaba el badge y la hora, asi que el diagnostico
+   * detallado existia en el servidor y no lo veia nadie. "Conexion validada"
+   * significa unicamente que la pagina responde; si puede publicarse o no lo
+   * dice el bloque de abajo.
+   */
   async function verify(account: Account) {
-    await run(account.id, () => request("/api/admin/social/test", "POST", { platform: account.platform }), account.connectorState === "SIMULATION" ? "Comprobación simulada: Preview no consultó al proveedor." : "Conexión comprobada.");
+    const resultado = await run(
+      account.id,
+      () => request("/api/admin/social/test", "POST", { platform: account.platform }),
+      account.connectorState === "SIMULATION" ? "Comprobación simulada: Preview no consultó al proveedor." : "Conexión comprobada.",
+    );
+    if (!resultado.ok) return;
+    if (account.platform !== "FACEBOOK" && account.platform !== "INSTAGRAM") return;
+
+    const detalle = await request("/api/admin/social/diagnose", "POST", { accountId: account.id });
+    setDiagnostico((actual) => ({
+      ...actual,
+      [account.id]: detalle.ok
+        ? (detalle.data as Diagnostico)
+        : { error: String((detalle.data as { error?: string }).error ?? "No se pudo obtener el diagnóstico.") },
+    }));
   }
 
   /** Registra la página de Facebook y la cuenta de Instagram configuradas en Vercel. */
@@ -131,7 +191,7 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
     <section className="panel"><h2>Cuentas sociales</h2><p className="muted">Las cuentas no almacenan credenciales desde este formulario. Preview fuerza SIMULATED y nunca publica contenido real.</p>
       <p><button type="button" className="btn-sm" disabled={busy !== null} onClick={syncMetaAccounts}>{busy === "meta-sync" ? "Comprobando…" : "Sincronizar cuentas de Meta"}</button> <span className="muted">Toma la página de Facebook y la cuenta de Instagram de la configuración del servidor y comprueba su estado.</span></p>
       <form onSubmit={registerAccount}><div className="form-row"><select name="platform" aria-label="Red social">{platforms.map((platform) => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</select><input name="displayName" aria-label="Nombre visible de la cuenta" placeholder="Nombre visible" required /><input name="externalId" aria-label="Identificador externo" placeholder="ID externo (opcional)" /><button type="submit" className="btn-sm" disabled={busy === "account-new"}>Guardar cuenta</button></div></form>
-      {accounts.length ? <div className="table-wrap"><table className="data"><thead><tr><th>Red/cuenta</th><th>Estado verificable</th><th>Acciones</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.id}><td><strong>{presentAdminValue(account.platform)} · {account.displayName}</strong><div className="muted">{account.externalId || "Sin ID externo"}</div><details><summary>Editar datos locales</summary><form onSubmit={(event) => editAccount(event, account)}><input name="displayName" defaultValue={account.displayName} required /><input name="externalId" defaultValue={account.externalId ?? ""} placeholder="ID externo" /><button type="submit" className="btn-sm" disabled={busy === account.id}>Guardar</button></form></details></td><td><span className={`pill ${account.connectionStatus === "READY" ? "ok" : account.connectionStatus === "ERROR" ? "err" : "info"}`}>{accountState(account)}</span>{account.connectionCheckedAt && <div className="muted">Comprobada: {new Date(account.connectionCheckedAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}</div>}{account.connectionError && <div className="muted">{account.connectionError}</div>}</td><td><div className="card-actions"><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => verify(account)}>Comprobar estado</button><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => accountToggle(account)}>{account.isActive ? "Desactivar" : "Activar"}</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="social" title="Sin cuentas" description="Registra una cuenta para organizar contenido en simulación." />}
+      {accounts.length ? <div className="table-wrap"><table className="data"><thead><tr><th>Red/cuenta</th><th>Estado verificable</th><th>Acciones</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.id}><td><strong>{presentAdminValue(account.platform)} · {account.displayName}</strong><div className="muted">{account.externalId || "Sin ID externo"}</div><details><summary>Editar datos locales</summary><form onSubmit={(event) => editAccount(event, account)}><input name="displayName" defaultValue={account.displayName} required /><input name="externalId" defaultValue={account.externalId ?? ""} placeholder="ID externo" /><button type="submit" className="btn-sm" disabled={busy === account.id}>Guardar</button></form></details></td><td><span className={`pill ${account.connectionStatus === "READY" ? "ok" : account.connectionStatus === "ERROR" ? "err" : "info"}`}>{accountState(account)}</span>{account.connectionCheckedAt && <div className="muted">Comprobada: {new Date(account.connectionCheckedAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}</div>}{account.connectionError && <div className="muted">{account.connectionError}</div>}{diagnostico[account.id] && <DiagnosticoMeta datos={diagnostico[account.id]} />}</td><td><div className="card-actions"><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => verify(account)}>Comprobar estado</button><button type="button" className="btn-sm ghost" disabled={busy === account.id} onClick={() => accountToggle(account)}>{account.isActive ? "Desactivar" : "Activar"}</button></div></td></tr>)}</tbody></table></div> : <AdminEmptyState icon="social" title="Sin cuentas" description="Registra una cuenta para organizar contenido en simulación." />}
     </section>
 
     <section className="panel"><h2>Nueva publicación</h2>{usableAccounts.length === 0 ? <p className="muted">No hay cuentas disponibles.</p> : <form onSubmit={createPost}><div className="form-row"><select name="accountId">{usableAccounts.map((account) => <option value={account.id} key={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="linkUrl" type="url" placeholder="Enlace (opcional)" /><input name="scheduledAt" type="datetime-local" aria-label="Fecha Ecuador" /></div><div className="form-row"><label className="btn-sm ghost">{busy === "upload" ? "Preparando…" : "Subir imagen o video"}<input type="file" accept="image/*,video/*" hidden onChange={upload} /></label><input name="mediaUrl" type="url" value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="URL multimedia" /></div><textarea name="caption" rows={4} placeholder="Texto de la publicación" required /><button type="submit" className="btn-sm" disabled={busy === "post-new"}>Crear publicación</button></form>}</section>
@@ -140,4 +200,63 @@ export function RedesManager({ accounts, posts, schedules }: { accounts: Account
 
     <section className="panel"><h2>Recurrencia semanal</h2><p className="muted">Zona horaria fija: America/Guayaquil. Cada ocurrencia utiliza una clave idempotente.</p>{usableAccounts.length > 0 && <form onSubmit={createSchedule}><div className="form-row"><select name="accountId">{usableAccounts.map((account) => <option key={account.id} value={account.id}>{account.platform} · {account.displayName}</option>)}</select><input name="name" placeholder="Nombre" required /><select name="weekday">{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select><input name="localTime" type="time" required /></div><textarea name="caption" rows={3} placeholder="Contenido recurrente" required /><div className="form-row"><input name="mediaUrl" type="url" placeholder="URL multimedia" /><input name="linkUrl" type="url" placeholder="Enlace" /><button type="submit" className="btn-sm" disabled={busy === "schedule-new"}>Crear recurrencia</button></div></form>}{schedules.length ? <div className="table-wrap"><table className="data"><thead><tr><th>Recurrencia</th><th>Próxima ejecución</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{schedules.map((schedule) => <tr key={schedule.id}><td><strong>{schedule.name}</strong><div className="muted">{schedule.account} · {weekdays[schedule.weekday]} {schedule.localTime}</div><details><summary>Editar recurrencia</summary><form onSubmit={(event) => editSchedule(event, schedule)}><input name="name" defaultValue={schedule.name} required /><select name="weekday" defaultValue={schedule.weekday}>{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select><input name="localTime" type="time" defaultValue={schedule.localTime} required /><textarea name="caption" rows={3} defaultValue={schedule.caption} required /><input name="mediaUrl" type="url" defaultValue={schedule.mediaUrl ?? ""} /><input name="linkUrl" type="url" defaultValue={schedule.linkUrl ?? ""} /><button type="submit" className="btn-sm" disabled={busy === schedule.id}>Guardar</button></form></details></td><td>{new Date(schedule.nextRunAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })}</td><td><span className={`pill ${schedule.isActive ? "ok" : "info"}`}>{schedule.isActive ? "Activa" : "Inactiva"}</span></td><td><div className="card-actions"><button className="btn-sm ghost" type="button" disabled={busy === schedule.id} onClick={() => scheduleStatus(schedule, schedule.isActive ? "pause" : "resume")}>{schedule.isActive ? "Pausar" : "Reactivar"}</button><button className="btn-sm danger" type="button" disabled={busy === schedule.id} onClick={() => scheduleStatus(schedule, "archive")}>Archivar</button></div></td></tr>)}</tbody></table></div> : null}</section>
   </>;
+}
+
+/**
+ * Diagnóstico detallado de una cuenta de Meta.
+ *
+ * Va plegado porque solo interesa cuando algo falla, y cada fila dice qué se
+ * pudo comprobar y qué no. La distinción importa: «no verificable» no es un
+ * problema de configuración, y mezclarlos fue el error que hizo que este panel
+ * acusara de permisos insuficientes a una cuenta sana.
+ *
+ * Ningún token ni secreto aparece aquí: el endpoint no los devuelve.
+ */
+function DiagnosticoMeta({ datos }: { datos: Diagnostico }) {
+  if (datos.error) return <p className="muted diagnostico-error">{datos.error}</p>;
+
+  const filas: Array<{ etiqueta: string; valor: string; nota?: string | null }> = [
+    { etiqueta: "Página accesible", valor: si(datos.paginaAccesible), nota: datos.paginaMotivo },
+    { etiqueta: "Page ID solicitado", valor: datos.pageIdSolicitado ?? "—" },
+    { etiqueta: "Page ID efectivo", valor: datos.pageIdEfectivo ?? "—" },
+    { etiqueta: "Nombre de la página", valor: datos.nombreDeLaPagina ?? "—" },
+    {
+      etiqueta: "Identidad del token",
+      valor: datos.identidadDelToken ?? "—",
+      nota: datos.tipoDeToken ? `Tipo: ${datos.tipoDeToken}` : datos.tipoDeTokenMotivo,
+    },
+    { etiqueta: "Scopes verificables", valor: si(datos.scopesVerificables), nota: datos.scopesMotivo },
+    { etiqueta: "Scopes requeridos presentes", valor: lista(datos.scopesRequeridosPresentes) },
+    { etiqueta: "Scopes requeridos ausentes", valor: lista(datos.scopesRequeridosAusentes) },
+    { etiqueta: "Tareas verificables", valor: si(datos.tareasVerificables), nota: datos.tareasMotivo },
+    { etiqueta: "Tareas sobre la página", valor: lista(datos.tareasSobreLaPagina) },
+    {
+      etiqueta: "Page Access Token",
+      valor: datos.tokenDePaginaDisponible ? "Disponible" : "No verificable",
+      nota: datos.tokenDePaginaMotivo,
+    },
+    { etiqueta: "Publicación real verificada", valor: si(datos.publicacionVerificada), nota: datos.publicacionMotivo },
+    { etiqueta: "Destino tomado de", valor: datos.origenDelDestino ?? "—" },
+  ];
+
+  return (
+    <details className="diagnostico">
+      <summary>Ver diagnóstico detallado</summary>
+      <dl className="diagnostico-lista">
+        {filas.map((fila) => (
+          <div key={fila.etiqueta}>
+            <dt>{fila.etiqueta}</dt>
+            <dd>
+              {fila.valor}
+              {fila.nota ? <span className="diagnostico-nota">{fila.nota}</span> : null}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {datos.ultimoFallo ? (
+        <p className="muted">Último fallo · {datos.ultimoFallo.cuando}: {datos.ultimoFallo.motivo}</p>
+      ) : null}
+      {datos.motivoFinal ? <p className="diagnostico-conclusion">{datos.motivoFinal}</p> : null}
+    </details>
+  );
 }

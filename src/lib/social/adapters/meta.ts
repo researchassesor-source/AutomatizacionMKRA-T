@@ -140,17 +140,18 @@ export class MetaAdapter implements SocialAdapter {
    * las demas.
    */
   async diagnose(): Promise<Record<string, unknown>> {
-    const [identidad, pagina, permisos, tareas, tokenDePagina] = await Promise.all([
+    const [identidad, pagina, permisos, tareas, tokenDePagina, tipoDeToken] = await Promise.all([
       this.get("me?fields=id,name"),
       // Identidad de la pagina: id y name son campos validos del nodo Page.
       this.get(`${this.pageId}?fields=id,name`),
       this.leerPermisos(),
       this.leerTareasDeLaPagina(),
       this.comprobarTokenDePagina(),
+      this.leerTipoDeToken(),
     ]);
 
     const paginaAccesible = !pagina.error;
-    const nombreDeLaPagina = (pagina as GraphResponse & { name?: string }).name ?? null;
+    const paginaTipada = pagina as GraphResponse & { name?: string };
 
     return {
       plataforma: this.platform,
@@ -158,13 +159,24 @@ export class MetaAdapter implements SocialAdapter {
       /** De donde sale el destino: de la cuenta elegida o de la variable. */
       origenDelDestino: this.targetId ? "cuenta seleccionada" : "variable de entorno",
 
+      /**
+       * El identificador que se pidio y el que Meta devolvio.
+       *
+       * Se muestran los dos porque si difieren, se esta publicando en una
+       * pagina distinta de la que dice el panel, y eso no se ve de ninguna
+       * otra forma.
+       */
+      pageIdSolicitado: this.pageId ?? null,
+      pageIdEfectivo: paginaTipada.id ?? null,
+
       tokenValido: !identidad.error,
       identidadDelToken: identidad.error
         ? `error: ${identidad.error.message ?? "sin detalle"}`
         : ((identidad as { name?: string }).name ?? "sin nombre"),
+      ...tipoDeToken,
 
       paginaAccesible,
-      nombreDeLaPagina,
+      nombreDeLaPagina: paginaTipada.name ?? null,
       paginaMotivo: paginaAccesible ? null : (pagina.error?.message ?? "sin detalle"),
 
       ...permisos,
@@ -172,10 +184,37 @@ export class MetaAdapter implements SocialAdapter {
       ...tokenDePagina,
 
       // Leer la pagina no prueba nada sobre publicar. Solo un envio real lo
-      // verifica, y ese dato lo aporta el historial, no la Graph API.
+      // verifica, y ese dato lo aporta el historial, no la Graph API: quien
+      // llama lo completa desde la base.
       publicacionVerificada: false,
       publicacionMotivo: "Solo un envío real correcto verifica la publicación. Este diagnóstico no publica nada.",
     };
+  }
+
+  /**
+   * Tipo de token, via `debug_token`. Best-effort.
+   *
+   * Requiere el secreto de la app para construir el token de aplicacion. Si no
+   * esta disponible se dice que no se pudo verificar, en lugar de suponerlo:
+   * confundir un token de usuario con uno de sistema cambia por completo que
+   * comprobaciones tienen sentido.
+   */
+  private async leerTipoDeToken(): Promise<{ tipoDeToken: string | null; tipoDeTokenMotivo: string | null }> {
+    const { appId, appSecret, accessToken } = this.config;
+    if (!appId || !appSecret || !accessToken) {
+      return { tipoDeToken: null, tipoDeTokenMotivo: "No verificable: hace falta el identificador y el secreto de la aplicación." };
+    }
+    try {
+      const res = await fetch(`${this.graph}/debug_token?input_token=${encodeURIComponent(accessToken)}`, {
+        headers: { Authorization: `Bearer ${appId}|${appSecret}` },
+      });
+      const info = ((await res.json().catch(() => ({}))) as { data?: { type?: string } }).data ?? {};
+      return info.type
+        ? { tipoDeToken: info.type, tipoDeTokenMotivo: null }
+        : { tipoDeToken: null, tipoDeTokenMotivo: "No verificable: Meta no devolvió el tipo del token." };
+    } catch {
+      return { tipoDeToken: null, tipoDeTokenMotivo: "No verificable: no se pudo contactar con Meta." };
+    }
   }
 
   /**
@@ -187,10 +226,13 @@ export class MetaAdapter implements SocialAdapter {
   private async leerPermisos(): Promise<{
     scopesVerificables: boolean;
     scopesConcedidos: string[];
+    scopesRequeridosPresentes: string[];
     scopesRequeridosAusentes: string[];
     scopesMotivo: string | null;
   }> {
-    const REQUERIDOS = ["pages_manage_posts", "pages_read_engagement"];
+    const requeridos = this.platform === "FACEBOOK"
+      ? ["pages_manage_posts", "pages_read_engagement"]
+      : ["instagram_basic", "instagram_content_publish"];
     const data = await this.get("me/permissions");
     const typed = data as GraphResponse & { data?: Array<{ permission?: string; status?: string }> };
 
@@ -198,6 +240,7 @@ export class MetaAdapter implements SocialAdapter {
       return {
         scopesVerificables: false,
         scopesConcedidos: [],
+        scopesRequeridosPresentes: [],
         scopesRequeridosAusentes: [],
         scopesMotivo: `No se pudieron leer los permisos del token: ${data.error?.message ?? "respuesta inesperada"}.`,
       };
@@ -209,7 +252,8 @@ export class MetaAdapter implements SocialAdapter {
     return {
       scopesVerificables: true,
       scopesConcedidos: concedidos.sort(),
-      scopesRequeridosAusentes: REQUERIDOS.filter((permiso) => !concedidos.includes(permiso)),
+      scopesRequeridosPresentes: requeridos.filter((permiso) => concedidos.includes(permiso)),
+      scopesRequeridosAusentes: requeridos.filter((permiso) => !concedidos.includes(permiso)),
       scopesMotivo: null,
     };
   }

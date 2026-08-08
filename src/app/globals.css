@@ -1739,3 +1739,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .preview-variant { border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: #f8fafc; }
 .preview-variant h4 { margin: 0 0 6px; font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .preview-variant .preview-text { white-space: pre-wrap; margin: 0; padding: 0; font-size: .82rem; line-height: 1.5; }
+
+/* ── Diagnostico de una cuenta de Meta ──────────────────────────────────── */
+.diagnostico { margin-top: 10px; }
+.diagnostico > summary { cursor: pointer; font-size: .78rem; font-weight: 600; color: var(--brand-primary); }
+.diagnostico-lista { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: #f8fafc; }
+.diagnostico-lista > div { display: grid; grid-template-columns: minmax(150px, 40%) 1fr; gap: 8px; font-size: .78rem; }
+.diagnostico-lista dt { color: var(--muted); }
+.diagnostico-lista dd { margin: 0; color: var(--ink); word-break: break-word; }
+.diagnostico-nota { display: block; margin-top: 2px; font-size: .74rem; color: var(--muted); }
+.diagnostico-conclusion { margin: 10px 0 0; padding: 10px 12px; border-radius: 9px; border: 1px solid #cfe0f7; background: #f5f9ff; font-size: .8rem; color: var(--ink); }
+.diagnostico-error { color: var(--danger); }
+@media (max-width: 640px) { .diagnostico-lista > div { grid-template-columns: 1fr; gap: 2px; } }

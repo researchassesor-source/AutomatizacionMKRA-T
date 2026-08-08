@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ecuadorLocalDateTimeToIso } from "@/lib/time";
 import {
   AVISO_INSTAGRAM_SIN_ENLACE,
@@ -12,18 +12,20 @@ import {
   requiereAvisoInstagram,
 } from "@/lib/social/cta";
 import type { Platform } from "@/lib/social/types";
+import {
+  agregarPlantilla,
+  aplicarPlantilla,
+  crearPlantilla,
+  eliminarPlantilla,
+  leerPlantillas,
+  PLANTILLAS_KEY,
+  type PlantillaPublicacion,
+  renombrarPlantilla,
+  seleccionParaPlantilla,
+} from "@/lib/social/plantillas";
 import { useFeedback } from "../Feedback";
 
 export type ComposerAccount = { id: string; platform: string; displayName: string };
-
-type Plantilla = { id: string; nombre: string; texto: string; enlace: string; imagen: string };
-
-/**
- * Las plantillas viven en el navegador a proposito: son borradores de trabajo
- * de quien escribe, no contenido del CRM, y no tiene sentido que ocupen la base
- * ni que se compartan entre personas sin pedirlo.
- */
-const PLANTILLAS_KEY = "ra-crm:plantillas-publicacion";
 
 const REDES = [
   { platform: "FACEBOOK", label: "Facebook" },
@@ -60,18 +62,15 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
   const [seleccion, setSeleccion] = useState<string[]>(() => accounts.slice(0, 1).map((a) => a.id));
   const [repetir, setRepetir] = useState(false);
   const [guardando, setGuardando] = useState<string | null>(null);
-  const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
+  const [plantillas, setPlantillas] = useState<PlantillaPublicacion[]>([]);
+  /** Para llevar el foco al compositor al aplicar una plantilla. */
+  const textoRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    try {
-      const crudo = window.localStorage.getItem(PLANTILLAS_KEY);
-      if (crudo) setPlantillas(JSON.parse(crudo) as Plantilla[]);
-    } catch {
-      // Un navegador sin almacenamiento no debe romper el compositor.
-    }
+    setPlantillas(leerPlantillas(window.localStorage.getItem(PLANTILLAS_KEY)));
   }, []);
 
-  function persistir(lista: Plantilla[]) {
+  function persistir(lista: PlantillaPublicacion[]) {
     setPlantillas(lista);
     try {
       window.localStorage.setItem(PLANTILLAS_KEY, JSON.stringify(lista));
@@ -80,22 +79,69 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
     }
   }
 
+  /**
+   * Guardar como plantilla. NUNCA crea una publicacion ni programa nada:
+   * escribe en el almacenamiento del navegador y se acaba ahi.
+   */
   function guardarPlantilla() {
     if (!texto.trim()) {
       toast({ tone: "warning", title: "Escribe el texto antes de guardarlo" });
       return;
     }
-    // La primera linea del texto sirve de nombre: es lo que quien escribe
-    // reconoce, y evita pedir un titulo mas solo para guardar.
-    const nombre = texto.trim().split(String.fromCharCode(10))[0].slice(0, 44);
-    persistir([{ id: String(Date.now()), nombre, texto, enlace, imagen }, ...plantillas].slice(0, 12));
-    toast({ tone: "success", title: "Plantilla guardada", detail: "Aparecerá aquí la próxima vez que publiques." });
+    const plantilla = crearPlantilla({
+      texto,
+      enlace,
+      imagen,
+      ctaInstagram,
+      // Se guardan las plataformas y no los identificadores de cuenta: si una
+      // cuenta se vuelve a registrar cambia de id y la plantilla apuntaria a
+      // algo inexistente.
+      plataformas: plataformasElegidas,
+    });
+    persistir(agregarPlantilla(plantillas, plantilla));
+    toast({
+      tone: "success",
+      title: "Plantilla guardada",
+      detail: "Incluye redes, textos, enlace e imagen. La fecha no se guarda.",
+    });
   }
 
-  function usarPlantilla(plantilla: Plantilla) {
-    setTexto(plantilla.texto);
-    setEnlace(plantilla.enlace);
-    setImagen(plantilla.imagen);
+  /**
+   * Cargar la plantilla en el compositor y llevar el foco alli.
+   *
+   * La programacion se vacia siempre: heredar la hora de una plantilla vieja
+   * significaria programar algo para un momento ya pasado, o publicar a una
+   * hora que nadie eligio.
+   */
+  function usarPlantilla(plantilla: PlantillaPublicacion) {
+    const estado = aplicarPlantilla(plantilla);
+    setTexto(estado.texto);
+    setEnlace(estado.enlace);
+    setImagen(estado.imagen);
+    setCtaInstagram(estado.ctaInstagram);
+    setSeleccion(seleccionParaPlantilla(plantilla, accounts, seleccion));
+    setCuando("");
+    setRepetir(false);
+    textoRef.current?.focus();
+    textoRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    toast({ tone: "success", title: `Plantilla «${plantilla.nombre}» cargada`, detail: "Revisa el contenido y elige cuándo publicar." });
+  }
+
+  function renombrar(plantilla: PlantillaPublicacion) {
+    const nombre = window.prompt("Nuevo nombre de la plantilla", plantilla.nombre);
+    if (nombre === null) return;
+    if (!nombre.trim()) {
+      toast({ tone: "warning", title: "El nombre no puede quedar vacío" });
+      return;
+    }
+    persistir(renombrarPlantilla(plantillas, plantilla.id, nombre));
+    toast({ tone: "success", title: "Plantilla renombrada" });
+  }
+
+  function eliminar(plantilla: PlantillaPublicacion) {
+    if (!window.confirm(`¿Eliminar la plantilla «${plantilla.nombre}»? No afecta a ninguna publicación.`)) return;
+    persistir(eliminarPlantilla(plantillas, plantilla.id));
+    toast({ tone: "success", title: "Plantilla eliminada" });
   }
 
   const porRed = useMemo(() => {
@@ -304,7 +350,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
 
           <label className="composer-field">
             Texto
-            <textarea rows={6} value={texto} onChange={(event) => setTexto(event.target.value)} placeholder="Escribe la publicación…" />
+            <textarea ref={textoRef} rows={6} value={texto} onChange={(event) => setTexto(event.target.value)} placeholder="Escribe la publicación…" />
             <small>{texto.length} caracteres</small>
           </label>
 
@@ -380,12 +426,23 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
 
           {plantillas.length > 0 ? (
             <div className="composer-templates">
-              <span>Plantillas guardadas</span>
+              <span className="composer-templates-title">Guardadas</span>
               {plantillas.map((plantilla) => (
-                <span className="composer-template" key={plantilla.id}>
-                  <button type="button" onClick={() => usarPlantilla(plantilla)} title="Usar esta plantilla">{plantilla.nombre}</button>
-                  <button type="button" className="composer-template-remove" aria-label={`Borrar ${plantilla.nombre}`} onClick={() => persistir(plantillas.filter((item) => item.id !== plantilla.id))}>×</button>
-                </span>
+                <div className="composer-template" key={plantilla.id}>
+                  <div className="composer-template-info">
+                    <strong>{plantilla.nombre}</strong>
+                    <small>
+                      {plantilla.plataformas.length > 0 ? plantilla.plataformas.map(nombreRed).join(" · ") : "Sin redes guardadas"}
+                      {plantilla.imagen ? " · con imagen" : ""}
+                      {plantilla.enlace ? " · con enlace" : ""}
+                    </small>
+                  </div>
+                  <div className="composer-template-actions">
+                    <button type="button" className="btn-sm" onClick={() => usarPlantilla(plantilla)}>Utilizar plantilla</button>
+                    <button type="button" className="btn-sm ghost" onClick={() => renombrar(plantilla)}>Renombrar</button>
+                    <button type="button" className="btn-sm ghost" onClick={() => eliminar(plantilla)}>Eliminar</button>
+                  </div>
+                </div>
               ))}
             </div>
           ) : null}

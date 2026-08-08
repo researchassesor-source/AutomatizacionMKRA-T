@@ -1751,3 +1751,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .diagnostico-conclusion { margin: 10px 0 0; padding: 10px 12px; border-radius: 9px; border: 1px solid #cfe0f7; background: #f5f9ff; font-size: .8rem; color: var(--ink); }
 .diagnostico-error { color: var(--danger); }
 @media (max-width: 640px) { .diagnostico-lista > div { grid-template-columns: 1fr; gap: 2px; } }
+
+/* ── Plantillas guardadas del compositor ────────────────────────────────── */
+.composer-templates-title { display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
+.composer-templates .composer-template { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); margin-bottom: 6px; }
+.composer-template-info { display: flex; flex-direction: column; min-width: 0; }
+.composer-template-info strong { font-size: .82rem; color: var(--ink); word-break: break-word; }
+.composer-template-info small { font-size: .72rem; color: var(--muted); }
+.composer-template-actions { display: flex; flex-wrap: wrap; gap: 6px; }

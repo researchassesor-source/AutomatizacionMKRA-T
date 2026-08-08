@@ -12,7 +12,7 @@ import {
   resolveWhatsAppWindow,
   toWhatsAppRecipient,
 } from "@/lib/whatsapp/config";
-import { buildTemplateComponents, WHATSAPP_TEMPLATES, type WhatsAppTemplateKey } from "@/lib/whatsapp/templates";
+import { buildTemplateComponents, fillTemplateBody, WHATSAPP_TEMPLATES, type WhatsAppTemplateKey } from "@/lib/whatsapp/templates";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +87,12 @@ export async function POST(request: Request) {
       variable,
       valorDeEjemplo: EJEMPLO[variable],
     })),
-    textoDeReferencia: spec.sample,
+    // El mensaje tal como lo recibiria un contacto: el texto registrado en
+    // Meta con los valores de ejemplo ya puestos. Ver el texto final, y no una
+    // parafrasis, es la unica forma de detectar que la plantilla del panel y
+    // la registrada en Meta han dejado de ser la misma.
+    mensaje: fillTemplateBody(spec, (variable) => EJEMPLO[variable] ?? `{{${variable}}}`),
+    textoRegistrado: spec.sample,
   };
 
   const estado = describeWhatsAppConfig();

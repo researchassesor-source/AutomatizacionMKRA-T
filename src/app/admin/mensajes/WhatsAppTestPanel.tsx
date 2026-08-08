@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useFeedback } from "../Feedback";
 
 type Parametro = { posicion: string; variable: string; valorDeEjemplo: string };
-type Preview = { plantilla: string; idioma: string; parametros: Parametro[]; textoDeReferencia: string };
+type Preview = { plantilla: string; idioma: string; parametros: Parametro[]; mensaje: string; textoRegistrado: string };
 type Respuesta = { ok?: boolean; sent?: boolean; preview?: Preview; message?: string; error?: string };
 
 const PLANTILLAS = [
@@ -118,7 +118,10 @@ export function WhatsAppTestPanel() {
               ))}
             </tbody>
           </table>
-          <p className="muted">{preview.textoDeReferencia}</p>
+          <p className="muted">Así lo recibiría el contacto:</p>
+          {/* Se respetan los saltos de linea: la plantilla registrada en Meta
+              los tiene, y un texto reflowed no serviria para compararlo. */}
+          <p className="template-preview">{preview.mensaje}</p>
         </div>
       ) : null}
 

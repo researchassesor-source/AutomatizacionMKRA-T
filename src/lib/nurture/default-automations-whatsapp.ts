@@ -1,5 +1,5 @@
 import type { AutomationTrigger, EnrollmentStatus } from "@prisma/client";
-import { WHATSAPP_TEMPLATES, type WhatsAppTemplateKey } from "@/lib/whatsapp/templates";
+import { templateBodyWithPlaceholders, WHATSAPP_TEMPLATES, type WhatsAppTemplateKey } from "@/lib/whatsapp/templates";
 import type { AutomationPlanKey } from "./default-automations";
 
 /**
@@ -22,7 +22,16 @@ export type WhatsAppPlanEntry = {
   description: string;
   trigger: AutomationTrigger;
   offsetMinutes: number;
-  /** Vista previa legible del mensaje; no es lo que se envia a Meta. */
+  /**
+   * Cuerpo legible del mensaje, con los marcadores del motor. No viaja a Meta:
+   * lo que Meta recibe son los parametros. Se DERIVA del texto registrado en
+   * la plantilla, no se escribe a mano.
+   *
+   * Escribirlo aparte fue justo lo que produjo la inconsistencia que motivo
+   * esto: el CRM enseñaba un mensaje redactado por su cuenta mientras Meta
+   * enviaba otro. Un solo texto de origen hace imposible que vuelvan a
+   * separarse.
+   */
   body: string;
   requiresStreamUrl: boolean;
   enrollmentStatuses: EnrollmentStatus[];
@@ -30,7 +39,10 @@ export type WhatsAppPlanEntry = {
 
 const AUDIENCE: EnrollmentStatus[] = ["INTERESADO", "INSCRITO", "EN_CURSO"];
 
-export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
+/** Todo lo del plan salvo el cuerpo, que se deriva de la plantilla. */
+type WhatsAppPlanDraft = Omit<WhatsAppPlanEntry, "body">;
+
+const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
   {
     planKey: "welcome",
     templateKey: "welcome",
@@ -38,7 +50,6 @@ export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
     description: "Se envía apenas se registra la inscripción, con plantilla aprobada.",
     trigger: "ON_REGISTRATION",
     offsetMinutes: 0,
-    body: "Hola {{nombre}}, tu inscripción a {{curso}} quedó registrada. Fecha: {{fecha}}. Hora: {{hora}}. Te avisaremos antes de cada sesión.",
     requiresStreamUrl: false,
     enrollmentStatuses: AUDIENCE,
   },
@@ -49,7 +60,6 @@ export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
     description: "Un recordatorio por sesión, 24 horas antes. No lleva el enlace.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 24 * 60,
-    body: "Hola {{nombre}}, mañana tienes una sesión de {{curso}}. Fecha: {{fechaSesion}}. Hora: {{horaSesion}}. El enlace de acceso te llegará 2 horas antes.",
     requiresStreamUrl: false,
     enrollmentStatuses: AUDIENCE,
   },
@@ -60,7 +70,6 @@ export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
     description: "Entrega el enlace de la reunión. Necesita enlace configurado.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 120,
-    body: "Hola {{nombre}}, tu sesión de {{curso}} comienza a las {{horaSesion}}. Este es tu enlace de acceso: {{streamUrl}}",
     // A diferencia del correo, aqui SI se exige el enlace: la plantilla lo
     // lleva como parametro obligatorio y Meta rechaza un parametro vacio.
     requiresStreamUrl: true,
@@ -73,7 +82,6 @@ export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
     description: "Repite el enlace cuando la sesión está por empezar.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 15,
-    body: "Hola {{nombre}}, la sesión de {{curso}} empieza en 15 minutos. Ingresa aquí: {{streamUrl}}",
     requiresStreamUrl: true,
     enrollmentStatuses: AUDIENCE,
   },
@@ -84,11 +92,21 @@ export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = [
     description: "Se envía una hora después de terminar la última sesión.",
     trigger: "AFTER_COURSE",
     offsetMinutes: 60,
-    body: "¡Felicitaciones {{nombre}}! Completaste {{curso}}. Gracias por acompañarnos.",
     requiresStreamUrl: false,
     enrollmentStatuses: [...AUDIENCE, "COMPLETADO"],
   },
 ];
+
+/**
+ * El plan, ya con el cuerpo derivado del texto registrado en Meta.
+ *
+ * Aqui esta la garantia: el cuerpo no se puede editar sin editar la plantilla,
+ * porque no existe como texto independiente.
+ */
+export const WHATSAPP_AUTOMATION_PLAN: readonly WhatsAppPlanEntry[] = PLAN_SIN_CUERPO.map((entry) => ({
+  ...entry,
+  body: templateBodyWithPlaceholders(WHATSAPP_TEMPLATES[entry.templateKey]),
+}));
 
 /** Campos de plantilla que hay que guardar en la regla para esta entrada. */
 export function templateFieldsFor(entry: WhatsAppPlanEntry) {

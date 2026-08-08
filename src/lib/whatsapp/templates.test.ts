@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplateComponents, canonicalTemplate, templateBindingOf, WHATSAPP_TEMPLATES } from "./templates";
+import { buildTemplateComponents, canonicalTemplate, fillTemplateBody, templateBindingOf, templateBodyWithPlaceholders, WHATSAPP_TEMPLATES } from "./templates";
 import { WHATSAPP_AUTOMATION_PLAN, templateFieldsFor } from "@/lib/nurture/default-automations-whatsapp";
 import { DEFAULT_AUTOMATION_PLAN } from "@/lib/nurture/default-automations";
 import { TEMPLATE_VARIABLES } from "@/lib/nurture/engine";
@@ -147,11 +147,31 @@ describe("plan estándar de WhatsApp", () => {
    * atrapar antes. Si la plantilla cambia en Meta, primero se edita aqui.
    */
   const REGISTRADAS_EN_META = {
-    ra_training_bienvenida_inscripcion: { idioma: "es", variables: 4 },
-    ra_training_recordatorio_24h: { idioma: "es", variables: 4 },
-    ra_training_acceso_2h: { idioma: "es", variables: 4 },
-    ra_training_acceso_15min: { idioma: "es", variables: 4 },
-    ra_training_agradecimiento_final: { idioma: "es", variables: 2 },
+    ra_training_bienvenida_inscripcion: {
+      idioma: "es",
+      variables: 4,
+      texto: "Hola {{1}}.\n\nTu inscripción a *{{2}}* fue registrada correctamente.\n\nFecha: {{3}}\nHora: {{4}}\n\nRecibirás por este medio los recordatorios y la información de acceso correspondientes a esta actividad.\n\nR.A. Training",
+    },
+    ra_training_recordatorio_24h: {
+      idioma: "es",
+      variables: 4,
+      texto: "Hola {{1}}.\n\nTe recordamos que mañana tienes una sesión de *{{2}}*.\n\nFecha: {{3}}\nHora: {{4}}\n\nMás adelante recibirás la información de acceso correspondiente.\n\nR.A. Training",
+    },
+    ra_training_acceso_2h: {
+      idioma: "es",
+      variables: 4,
+      texto: "Hola {{1}}.\n\nTu sesión de *{{2}}* comienza en 2 horas.\n\nHora: {{3}}\nEnlace de acceso: {{4}}\n\nR.A. Training",
+    },
+    ra_training_acceso_15min: {
+      idioma: "es",
+      variables: 4,
+      texto: "Hola {{1}}.\n\nEstamos por comenzar tu sesión de *{{2}}*.\n\nHora: {{3}}\nIngresa aquí: {{4}}\n\nLa sesión inicia en aproximadamente 15 minutos.\n\nR.A. Training",
+    },
+    ra_training_agradecimiento_final: {
+      idioma: "es",
+      variables: 2,
+      texto: "Hola {{1}}.\n\nHas finalizado *{{2}}*.\n\nGracias por haber participado en esta actividad de R.A. Training.\n\nEsperamos que los contenidos desarrollados hayan sido útiles para tu formación.",
+    },
   } as const;
 
   it("cada plantilla del código coincide con su alta en Meta: nombre, idioma y número de variables", () => {
@@ -162,6 +182,52 @@ describe("plan estándar de WhatsApp", () => {
       expect(alta, `La plantilla ${spec.name} no figura entre las registradas en Meta.`).toBeDefined();
       expect(spec.language, `Idioma de ${spec.name}`).toBe(alta.idioma);
       expect(spec.bodyVars.length, `Número de variables de ${spec.name}`).toBe(alta.variables);
+    }
+  });
+
+  it("el texto del catálogo es literalmente el registrado en Meta", () => {
+    // Comparacion caracter a caracter, saltos de linea incluidos. Un texto
+    // "parecido" es peor que uno distinto: nadie lo revisa dos veces y el
+    // panel acaba enseñando un mensaje que ningun contacto recibio.
+    for (const spec of Object.values(WHATSAPP_TEMPLATES)) {
+      const alta = REGISTRADAS_EN_META[spec.name as keyof typeof REGISTRADAS_EN_META];
+      expect(spec.sample, `Cuerpo de ${spec.name}`).toBe(alta.texto);
+    }
+  });
+
+  it("el texto usa cada posición declarada, sin huecos ni sobrantes", () => {
+    // Un {{5}} en el texto de una plantilla de cuatro variables llegaria a los
+    // contactos como "{{5}}" literal, porque no hay nada con que rellenarlo.
+    for (const spec of Object.values(WHATSAPP_TEMPLATES)) {
+      const posiciones = [...spec.sample.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
+      const esperadas = spec.bodyVars.map((_, index) => index + 1);
+      expect([...new Set(posiciones)].sort((a, b) => a - b), `Posiciones usadas en ${spec.name}`).toEqual(esperadas);
+    }
+  });
+
+  it("la vista previa reproduce el mensaje con los valores puestos", () => {
+    const quince = WHATSAPP_TEMPLATES.reminder_15m;
+    expect(fillTemplateBody(quince, (variable) => VARS[variable as keyof typeof VARS])).toBe(
+      `Hola Angel.\n\nEstamos por comenzar tu sesión de *${VARS.curso}*.\n\nHora: ${VARS.horaSesion}\nIngresa aquí: ${VARS.streamUrl}\n\nLa sesión inicia en aproximadamente 15 minutos.\n\nR.A. Training`,
+    );
+  });
+
+  it("el cuerpo guardado en la regla es el mismo texto, con los marcadores del motor", () => {
+    // Si esto se rompe, el CRM esta guardando como historial un mensaje que no
+    // es el que se envio.
+    for (const spec of Object.values(WHATSAPP_TEMPLATES)) {
+      const conMarcadores = templateBodyWithPlaceholders(spec);
+      expect(conMarcadores).not.toMatch(/\{\{\d+\}\}/);
+      for (const variable of spec.bodyVars) expect(conMarcadores).toContain(`{{${variable}}}`);
+      // Quitando los marcadores, el texto restante debe ser identico.
+      const sinVariables = (texto: string) => texto.replace(/\{\{[^}]+\}\}/g, "·");
+      expect(sinVariables(conMarcadores)).toBe(sinVariables(spec.sample));
+    }
+  });
+
+  it("el plan de WhatsApp deriva su cuerpo de la plantilla, no lo redacta aparte", () => {
+    for (const entry of WHATSAPP_AUTOMATION_PLAN) {
+      expect(entry.body).toBe(templateBodyWithPlaceholders(WHATSAPP_TEMPLATES[entry.templateKey]));
     }
   });
 

@@ -24,7 +24,15 @@ export type WhatsAppTemplateSpec = {
    * declara uno. Nuestras plantillas no lo usan: ver la nota de abajo.
    */
   urlVar?: string;
-  /** Texto de referencia que hay que registrar en Meta. */
+  /**
+   * Cuerpo EXACTO con el que la plantilla esta registrada en Meta, con sus
+   * saltos de linea y su firma. No es una aproximacion ni un resumen.
+   *
+   * Es lo que ve quien revisa una plantilla desde el panel, asi que si aqui
+   * dice una cosa y Meta envia otra, el CRM esta enseñando un mensaje que
+   * nadie recibio. Cualquier cambio del texto en Meta se copia aqui primero;
+   * la prueba de contrato falla si dejan de coincidir.
+   */
   sample: string;
 };
 
@@ -47,19 +55,19 @@ export const WHATSAPP_TEMPLATES: Record<
     name: "ra_training_bienvenida_inscripcion",
     language: "es",
     bodyVars: ["nombre", "curso", "fecha", "hora"],
-    sample: "Hola {{1}}. Tu inscripción a *{{2}}* quedó registrada. Fecha: {{3}}. Hora: {{4}}. Por este medio recibirás los recordatorios y la información de acceso. R.A. Training",
+    sample: "Hola {{1}}.\n\nTu inscripción a *{{2}}* fue registrada correctamente.\n\nFecha: {{3}}\nHora: {{4}}\n\nRecibirás por este medio los recordatorios y la información de acceso correspondientes a esta actividad.\n\nR.A. Training",
   },
   reminder_24h: {
     name: "ra_training_recordatorio_24h",
     language: "es",
     bodyVars: ["nombre", "curso", "fechaSesion", "horaSesion"],
-    sample: "Hola {{1}}. Mañana tienes una sesión de *{{2}}*. Fecha: {{3}}. Hora: {{4}}. El enlace de acceso te llegará 2 horas antes. R.A. Training",
+    sample: "Hola {{1}}.\n\nTe recordamos que mañana tienes una sesión de *{{2}}*.\n\nFecha: {{3}}\nHora: {{4}}\n\nMás adelante recibirás la información de acceso correspondiente.\n\nR.A. Training",
   },
   reminder_2h: {
     name: "ra_training_acceso_2h",
     language: "es",
     bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "Hola {{1}}. Tu sesión de *{{2}}* comienza en 2 horas. Hora: {{3}}. Enlace de acceso: {{4}}. R.A. Training",
+    sample: "Hola {{1}}.\n\nTu sesión de *{{2}}* comienza en 2 horas.\n\nHora: {{3}}\nEnlace de acceso: {{4}}\n\nR.A. Training",
   },
   reminder_15m: {
     name: "ra_training_acceso_15min",
@@ -68,17 +76,47 @@ export const WHATSAPP_TEMPLATES: Record<
     // tres producia el error 132000 ("numero de parametros incorrecto") en el
     // primer envio real, que es justo donde no conviene descubrirlo.
     bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "Hola {{1}}. Tu sesión de *{{2}}* comienza en 15 minutos. Hora: {{3}}. Enlace de acceso: {{4}}. R.A. Training",
+    sample: "Hola {{1}}.\n\nEstamos por comenzar tu sesión de *{{2}}*.\n\nHora: {{3}}\nIngresa aquí: {{4}}\n\nLa sesión inicia en aproximadamente 15 minutos.\n\nR.A. Training",
   },
   thank_you: {
     name: "ra_training_agradecimiento_final",
     language: "es",
     bodyVars: ["nombre", "curso"],
-    sample: "¡Felicitaciones {{1}}! Completaste *{{2}}*. Gracias por acompañarnos. R.A. Training",
+    sample: "Hola {{1}}.\n\nHas finalizado *{{2}}*.\n\nGracias por haber participado en esta actividad de R.A. Training.\n\nEsperamos que los contenidos desarrollados hayan sido útiles para tu formación.",
   },
 };
 
 export type WhatsAppTemplateKey = keyof typeof WHATSAPP_TEMPLATES;
+
+/**
+ * Sustituye {{1}}, {{2}}… por los valores que ocupan esa posicion.
+ *
+ * `resolver` recibe el nombre de la variable de esa posicion y devuelve con que
+ * rellenarla. Con valores de ejemplo produce el mensaje tal como lo recibiria
+ * un contacto; con `(nombre) => "{{" + nombre + "}}"` produce la version con
+ * marcadores que entiende el motor de plantillas del CRM.
+ *
+ * Un {{n}} fuera del rango de variables se deja intacto en lugar de borrarse:
+ * si el texto y `bodyVars` alguna vez discrepan, conviene que se vea.
+ */
+export function fillTemplateBody(spec: WhatsAppTemplateSpec, resolver: (variable: string, index: number) => string): string {
+  return spec.sample.replace(/\{\{(\d+)\}\}/g, (original, posicion: string) => {
+    const index = Number(posicion) - 1;
+    const variable = spec.bodyVars[index];
+    return variable === undefined ? original : resolver(variable, index);
+  });
+}
+
+/**
+ * El texto registrado en Meta, con marcadores del motor en vez de numeros.
+ *
+ * Es lo que se guarda como cuerpo legible del mensaje. Derivarlo del mismo
+ * `sample` en lugar de escribirlo aparte evita el problema que motivo este
+ * cambio: dos textos que dicen ser el mismo mensaje y no lo son.
+ */
+export function templateBodyWithPlaceholders(spec: WhatsAppTemplateSpec): string {
+  return fillTemplateBody(spec, (variable) => `{{${variable}}}`);
+}
 
 /** Indice por el nombre exacto con el que la plantilla esta dada de alta en Meta. */
 const BY_META_NAME = new Map<string, WhatsAppTemplateSpec>(

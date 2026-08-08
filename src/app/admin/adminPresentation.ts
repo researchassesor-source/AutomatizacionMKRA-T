@@ -155,3 +155,64 @@ export function presentAdminValue(value: string | null | undefined) {
   const normalized = value.replaceAll("_", " ").toLocaleLowerCase("es");
   return normalized.charAt(0).toLocaleUpperCase("es") + normalized.slice(1);
 }
+
+/**
+ * Acciones de auditoria en el idioma de quien las lee.
+ *
+ * Se registran con nombres tecnicos porque son claves estables del sistema,
+ * pero "Form submit success" no le dice nada a quien revisa quien hizo que.
+ * La clave interna sigue intacta en la base y en la vista tecnica.
+ */
+const ACCIONES_AUDITORIA: Record<string, string> = {
+  FORM_VIEWED: "Vio el formulario",
+  FORM_STARTED: "Empezó a llenar el formulario",
+  FORM_SUBMIT_ATTEMPT: "Intentó enviar el formulario",
+  FORM_SUBMIT_SUCCESS: "Envió el formulario",
+  FORM_SUBMIT_REJECTED: "Envío del formulario rechazado",
+  CONTACT_CREATED: "Contacto creado",
+  CONTACT_UPDATED: "Contacto actualizado",
+  CONSENT_RECORDED: "Consentimiento registrado",
+  ENROLLMENT_CREATED: "Inscripción creada",
+  AUTOMATION_MESSAGES_QUEUED: "Comunicaciones programadas",
+  AUTOMATION_PLAN_APPLIED: "Plan de comunicaciones aplicado",
+  AUTOMATION_RULE_UPDATED: "Automatización actualizada",
+  AUTOMATION_RULES_PAUSED_BY_SYNC: "Automatizaciones pausadas por sincronización",
+  MESSAGE_PROVIDER_ACCEPTED: "Mensaje aceptado por el proveedor",
+  MESSAGE_PROVIDER_FAILED: "El proveedor rechazó el mensaje",
+  MESSAGE_PROVIDER_STATUS_UPDATED: "Estado del mensaje actualizado",
+  MESSAGE_SIMULATED: "Mensaje simulado (sin envío real)",
+  MESSAGE_OMITTED: "Mensaje omitido",
+  MESSAGE_DISPATCH_BLOCKED: "Envío bloqueado por configuración",
+  EMAIL_CONNECTION_TESTED: "Prueba de conexión de correo",
+  AUTH_LOGIN: "Inicio de sesión",
+  AUTH_LOGOUT: "Cierre de sesión",
+  AUTH_LOGIN_FAILED: "Intento de acceso fallido",
+  USER_CREATED: "Usuario creado",
+  USER_UPDATED: "Usuario actualizado",
+  LEAD_UPDATED: "Contacto editado",
+  LEAD_ARCHIVED: "Contacto archivado",
+  LEAD_RESTORED: "Contacto restaurado",
+  LEAD_DELETED: "Contacto eliminado",
+  LEAD_TEST_DELETED: "Contacto de prueba eliminado",
+  LEAD_CLASSIFICATION_CHANGED: "Clasificación del contacto cambiada",
+  LEADS_EXPORTED: "Contactos exportados",
+  COURSE_SESSION_CREATED: "Sesión creada",
+  COURSE_SESSION_UPDATED: "Sesión actualizada",
+  COURSE_SESSION_DELETED: "Sesión eliminada",
+  COURSE_STREAM_URL_UPDATED: "Enlace de reunión actualizado",
+  CATALOG_SYNCED: "Catálogo sincronizado",
+  SOCIAL_ACCOUNTS_SYNCED: "Cuentas de redes sincronizadas",
+  SOCIAL_POST_CREATED: "Publicación creada",
+  SOCIAL_POST_PUBLISHED: "Publicación enviada",
+  SOCIAL_POST_FAILED: "La publicación no pudo enviarse",
+  WHATSAPP_WEBHOOK_PROCESSED: "Aviso de WhatsApp procesado",
+  WHATSAPP_INBOUND_IGNORED: "Mensaje entrante de WhatsApp descartado",
+  WHATSAPP_WEBHOOK_SIGNATURE_REJECTED: "Aviso de WhatsApp con firma no válida",
+  WHATSAPP_WEBHOOK_VERIFICATION_REJECTED: "Verificación de WhatsApp rechazada",
+  WHATSAPP_WEBHOOK_MALFORMED: "Aviso de WhatsApp no interpretable",
+};
+
+/** Traduccion de una accion de auditoria; si no se conoce, se deja legible. */
+export function presentAuditAction(action: string): string {
+  return ACCIONES_AUDITORIA[action] ?? action.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+}

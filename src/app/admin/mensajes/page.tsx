@@ -86,7 +86,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
       eyebrow="Comunicación"
       title="Comunicaciones"
       description="Todo lo que el sistema envía a los contactos: qué salió, a quién y si llegó."
-      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={pendingCount} />}
+      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={pendingCount} blockedCount={requierenConfig} />}
     />
 
     <section className={`summary-line ${conProblema > 0 || requierenConfig > 0 ? "is-attention" : ""}`}>

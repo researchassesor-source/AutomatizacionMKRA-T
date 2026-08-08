@@ -71,7 +71,6 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         enrollments={enrollments}
         interestCourse={lead.course ? { id: lead.course.id, title: lead.course.title } : null}
         courses={courses}
-        users={users}
         role={session.role}
       />
       <div className="grid">

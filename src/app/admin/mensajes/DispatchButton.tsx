@@ -11,7 +11,7 @@ import { useFeedback } from "../Feedback";
  * mensaje cuya hora haya llegado. Antes el boton decia "Enviar pendientes (0)"
  * y quedaba gris sin mas, lo que se lee como una averia. Ahora lo dice.
  */
-export function DispatchButton({ simulation, pendingCount }: { simulation: boolean; pendingCount: number }) {
+export function DispatchButton({ simulation, pendingCount, blockedCount = 0 }: { simulation: boolean; pendingCount: number; blockedCount?: number }) {
   const router = useRouter();
   const { toast, confirm } = useFeedback();
   const [loading, setLoading] = useState(false);
@@ -49,8 +49,8 @@ export function DispatchButton({ simulation, pendingCount }: { simulation: boole
 
   if (pendingCount === 0) {
     return (
-      <span className="dispatch-idle" title="Los mensajes salen solos a su hora. Este botón solo hace falta para adelantar los que ya vencieron.">
-        Nada pendiente por ahora
+      <span className="dispatch-idle" title="Los mensajes salen solos a su hora. Este botón solo sirve para adelantar los que ya vencieron.">
+        {blockedCount > 0 ? "Nada que enviar ahora mismo" : "Nada pendiente por ahora"}
       </span>
     );
   }

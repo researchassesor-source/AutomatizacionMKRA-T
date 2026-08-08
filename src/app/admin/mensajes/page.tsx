@@ -134,7 +134,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     </section>
 
     {tecnico ? <>
-      <IntegrationStatusPanel only={["email", "whatsapp", "cron"]} />
+      <IntegrationStatusPanel technical only={["email", "whatsapp", "cron"]} />
       <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
       <EmailTestPanel />
       <TemplateManager />

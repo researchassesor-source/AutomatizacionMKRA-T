@@ -4,14 +4,10 @@ import { currentAdminSession } from "@/lib/auth/server";
 import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
-import { CourseCommunications } from "./CourseCommunications";
 import { CourseCards } from "./CourseCards";
-import { buildCourseTimeline } from "@/lib/course-timeline";
 import { resolveCourseSessions } from "@/lib/course-sessions";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { CourseManager, type CourseRow } from "./CourseManager";
-import { CourseSchedulePanel, type ScheduledCourse } from "./CourseSchedulePanel";
-import { CRM_PUBLIC_URL } from "@/data/course-capture-mapping";
 import { wordpressCatalogConfigured } from "@/lib/wordpress-catalog";
 import { WordPressCatalogSync, type SyncMetadata } from "./WordPressCatalogSync";
 
@@ -71,38 +67,6 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
   // para que la pantalla no tenga que saber nada del modelo de reglas.
   const totalInscritos = scheduledCourses.reduce((suma, course) => suma + course._count.enrollments, 0);
   const cursosSinFecha = scheduledCourses.filter((course) => resolveCourseSessions(course, course.sessions).length === 0).length;
-  const comunicaciones = scheduledCourses.map((course) => {
-    const sessions = resolveCourseSessions(course, course.sessions);
-    return {
-      id: course.id,
-      title: course.title,
-      enrollments: course._count.enrollments,
-      nextSessionAt: sessions.find((item) => item.startAt.getTime() >= Date.now())?.startAt.toISOString()
-        ?? sessions[0]?.startAt.toISOString() ?? null,
-      steps: buildCourseTimeline({ rules: course.automationRules, sessions }).map((step) => ({
-        ...step,
-        scheduledAt: step.scheduledAt?.toISOString() ?? null,
-      })),
-      hasSchedule: sessions.length > 0,
-    };
-  });
-  const schedules: ScheduledCourse[] = scheduledCourses.map((course) => ({
-    id: course.id,
-    slug: course.slug,
-    title: course.title,
-    startsAt: course.startsAt?.toISOString() ?? null,
-    endsAt: course.endsAt?.toISOString() ?? null,
-    streamUrl: course.streamUrl,
-    enrollments: course._count.enrollments,
-    automations: course._count.automationRules,
-    sessions: course.sessions.map((session) => ({
-      id: session.id,
-      title: session.title,
-      startAt: session.startAt.toISOString(),
-      endAt: session.endAt?.toISOString() ?? null,
-      streamUrl: session.streamUrl,
-    })),
-  }));
   return (
     <main className="container admin-shell">
       <AdminNav view={view} />
@@ -110,7 +74,10 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         eyebrow="Catálogo"
         title="Cursos"
         description="El catálogo, sus fechas y lo que recibe cada inscrito."
-        actions={canEdit ? <Link className="btn-sm" href={createHref} scroll={false}>Crear curso</Link> : null}
+        actions={<span className="header-actions">
+          <a className="btn-sm ghost" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">Ver catálogo oficial</a>
+          {canEdit ? <Link className="btn-sm" href={createHref} scroll={false}>Crear curso</Link> : null}
+        </span>}
       />
       <form>
         <AdminFilterPanel label="Filtros del catálogo">
@@ -130,9 +97,6 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
           <span className="summary-sep">·</span>
           <strong>{cursosSinFecha}</strong> sin sesión programada
         </> : null}
-        <span className="summary-actions">
-          <a className="btn-sm ghost" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">Ver catálogo oficial</a>
-        </span>
       </section>
 
       <section className="panel">
@@ -153,7 +117,6 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         })} />
       </section>
 
-      <CourseCommunications courses={comunicaciones} />
       {tecnico ? (
         <WordPressCatalogSync
           configured={wordpressCatalogConfigured()}
@@ -169,7 +132,6 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
           }))}
         />
       ) : null}
-      <CourseSchedulePanel courses={schedules} canEdit={canEdit} publicOrigin={process.env.APP_URL?.replace(/\/$/, "") || CRM_PUBLIC_URL} />
       <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
     </main>
   );

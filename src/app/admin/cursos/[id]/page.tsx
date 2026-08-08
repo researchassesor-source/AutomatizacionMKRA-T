@@ -167,6 +167,7 @@ export default async function CoursePage({
           enrollments={course._count.enrollments}
           modality={course.modality}
           canEdit={canEdit}
+          courseStreamUrl={course.streamUrl}
           sessions={course.sessions.map((item) => ({
             id: item.id,
             title: item.title,

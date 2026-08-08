@@ -1402,3 +1402,109 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .import-note { margin: 0; font-size: .84rem; color: var(--muted); }
 .panel-head-actions { flex-wrap: wrap; }
 .panel-head-actions > *:not(h2) { flex: none; }
+
+/* ═══ CORRECCIONES DE BARRA LATERAL ═══════════════════════════════════════
+   El logo quedaba centrado por su cuenta y el nombre se cortaba. La marca es
+   una fila: icono a la izquierda, texto a su lado, alineados con los enlaces
+   que vienen debajo.
+   ═══════════════════════════════════════════════════════════════════════ */
+.admin-sidebar .admin-sidebar-brand {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 11px;
+  text-align: left;
+  padding: 4px 2px 18px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+  text-decoration: none;
+}
+.admin-sidebar .admin-sidebar-brand img { flex: none; width: 34px; height: 34px; }
+.admin-sidebar .admin-sidebar-brand span { display: flex; flex-direction: column; min-width: 0; }
+.admin-sidebar .admin-sidebar-brand strong {
+  font-size: .95rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-sidebar .admin-sidebar-brand small { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; opacity: .62; }
+.admin-sidebar-user strong { max-width: 100%; }
+
+/* ═══ INICIO: la bandeja deja de ser lo primero ═══════════════════════════
+   Al entrar, lo que se quiere ver es como va todo, no una lista de problemas.
+   El resumen de arriba dice cuantos hay y lleva al detalle; el detalle vive
+   mas abajo, plegado si no es urgente.
+   ═══════════════════════════════════════════════════════════════════════ */
+.home-review {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 16px;
+  margin-bottom: 26px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: .92rem;
+  color: var(--muted);
+}
+.home-review.is-attention { border-color: #f6dfc0; background: #fffbf5; }
+.home-review strong { color: var(--ink); font-weight: 600; }
+.home-review .btn-sm { margin-left: auto; }
+.home-attention { border-top: 1px solid var(--border); padding-top: 22px; }
+.home-attention > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.home-attention > summary::-webkit-details-marker { display: none; }
+.home-attention > summary::before { content: "▸"; transition: transform .15s ease; }
+.home-attention[open] > summary::before { transform: rotate(90deg); }
+.home-attention > summary:hover { color: var(--brand-primary); }
+
+.dispatch-idle { font-size: .85rem; color: var(--muted); cursor: help; }
+
+/* ═══ CANALES EN LENGUAJE DE DIRECCION ════════════════════════════════════ */
+.channel-list { display: flex; flex-direction: column; gap: 2px; }
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: .93rem;
+}
+.channel-row:last-child { border-bottom: 0; }
+.channel-row strong { font-weight: 600; color: var(--ink); }
+.channel-row .status-dot { gap: 0; }
+.channel-state { margin-left: auto; font-size: .87rem; color: var(--muted); }
+
+/* Enlace comun del curso */
+.course-link-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 11px;
+  background: var(--brand-bg);
+}
+.course-link-box.is-set { border-style: solid; background: var(--surface); }
+.course-link-copy { flex: 1; min-width: 200px; }
+.course-link-copy strong { display: block; font-size: .9rem; font-weight: 600; color: var(--ink); }
+.course-link-copy small { display: block; margin-top: 3px; font-size: .82rem; color: var(--muted); line-height: 1.5; }
+.course-link-form { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+.course-link-form input { height: 40px; min-width: 260px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; font-size: .9rem; }
+.header-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }

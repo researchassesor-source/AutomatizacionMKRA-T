@@ -23,6 +23,7 @@ export function CourseSessionsPanel({
   modality,
   canEdit,
   sessions,
+  courseStreamUrl,
 }: {
   courseId: string;
   courseTitle: string;
@@ -30,11 +31,13 @@ export function CourseSessionsPanel({
   modality: string | null;
   canEdit: boolean;
   sessions: SessionRow[];
+  courseStreamUrl: string | null;
 }) {
   const router = useRouter();
   const { toast, confirm } = useFeedback();
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [editingCourse, setEditingCourse] = useState(false);
 
   async function saveLink(sessionId: string, streamUrl: string) {
     setBusy(sessionId);
@@ -56,6 +59,35 @@ export function CourseSessionsPanel({
       detail: streamUrl.trim()
         ? "Los recordatorios de acceso ya pueden salir para esta sesión."
         : "Los recordatorios de acceso quedarán en espera hasta que agregues uno.",
+    });
+    router.refresh();
+  }
+
+  /**
+   * Enlace comun a todas las sesiones del curso.
+   *
+   * Lo habitual es que la reunion sea la misma los tres dias. Escribir el mismo
+   * enlace tres veces es trabajo repetido y una oportunidad de equivocarse en
+   * uno de ellos.
+   */
+  async function saveCourseLink(streamUrl: string) {
+    setBusy("curso");
+    const response = await fetch(`/api/admin/courses/${courseId}/sessions`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ streamUrl: streamUrl.trim() }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setBusy(null);
+    if (!response.ok) {
+      toast({ tone: "error", title: "No se pudo guardar el enlace", detail: result.error ?? "Inténtalo de nuevo." });
+      return;
+    }
+    setEditingCourse(false);
+    toast({
+      tone: "success",
+      title: "Enlace guardado para todo el curso",
+      detail: "Se usará en todas las sesiones que no tengan uno propio.",
     });
     router.refresh();
   }
@@ -100,6 +132,34 @@ export function CourseSessionsPanel({
             label={sessions.length === 0 ? "Programar sesión" : "Añadir sesión"}
             variant={sessions.length === 0 ? "primary" : "ghost"}
           />
+        ) : null}
+      </div>
+
+      <div className={`course-link-box ${courseStreamUrl ? "is-set" : ""}`}>
+        <div className="course-link-copy">
+          <strong>Enlace de la reunión para todo el curso</strong>
+          <small>
+            {courseStreamUrl
+              ? "Se usa en todas las sesiones que no tengan uno propio."
+              : "Si la reunión es la misma todos los días, ponlo una vez aquí y vale para todas las sesiones."}
+          </small>
+        </div>
+        {editingCourse ? (
+          <form
+            className="course-link-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveCourseLink(String(new FormData(event.currentTarget).get("streamUrl") ?? ""));
+            }}
+          >
+            <input name="streamUrl" type="url" defaultValue={courseStreamUrl ?? ""} placeholder="https://meet.google.com/…" />
+            <button type="submit" className="btn-sm" disabled={busy === "curso"}>{busy === "curso" ? "Guardando…" : "Usar en todas"}</button>
+            <button type="button" className="btn-sm ghost" onClick={() => setEditingCourse(false)}>Cancelar</button>
+          </form>
+        ) : canEdit ? (
+          <button type="button" className={`btn-sm ${courseStreamUrl ? "ghost" : ""}`} onClick={() => setEditingCourse(true)}>
+            {courseStreamUrl ? "Cambiar enlace" : "Poner enlace"}
+          </button>
         ) : null}
       </div>
 

@@ -12,11 +12,44 @@ const pillClass: Record<IntegrationState, string> = {
 };
 
 /**
- * Estado de las integraciones en lenguaje del administrador. No muestra tokens
- * ni contraseñas: solo si están configurados y qué falta por hacer.
+ * Version para direccion: una linea por canal, sin vocabulario del sistema.
+ *
+ * El detalle tecnico (Login Kit, callbacks, tokens, nombres de variables) es
+ * util para diagnosticar y completamente inutil para decidir. Quien dirige
+ * necesita saber si puede publicar, no que le falta a la integracion por
+ * dentro; eso vive en la vista tecnica.
  */
-export function IntegrationStatusPanel({ only }: { only?: string[] } = {}) {
+const RESUMEN_SIMPLE: Record<IntegrationState, string> = {
+  READY: "Listo para publicar",
+  SIMULATED: "En pruebas, todavía no publica",
+  PENDING_CONFIGURATION: "Falta terminar de configurar",
+  PENDING_EXTERNAL_VERIFICATION: "Esperando verificación externa",
+  PENDING_PROVIDER_APPROVAL: "Esperando aprobación de la plataforma",
+  PENDING_AD_ACCOUNT: "Falta la cuenta publicitaria",
+  NOT_READY: "Todavía no disponible",
+  ERROR: "Con un problema",
+};
+
+export function IntegrationStatusPanel({ only, technical = true }: { only?: string[]; technical?: boolean } = {}) {
   const statuses = integrationStatuses().filter((item) => !only || only.includes(item.key));
+
+  if (!technical) {
+    return (
+      <section className="panel" aria-label="Estado de los canales">
+        <h2>Canales</h2>
+        <div className="channel-list">
+          {statuses.map((status) => (
+            <div className="channel-row" key={status.key}>
+              <span className={`status-dot ${status.state === "READY" ? "is-done" : status.state === "ERROR" ? "is-problem" : "is-attention"}`} />
+              <strong>{status.name.replace(/\s*\(.*\)$/, "")}</strong>
+              <span className="channel-state">{RESUMEN_SIMPLE[status.state]}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="panel" aria-label="Estado de las integraciones">
       <h2>Estado de las integraciones</h2>

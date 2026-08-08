@@ -7,6 +7,8 @@ import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { IntegrationStatusPanel } from "../IntegrationStatusPanel";
 import { RedesManager } from "./RedesManager";
+import { PublishComposer } from "./PublishComposer";
+import { PostsBoard } from "./PostsBoard";
 import { TikTokPanel } from "./TikTokPanel";
 import { socialConnectionState } from "@/lib/social/orchestrator";
 
@@ -23,9 +25,14 @@ export default async function SocialPage() {
     prisma.socialPost.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { account: true } }),
     prisma.socialSchedule.findMany({ orderBy: { nextRunAt: "asc" }, include: { account: true } }),
   ]);
-  return <main className="container admin-shell"><AdminNav view={view} /><AdminPageHeader eyebrow="Contenido y campañas" title="Redes sociales" description="Publica y programa contenido en Facebook, Instagram y TikTok." /><IntegrationStatusPanel technical={view === "tecnica"} only={view === "tecnica" ? ["facebook", "instagram", "tiktok", "whatsapp", "meta_ads"] : ["facebook", "instagram", "tiktok"]} />{view === "tecnica" ? <TikTokPanel /> : null}<RedesManager
+  // Solo las cuentas que de verdad pueden publicar. Mostrar las inactivas o de
+  // prueba en la pantalla de publicar invita a elegir una que no envia nada.
+  const publicables = accounts
+    .filter((account) => account.isActive && ["SIMULATION", "READY"].includes(socialConnectionState(account.platform)))
+    .map((account) => ({ id: account.id, platform: account.platform, displayName: account.displayName }));
+  return <main className="container admin-shell"><AdminNav view={view} /><AdminPageHeader eyebrow="Contenido y campañas" title="Redes sociales" description="Publica y programa contenido en Facebook, Instagram y TikTok." /><IntegrationStatusPanel technical={view === "tecnica"} only={view === "tecnica" ? ["facebook", "instagram", "tiktok", "whatsapp", "meta_ads"] : ["facebook", "instagram", "tiktok"]} />{view === "tecnica" ? <TikTokPanel /> : null}<PublishComposer accounts={publicables} /><PostsBoard posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, platform: item.account.platform, accountName: item.account.displayName, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, providerPostUrl: item.providerPostUrl }))} />{view === "tecnica" ? <RedesManager
     accounts={accounts.map((item) => ({ id: item.id, platform: item.platform, displayName: item.displayName, externalId: item.externalId, isActive: item.isActive, connectorState: socialConnectionState(item.platform), connectionStatus: item.connectionStatus, connectionCheckedAt: item.connectionCheckedAt?.toISOString() ?? null, connectionError: item.connectionError }))}
     posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, account: `${item.account.platform} · ${item.account.displayName}`, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, errorCode: item.errorCode, providerPostUrl: item.providerPostUrl, externalPostId: item.externalPostId }))}
     schedules={schedules.map((item) => ({ id: item.id, name: item.name, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, weekday: item.weekday, localTime: item.localTime, isActive: item.isActive, nextRunAt: item.nextRunAt.toISOString(), account: `${item.account.platform} · ${item.account.displayName}` }))}
-  /></main>;
+  /> : null}</main>;
 }

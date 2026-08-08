@@ -102,10 +102,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               <select name="course" defaultValue={filters.course ?? ""}><option value="">Todos los cursos activos</option>{activeCourses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
             </label>
             <label className="filter-field">
-              <span>Responsable</span>
-              <select name="assignedTo" defaultValue={filters.assignedTo ?? ""}><option value="">Todos los responsables</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>
-            </label>
-            <label className="filter-field">
               <span>Clasificación</span>
               <select name="classification" defaultValue={filters.classification ?? ""}><option value="">Todas</option>{["REAL","TEST","DEMO","UNKNOWN"].map((value) => <option key={value} value={value}>{presentAdminValue(value)}</option>)}</select>
             </label>
@@ -145,7 +141,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             : canCreate ? <NewContactForm courses={activeCourses} users={users} /> : null}
         /> : (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>Contacto</th><th>WhatsApp</th><th>Etapa</th><th>Clasificación</th><th>Cursos</th><th>Origen</th><th>Responsable</th><th>Fecha</th></tr></thead>
+            <thead><tr><th>Contacto</th><th>WhatsApp</th><th>Etapa</th><th>Clasificación</th><th>Cursos</th><th>Origen</th><th>Fecha</th></tr></thead>
             <tbody>{leads.map((lead) => <tr key={lead.id}>
               <td><Link href={`/admin/leads/${lead.id}`}><strong>{lead.fullName}</strong></Link>{lead.email ? <div className="muted">{lead.email}</div> : null}</td>
               <td><a href={lead.phone ? `https://wa.me/${lead.phone.replace(/\D/g, "")}` : undefined}>{lead.phone ?? "—"}</a></td>

@@ -162,14 +162,6 @@ ${lead.fullName}`);
     if (result.ok) { form.reset(); router.refresh(); }
   }
 
-  async function complete(enrollmentId: string) {
-    if (!window.confirm("¿Confirmas que el curso fue completado? Se preparará el envío a Finance, sin emitir certificados desde el CRM.")) return;
-    setBusy(true);
-    const result = await jsonRequest(`/api/admin/enrollments/${enrollmentId}/complete`, "POST", { confirm: true });
-    setBusy(false);
-    setMessage(result.ok ? (result.data.simulated ? "Finalización registrada. Envío a Finance simulado de forma segura." : "Inscripción enviada a Finance.") : result.data.error);
-    router.refresh();
-  }
 
   async function addEnrollment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -225,7 +217,7 @@ ${lead.fullName}`);
           <div className="form-row"><label className="field"><span>Clasificación</span><select name="classification" aria-label="Clasificación del registro" defaultValue={lead.classification} disabled={!canEdit}><option value="REAL">Real</option><option value="TEST">Prueba técnica</option><option value="DEMO">Demostración</option><option value="UNKNOWN">Por clasificar</option></select></label></div>
           <div className="form-row"><input name="lostReason" aria-label="Motivo de pérdida" defaultValue={lead.lostReason ?? ""} placeholder="Motivo de pérdida" disabled={!canEdit} /><input name="nextActionAt" aria-label="Próxima acción" type="datetime-local" defaultValue={lead.nextActionAt ? isoToEcuadorLocalInput(lead.nextActionAt) : ""} disabled={!canEdit} /></div>
           {canEdit && <button type="submit" className="btn-sm" disabled={busy}>Guardar cambios</button>}
-          <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Campaña</dt><dd>{lead.utmCampaign ?? "—"}</dd><dt>Medio</dt><dd>{lead.utmMedium ?? "—"}</dd><dt>Contenido UTM</dt><dd>{lead.utmContent ?? "—"}</dd><dt>Término UTM</dt><dd>{lead.utmTerm ?? "—"}</dd><dt>Landing</dt><dd>{lead.landingUrl ? <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir landing ↗</a> : "—"}</dd><dt>Referrer</dt><dd>{lead.referrer ? <a href={lead.referrer} target="_blank" rel="noreferrer">Abrir referrer ↗</a> : "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>
+          <dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Landing</dt><dd>{lead.landingUrl ? <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir landing ↗</a> : "—"}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje comercial</dt><dd>{lead.score}</dd></dl>
         </form>
 
         <section>
@@ -242,7 +234,7 @@ ${lead.fullName}`);
           <label className="field"><span>Estado inicial</span><select name="status" defaultValue="INSCRITO"><option value="INSCRITO">Inscrito</option><option value="INTERESADO">Interesado</option></select></label>
           <button type="submit" className="btn-sm" disabled={busy}>{busy ? "Creando…" : "Crear inscripción"}</button>
         </form> : null}
-        {enrollments.length === 0 ? <AdminEmptyState icon="courses" title="Sin inscripciones" description="Este contacto todavía no está asociado a un curso." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Curso</th><th>Inscripción</th><th>Atribución</th><th>Finance</th><th>Certificado</th><th>Acciones</th></tr></thead><tbody>{enrollments.map((item) => <tr key={item.id}><td><a href={item.course.officialCourseUrl} target="_blank" rel="noreferrer">{item.course.title} ↗</a></td><td><span className="pill info">{presentAdminValue(item.status)}</span></td><td>{item.utmSource ?? item.source ?? "Orgánico"}<div className="muted">{[item.utmCampaign, item.utmContent, item.utmTerm].filter(Boolean).join(" · ")}</div>{item.landingUrl ? <a className="muted" href={item.landingUrl} target="_blank" rel="noreferrer">Landing ↗</a> : null}</td><td><span className="pill">{presentAdminValue(item.financeStatus)}</span>{item.financeInscripcionId && <div className="muted">{item.financeInscripcionId}</div>}</td><td>{presentAdminValue(item.certificateStatus)}</td><td>{role === "ADMIN" && item.status !== "COMPLETADO" && <button type="button" className="btn-sm ghost" disabled={busy} onClick={() => complete(item.id)}>Marcar curso completado</button>}{item.course.moodleCourseUrl && <a className="btn-sm ghost" href={item.course.moodleCourseUrl} target="_blank" rel="noreferrer">Abrir campus ↗</a>}</td></tr>)}</tbody></table></div>}
+        {enrollments.length === 0 ? <AdminEmptyState icon="courses" title="Sin inscripciones" description="Este contacto todavía no está asociado a un curso." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Curso</th><th>Estado</th><th>Origen</th></tr></thead><tbody>{enrollments.map((item) => <tr key={item.id}><td><a href={item.course.officialCourseUrl} target="_blank" rel="noreferrer">{item.course.title} ↗</a></td><td><span className="pill info">{presentAdminValue(item.status)}</span></td><td>{item.utmSource ?? item.source ?? "Orgánico"}<div className="muted">{[item.utmCampaign, item.utmContent, item.utmTerm].filter(Boolean).join(" · ")}</div>{item.landingUrl ? <a className="muted" href={item.landingUrl} target="_blank" rel="noreferrer">Landing ↗</a> : null}</td></tr>)}</tbody></table></div>}
       </section>
     </>
   );

@@ -3,6 +3,8 @@ import { processScheduledMessages } from "@/lib/nurture/engine";
 import { checkCronAuth } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
+// La firma de QStash se calcula sobre el cuerpo crudo, y eso exige node:crypto.
+export const runtime = "nodejs";
 
 /**
  * Dispatcher de la cola de nurture: envia los mensajes programados vencidos.
@@ -28,7 +30,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!checkCronAuth(request)) {
+  const rawBody = await request.text();
+  if (!checkCronAuth(request, rawBody)) {
     return NextResponse.json({ error: "no autorizado" }, { status: 401 });
   }
   return run();

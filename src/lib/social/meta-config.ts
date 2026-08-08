@@ -13,6 +13,12 @@ export type MetaConfig = {
   pageId?: string;
   igUserId?: string;
   appId?: string;
+  /**
+   * Secreto de la app. Solo lo usa `debug_token`, que exige un token de
+   * aplicacion (`appId|appSecret`) para poder leer los permisos del token del
+   * sistema. Nunca se envia a otro sitio ni se muestra.
+   */
+  appSecret?: string;
   businessId?: string;
   graphVersion: string;
   adAccountId?: string;
@@ -39,6 +45,7 @@ export function resolveMetaConfig(env: EnvSource = process.env): MetaConfig {
     pageId: value(env.META_PAGE_ID),
     igUserId: value(env.META_INSTAGRAM_ACCOUNT_ID) ?? value(env.META_IG_USER_ID),
     appId: value(env.META_APP_ID),
+    appSecret: value(env.META_APP_SECRET),
     businessId: value(env.META_BUSINESS_ID),
     graphVersion: normalizeVersion(env.META_GRAPH_API_VERSION),
     adAccountId: value(env.META_AD_ACCOUNT_ID),

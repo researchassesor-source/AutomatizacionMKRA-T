@@ -18,20 +18,40 @@ type GraphResponse = { id?: string; post_id?: string; status_code?: string; stat
 export class MetaAdapter implements SocialAdapter {
   readonly platform: Platform;
   private readonly graph: string;
+  /**
+   * Identificador de la cuenta concreta a la que se publica.
+   *
+   * Antes el adaptador solo miraba `META_PAGE_ID`, de modo que elegir una
+   * pagina u otra en el panel no cambiaba nada: todo salia siempre a la que
+   * dijera la variable. Quien publicaba creia estar eligiendo destino y no lo
+   * estaba. Ahora manda la cuenta seleccionada y la variable queda como
+   * respaldo para instalaciones que aun no tengan `externalId` guardado.
+   */
+  private readonly targetId?: string;
 
   constructor(
     platform: "INSTAGRAM" | "FACEBOOK",
     private readonly config: MetaConfig,
+    targetId?: string | null,
   ) {
     this.platform = platform;
     this.graph = `https://graph.facebook.com/${config.graphVersion ?? DEFAULT_GRAPH_API_VERSION}`;
+    this.targetId = normalizeAccountId(targetId) ?? undefined;
+  }
+
+  /** Pagina de Facebook a la que se publica. */
+  private get pageId(): string | undefined {
+    return this.platform === "FACEBOOK" ? (this.targetId ?? this.config.pageId) : this.config.pageId;
+  }
+
+  /** Cuenta de Instagram a la que se publica. */
+  private get igUserId(): string | undefined {
+    return this.platform === "INSTAGRAM" ? (this.targetId ?? this.config.igUserId) : this.config.igUserId;
   }
 
   isConfigured(): boolean {
     if (!this.config.accessToken) return false;
-    return this.platform === "INSTAGRAM"
-      ? Boolean(this.config.igUserId)
-      : Boolean(this.config.pageId);
+    return this.platform === "INSTAGRAM" ? Boolean(this.igUserId) : Boolean(this.pageId);
   }
 
   /**
@@ -45,22 +65,31 @@ export class MetaAdapter implements SocialAdapter {
     }
     try {
       if (this.platform === "INSTAGRAM") {
-        const data = await this.get(`${this.config.igUserId}?fields=id,username`);
+        const data = await this.get(`${this.igUserId}?fields=id,username`);
         if (data.error) return { ok: false, ...describeMetaError(data.error) };
         const account = data as GraphResponse & { username?: string };
         return { ok: true, name: account.username, details: { instagramAccountId: String(account.id ?? "") } };
       }
-      const page = await this.get(`${this.config.pageId}?fields=id,name,instagram_business_account`);
+      const page = await this.get(`${this.pageId}?fields=id,name,instagram_business_account`);
       if (page.error) return { ok: false, ...describeMetaError(page.error) };
       const typed = page as GraphResponse & { name?: string; instagram_business_account?: { id?: string } };
       const linkedInstagram = typed.instagram_business_account?.id ?? null;
+      // Leer la pagina NO prueba que se pueda publicar en ella: son permisos
+      // distintos. Por eso se comprueba tambien la capacidad de publicacion;
+      // sin esto el panel decia "Listo" y la publicacion fallaba igualmente.
+      const publicacion = await this.checkPublishCapability();
       return {
-        ok: true,
+        ok: publicacion.puedePublicar,
         name: typed.name,
+        errorCode: publicacion.puedePublicar ? undefined : "FB_SIN_PERMISO_PUBLICAR",
+        error: publicacion.puedePublicar ? undefined : publicacion.motivo,
         details: {
           pageId: String(typed.id ?? ""),
           instagramLinked: Boolean(linkedInstagram),
-          instagramMatchesConfig: Boolean(linkedInstagram && linkedInstagram === this.config.igUserId),
+          instagramMatchesConfig: Boolean(linkedInstagram && linkedInstagram === this.igUserId),
+          puedePublicar: publicacion.puedePublicar,
+          tareasSobreLaPagina: publicacion.tareas.join(", ") || "(ninguna)",
+          tokenDePaginaDisponible: publicacion.tokenDePaginaDisponible,
         },
       };
     } catch {
@@ -84,13 +113,113 @@ export class MetaAdapter implements SocialAdapter {
     }
   }
 
+  /**
+   * ¿Puede este token publicar en la pagina, o solo leerla?
+   *
+   * Meta responde con el mismo `code: 200` tanto si al token le faltan
+   * permisos como si al usuario del sistema no le han asignado la pagina. Esta
+   * comprobacion separa ambos casos ANTES de intentar publicar, mirando dos
+   * cosas que no requieren escribir nada: las tareas que se tienen sobre la
+   * pagina y si se puede derivar un token de pagina.
+   */
+  private async checkPublishCapability(): Promise<{
+    puedePublicar: boolean;
+    tareas: string[];
+    tokenDePaginaDisponible: boolean;
+    motivo?: string;
+  }> {
+    const data = await this.get(`${this.pageId}?fields=tasks,access_token`);
+    const typed = data as GraphResponse & { tasks?: string[]; access_token?: string };
+    const tareas = typed.tasks ?? [];
+    const tokenDePaginaDisponible = Boolean(typed.access_token);
+    // CREATE_CONTENT es la tarea que Meta exige para publicar en una pagina.
+    const puedeCrear = tareas.includes("CREATE_CONTENT");
+
+    if (data.error) {
+      return {
+        puedePublicar: false,
+        tareas,
+        tokenDePaginaDisponible,
+        motivo: `Meta no permite consultar los permisos sobre esta página: ${data.error.message ?? "sin detalle"}. Suele significar que al token le falta pages_show_list o que la página no está asignada al usuario del sistema.`,
+      };
+    }
+    if (!puedeCrear) {
+      return {
+        puedePublicar: false,
+        tareas,
+        tokenDePaginaDisponible,
+        motivo: tareas.length === 0
+          ? "El usuario del sistema no tiene ninguna tarea asignada sobre esta página. Hay que asignársela en Business Settings con la tarea «Crear contenido»."
+          : `El usuario del sistema tiene ${tareas.join(", ")} sobre esta página, pero le falta CREATE_CONTENT, que es la tarea que exige Meta para publicar.`,
+      };
+    }
+    if (!tokenDePaginaDisponible) {
+      return {
+        puedePublicar: false,
+        tareas,
+        tokenDePaginaDisponible,
+        motivo: "No se puede derivar un token de página. Al token le falta el permiso pages_show_list o pages_read_engagement.",
+      };
+    }
+    return { puedePublicar: true, tareas, tokenDePaginaDisponible };
+  }
+
+  /**
+   * Diagnostico ampliado para el panel. Nunca devuelve el token ni un fragmento.
+   *
+   * Existe porque "permisos insuficientes" no le dice a nadie que tiene que
+   * cambiar. Esto nombra el permiso o la tarea que falta.
+   */
+  async diagnose(): Promise<Record<string, unknown>> {
+    const identidad = await this.get("me?fields=id,name");
+    const capacidad = this.platform === "FACEBOOK"
+      ? await this.checkPublishCapability()
+      : { puedePublicar: true, tareas: [], tokenDePaginaDisponible: false };
+    const permisos = await this.inspectToken();
+    return {
+      plataforma: this.platform,
+      destinoConfigurado: this.platform === "FACEBOOK" ? Boolean(this.pageId) : Boolean(this.igUserId),
+      /** De donde sale el destino: de la cuenta elegida o de la variable. */
+      origenDelDestino: this.targetId ? "cuenta seleccionada" : "variable de entorno",
+      identidadDelToken: identidad.error ? `error: ${identidad.error.message ?? "sin detalle"}` : ((identidad as { name?: string }).name ?? "sin nombre"),
+      tokenValido: !identidad.error,
+      ...permisos,
+      tareasSobreLaPagina: capacidad.tareas,
+      puedePublicar: capacidad.puedePublicar,
+      motivo: capacidad.motivo ?? null,
+      tokenDePaginaDisponible: capacidad.tokenDePaginaDisponible,
+    };
+  }
+
+  /** Scopes reales del token, via debug_token. Requiere appId y appSecret. */
+  private async inspectToken(): Promise<{ scopes: string[]; tipoDeToken: string | null; caduca: string | null }> {
+    const { appId, appSecret, accessToken } = this.config;
+    if (!appId || !appSecret || !accessToken) return { scopes: [], tipoDeToken: null, caduca: null };
+    try {
+      const res = await fetch(`${this.graph}/debug_token?input_token=${encodeURIComponent(accessToken)}`, {
+        headers: { Authorization: `Bearer ${appId}|${appSecret}` },
+      });
+      const info = ((await res.json().catch(() => ({}))) as { data?: { scopes?: string[]; type?: string; expires_at?: number } }).data ?? {};
+      return {
+        scopes: info.scopes ?? [],
+        tipoDeToken: info.type ?? null,
+        caduca: info.expires_at === 0 ? "nunca" : info.expires_at ? new Date(info.expires_at * 1000).toISOString() : null,
+      };
+    } catch {
+      return { scopes: [], tipoDeToken: null, caduca: null };
+    }
+  }
+
   private async publishInstagram(input: PublishInput): Promise<PublishResult> {
     if (!input.mediaUrl) {
       return { ok: false, errorCode: "MEDIA_REQUIRED", error: "Instagram necesita una imagen o un video para publicar." };
     }
-    const { igUserId } = this.config;
+    const igUserId = this.igUserId;
     const video = isVideo(input.mediaUrl);
-    const caption = input.linkUrl ? `${input.caption}\n\n${input.linkUrl}` : input.caption;
+    // El caption llega ya compuesto: la llamada a la accion y la URL se
+    // resuelven al crear la publicacion, en `lib/social/cta`, para que lo que
+    // se ve en la vista previa y lo que se envia sean el mismo texto.
+    const caption = input.caption;
 
     // Paso 1: crear el container (imagen o Reel de video).
     const container = await this.post(
@@ -138,8 +267,21 @@ export class MetaAdapter implements SocialAdapter {
   }
 
   private async publishFacebook(input: PublishInput): Promise<PublishResult> {
-    const { pageId } = this.config;
-    const caption = input.linkUrl ? `${input.caption}\n\n${input.linkUrl}` : input.caption;
+    const pageId = this.pageId;
+    // Igual que en Instagram: el caption viene compuesto desde `lib/social/cta`
+    // y aqui no se le añade nada, para no duplicar la URL que ya lleva dentro.
+    const caption = input.caption;
+
+    /**
+     * Se publica con el token del usuario del sistema, como hasta ahora.
+     *
+     * Meta documenta que las publicaciones de pagina se hacen con un token DE
+     * PAGINA, y cambiarlo es un candidato a resolver el rechazo 200. Pero
+     * todavia no sabemos si esa es la causa: cambiar el camino de publicacion
+     * a ciegas podria enmascarar el problema en vez de arreglarlo, y añade una
+     * llamada a Graph en cada envio. El diagnostico ya informa de si se puede
+     * derivar ese token; cuando se confirme la causa, se cambia con criterio.
+     */
 
     // Video -> /videos ; imagen -> /photos ; solo texto -> /feed
     if (input.mediaUrl && isVideo(input.mediaUrl)) {
@@ -155,7 +297,9 @@ export class MetaAdapter implements SocialAdapter {
       return { ok: true, externalPostId: id, providerPostUrl: `https://www.facebook.com/${id}`, providerResponse: { platform: "FACEBOOK", kind: "photo" } };
     }
 
-    const params: Record<string, string> = { message: input.caption };
+    // Sin imagen, `link` produce la tarjeta de enlace de Facebook, que es mejor
+    // que la URL suelta en el texto. El caption compuesto ya no la lleva.
+    const params: Record<string, string> = { message: caption };
     if (input.linkUrl) params.link = input.linkUrl;
     const res = await this.post(`${pageId}/feed`, params);
     if (!res.id) return { ok: false, ...describeMetaError(res.error), providerResponse: { step: "feed", metaCode: res.error?.code ?? null } };
@@ -177,6 +321,21 @@ export class MetaAdapter implements SocialAdapter {
     });
     return (await res.json().catch(() => ({}))) as GraphResponse;
   }
+}
+
+/**
+ * Identificador utilizable de una cuenta social.
+ *
+ * En la base hay cuentas cuyo `externalId` es la URL del perfil en vez del
+ * identificador numerico ("https://www.facebook.com/profile.php?id=..."). Son
+ * registros antiguos creados a mano. Pasarselos a Graph produciria un 404
+ * confuso, asi que se descartan y el adaptador cae en la variable de entorno,
+ * que es el comportamiento anterior y conocido.
+ */
+export function normalizeAccountId(raw: string | null | undefined): string | null {
+  const valor = raw?.trim();
+  if (!valor) return null;
+  return /^\d+$/.test(valor) ? valor : null;
 }
 
 function isVideo(url: string): boolean {

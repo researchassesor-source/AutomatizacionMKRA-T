@@ -4,6 +4,8 @@ import { checkCronAuth } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+// La firma de QStash se calcula sobre el cuerpo crudo, y eso exige node:crypto.
+export const runtime = "nodejs";
 
 /**
  * Endpoint del orquestador de publicaciones.
@@ -27,15 +29,17 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!checkCronAuth(request)) {
+  // El cuerpo se lee UNA vez y en crudo: la firma de QStash se calcula sobre
+  // el texto exacto que llego, y reserializar el JSON la invalidaria.
+  const rawBody = await request.text();
+  if (!checkCronAuth(request, rawBody)) {
     return NextResponse.json({ error: "no autorizado" }, { status: 401 });
   }
   let postId: string | undefined;
   try {
-    const body = await request.json();
-    postId = body?.postId;
+    postId = rawBody ? JSON.parse(rawBody)?.postId : undefined;
   } catch {
-    // sin body: modo cola
+    // sin body o cuerpo no interpretable: modo cola
   }
 
   try {

@@ -19,11 +19,11 @@ import { writeAudit } from "@/lib/audit";
  * Los adaptadores se construyen en cada uso para leer la configuracion vigente
  * (y no la que existiera al importar el modulo).
  */
-function buildAdapters(): Partial<Record<Platform, SocialAdapter>> {
+function buildAdapters(targetId?: string | null): Partial<Record<Platform, SocialAdapter>> {
   const metaConfig = resolveMetaConfig();
   return {
-    INSTAGRAM: new MetaAdapter("INSTAGRAM", metaConfig),
-    FACEBOOK: new MetaAdapter("FACEBOOK", metaConfig),
+    INSTAGRAM: new MetaAdapter("INSTAGRAM", metaConfig, targetId),
+    FACEBOOK: new MetaAdapter("FACEBOOK", metaConfig, targetId),
     TIKTOK: new TikTokAdapter({
       clientKey: process.env.TIKTOK_CLIENT_KEY,
       clientSecret: process.env.TIKTOK_CLIENT_SECRET,
@@ -33,8 +33,13 @@ function buildAdapters(): Partial<Record<Platform, SocialAdapter>> {
   };
 }
 
-export function getAdapter(platform: Platform): SocialAdapter | undefined {
-  return buildAdapters()[platform];
+/**
+ * `targetId` es el `externalId` de la cuenta a la que se publica. Sin el, Meta
+ * cae en la pagina de la variable de entorno, que es lo que ocurria siempre y
+ * hacia que elegir cuenta en el panel no tuviera ningun efecto.
+ */
+export function getAdapter(platform: Platform, targetId?: string | null): SocialAdapter | undefined {
+  return buildAdapters(targetId)[platform];
 }
 
 export type SocialConnectionState = "SIMULATION" | "READY" | "NOT_CONFIGURED" | "UNSUPPORTED";
@@ -226,7 +231,7 @@ export async function publishPost(postId: string) {
     return { ok: true, simulated: true };
   }
 
-  const adapter = getAdapter(post.account.platform);
+  const adapter = getAdapter(post.account.platform, post.account.externalId);
   if (!adapter) {
     const error = "Esta red todavía no tiene un conector habilitado.";
     await prisma.socialPost.update({

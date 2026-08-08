@@ -4,6 +4,14 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ecuadorLocalDateTimeToIso } from "@/lib/time";
+import {
+  AVISO_INSTAGRAM_SIN_ENLACE,
+  componerCaption,
+  CTA_INSTAGRAM_POR_DEFECTO,
+  esUrlDestinoValida,
+  requiereAvisoInstagram,
+} from "@/lib/social/cta";
+import type { Platform } from "@/lib/social/types";
 import { useFeedback } from "../Feedback";
 
 export type ComposerAccount = { id: string; platform: string; displayName: string };
@@ -38,6 +46,15 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
   const { toast } = useFeedback();
   const [texto, setTexto] = useState("");
   const [enlace, setEnlace] = useState("");
+  /**
+   * CTA de Instagram, separado del texto base.
+   *
+   * Instagram no convierte las URL del caption en enlaces. Antes se pegaba la
+   * misma URL en las dos redes y en Instagram quedaba como texto muerto: largo,
+   * feo y sin destino. Aqui se sustituye por una llamada a la accion que si
+   * lleva a alguna parte, el enlace de la biografia.
+   */
+  const [ctaInstagram, setCtaInstagram] = useState(CTA_INSTAGRAM_POR_DEFECTO);
   const [imagen, setImagen] = useState("");
   const [cuando, setCuando] = useState("");
   const [seleccion, setSeleccion] = useState<string[]>(() => accounts.slice(0, 1).map((a) => a.id));
@@ -93,6 +110,32 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
 
   const elegidas = accounts.filter((account) => seleccion.includes(account.id));
   const vistaPrevia = elegidas[0] ?? accounts[0] ?? null;
+
+  const enlaceValido = !enlace.trim() || esUrlDestinoValida(enlace);
+  const plataformasElegidas = [...new Set(elegidas.map((cuenta) => cuenta.platform))] as Platform[];
+  const avisarInstagram = requiereAvisoInstagram(plataformasElegidas, enlace);
+
+  /**
+   * Una vista previa por red, con el texto EXACTO que se va a publicar.
+   *
+   * Se calcula con la misma funcion que usa el servidor al crear la
+   * publicacion. Cuando el panel hacia su propio calculo, cualquier diferencia
+   * solo se descubria mirando la red despues de publicar.
+   */
+  const previas = useMemo(
+    () =>
+      plataformasElegidas.map((plataforma) => ({
+        plataforma,
+        etiqueta: nombreRed(plataforma),
+        caption: componerCaption({
+          plataforma,
+          textoBase: texto,
+          urlDestino: enlaceValido ? enlace : null,
+          ctaInstagram,
+        }),
+      })),
+    [plataformasElegidas, texto, enlace, enlaceValido, ctaInstagram],
+  );
 
   function alternar(id: string) {
     setSeleccion((actual) => (actual.includes(id) ? actual.filter((x) => x !== id) : [...actual, id]));
@@ -153,6 +196,14 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
       toast({ tone: "warning", title: "Indica la fecha y la hora" });
       return;
     }
+    if (!enlaceValido) {
+      toast({
+        tone: "warning",
+        title: "Revisa la URL de destino",
+        detail: "Debe empezar por https:// y apuntar a un dominio público.",
+      });
+      return;
+    }
 
     setGuardando("publicar");
     const scheduledAt = programar ? ecuadorLocalDateTimeToIso(cuando) : null;
@@ -163,10 +214,13 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
       const response = await fetch("/api/admin/social/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Se envia el texto BASE y los ingredientes del CTA; el servidor compone
+        // el caption final con la misma funcion que alimenta la vista previa.
         body: JSON.stringify({
           accountId: account.id,
           caption: texto,
           linkUrl: enlace || undefined,
+          instagramCta: ctaInstagram || undefined,
           mediaUrl: imagen || undefined,
           scheduledAt: scheduledAt ?? undefined,
         }),
@@ -254,10 +308,44 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
             <small>{texto.length} caracteres</small>
           </label>
 
-          <label className="composer-field">
-            Enlace <span className="field-optional">opcional</span>
-            <input type="url" value={enlace} onChange={(event) => setEnlace(event.target.value)} placeholder="https://…" />
-          </label>
+          <fieldset className="composer-cta">
+            <legend>Enlace / llamada a la acción</legend>
+
+            <label className="composer-field">
+              URL de destino <span className="field-optional">opcional</span>
+              <input
+                type="url"
+                value={enlace}
+                onChange={(event) => setEnlace(event.target.value)}
+                placeholder="https://automatizacion-mkra-t2.vercel.app/cursos/…"
+                aria-invalid={!enlaceValido}
+              />
+              {enlace.trim() && !enlaceValido ? (
+                <small className="field-error">La URL debe empezar por https:// y apuntar a un dominio público.</small>
+              ) : enlaceValido && enlace.trim() ? (
+                <small>Destino: {enlace.trim()}</small>
+              ) : null}
+            </label>
+
+            {avisarInstagram ? (
+              <div className="composer-note">
+                <p>{AVISO_INSTAGRAM_SIN_ENLACE}</p>
+                <label className="composer-field">
+                  Llamada a la acción para Instagram
+                  <input
+                    type="text"
+                    value={ctaInstagram}
+                    onChange={(event) => setCtaInstagram(event.target.value)}
+                    placeholder={CTA_INSTAGRAM_POR_DEFECTO}
+                    maxLength={300}
+                  />
+                  <small>
+                    Se añade solo al copy de Instagram. Facebook conserva la URL. Déjalo vacío si no quieres añadir nada.
+                  </small>
+                </label>
+              </div>
+            ) : null}
+          </fieldset>
 
           <div className="composer-field">
             Imagen <span className="field-optional">opcional</span>
@@ -320,8 +408,24 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
                 <Image src={imagen} alt="" width={520} height={300} unoptimized />
               </div>
             ) : null}
-            {enlace ? <span className="preview-link">{enlace}</span> : null}
           </article>
+
+          {/* Una previa por red: el copy final difiere entre Facebook e
+              Instagram, y enseñar solo uno esconde justo la diferencia. */}
+          {texto.trim() && previas.length > 0 ? (
+            <div className="preview-por-red">
+              {previas.map((previa) => (
+                <article key={previa.plataforma} className="preview-variant">
+                  <h4>{previa.etiqueta}</h4>
+                  <p className="preview-text">{previa.caption}</p>
+                  {previa.plataforma === "INSTAGRAM" && enlace.trim() ? (
+                    <small className="muted">El enlace no es pulsable en Instagram; va en la biografía.</small>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+
           {elegidas.length > 1 ? (
             <p className="composer-note">Se creará una publicación por cada red seleccionada.</p>
           ) : null}

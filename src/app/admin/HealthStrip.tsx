@@ -30,18 +30,18 @@ export async function HealthStrip() {
   const puntos: Punto[] = [
     {
       label: "Correo",
-      state: messaging.state === "blocked" ? "err" : email.provider === "none" ? "err" : messaging.state === "live" ? "ok" : "warn",
-      detail: messaging.state === "blocked" ? "bloqueado" : messaging.state === "live" ? "envío real" : "simulación",
+      state: messaging.state === "blocked" ? "err" : email.provider === "none" ? "warn" : messaging.state === "live" ? "ok" : "warn",
+      detail: messaging.state === "blocked" ? "incidencia" : email.provider === "none" ? "requiere configuración" : messaging.state === "live" ? "operativo" : "en simulación",
     },
     {
       label: "WhatsApp",
       state: whatsapp.mode === "disabled" ? "warn" : whatsapp.windowState === "blocked" ? "err" : whatsapp.windowState === "live" ? "ok" : "warn",
-      detail: whatsapp.mode === "disabled" ? "apagado" : whatsapp.windowState === "live" ? "envío real" : "simulación",
+      detail: whatsapp.mode === "disabled" ? "requiere configuración" : whatsapp.windowState === "live" ? "operativo" : "en simulación",
     },
     {
       label: "Redes",
       state: publicacionesFallidas > 0 ? "err" : social.state === "live" ? "ok" : "warn",
-      detail: publicacionesFallidas > 0 ? `${publicacionesFallidas} fallidas` : social.state === "live" ? "publicación real" : "simulación",
+      detail: publicacionesFallidas > 0 ? `${publicacionesFallidas} incidencias` : social.state === "live" ? "operativo" : "en simulación",
     },
     {
       label: "Último envío",

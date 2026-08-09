@@ -1,17 +1,16 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { SessionRole } from "@/lib/auth/session";
 import { isTechnicalProfile } from "@/lib/auth/roles";
 import { TechnicalDetailProvider } from "./TechnicalDetail";
 
 /**
- * Sesion del panel, resuelta una sola vez.
+ * Sesion compartida del panel.
  *
- * Antes cada pagina montaba su propia navegacion y cada navegacion pedia
- * /api/admin/me por su cuenta. Al vivir en el layout, la peticion ocurre una
- * vez por visita y el perfil queda disponible para cualquier componente que
- * necesite decidir que mostrar.
+ * Se vuelve a consultar en cada navegacion administrativa para reflejar un
+ * cambio de cuenta sin conservar la identidad visual de la sesion anterior.
  */
 export type AdminSessionValue = {
   role: SessionRole;
@@ -33,17 +32,28 @@ const AdminSessionContext = createContext<AdminSessionValue>({
   ready: false,
 });
 
+const emptySession: AdminSessionValue = {
+  role: "LECTURA",
+  name: "Usuario",
+  email: "",
+  legacy: false,
+  technical: false,
+  ready: false,
+};
+
 export function AdminSessionProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<AdminSessionValue>({ role: "LECTURA", name: "Usuario", email: "", legacy: false, technical: false, ready: false });
+  const pathname = usePathname();
+  const [session, setSession] = useState<AdminSessionValue>(emptySession);
 
   useEffect(() => {
+    void pathname;
     let cancelled = false;
     fetch("/api/admin/me", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (cancelled) return;
         if (data) setSession({ role: data.role, name: data.name, email: data.email ?? "", legacy: Boolean(data.legacy), technical: isTechnicalProfile(data.role), ready: true });
-        else setSession((previous) => ({ ...previous, ready: true }));
+        else setSession({ ...emptySession, ready: true });
       })
       .catch(() => {
         if (!cancelled) setSession((previous) => ({ ...previous, ready: true }));
@@ -51,7 +61,7 @@ export function AdminSessionProvider({ children }: { children: React.ReactNode }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pathname]);
 
   return (
     <AdminSessionContext.Provider value={session}>

@@ -3,10 +3,13 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
 import { resolveViewMode } from "@/lib/auth/view-mode";
+import { isMessagingSimulation } from "@/lib/nurture/engine";
+import { ESTADOS_VISIBLES, esEstadoVisible, filtroDe } from "@/lib/message-states";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { ChannelModeBanner } from "../ChannelModeBanner";
+import { HealthStrip } from "../HealthStrip";
 import { IntegrationStatusPanel } from "../IntegrationStatusPanel";
 import { DispatchButton } from "./DispatchButton";
 import { EmailTestPanel } from "./EmailTestPanel";
@@ -14,8 +17,6 @@ import { MessageList, type MessageRow } from "./MessageList";
 import { TemplateManager } from "./TemplateManager";
 import { WhatsAppStatusPanel } from "./WhatsAppStatusPanel";
 import { WhatsAppTestPanel } from "./WhatsAppTestPanel";
-import { isMessagingSimulation } from "@/lib/nurture/engine";
-import { ESTADOS_VISIBLES, esEstadoVisible, filtroDe } from "@/lib/message-states";
 
 export const dynamic = "force-dynamic";
 
@@ -26,47 +27,58 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
   if (!["ADMIN", "DIRECCION", "MARKETING", "VENTAS"].includes(session.role)) {
     return <main className="container admin-shell"><AdminNav view={view} /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar mensajes." /></main>;
   }
-  const tecnico = view === "tecnica";
+  const technical = view === "tecnica";
 
-  /**
-   * Un unico instante para toda la pantalla.
-   *
-   * Los contadores y la lista se resuelven en consultas distintas. Si cada una
-   * llamara a `new Date()` por su cuenta, un mensaje programado justo en medio
-   * podria contarse como "listo para enviar" y aparecer como "programado" en
-   * la tabla de al lado. Es raro, pero cuando ocurre destruye la confianza en
-   * la pantalla entera y no deja rastro para investigarlo.
-   */
-  const ahora = new Date();
+  if (filters.vista === "integraciones") {
+    if (!technical) {
+      return <main className="container admin-shell"><AdminNav view={view} /><AdminPageHeader eyebrow="Sistema" title="Centro técnico" description="Diagnóstico de canales e integraciones del CRM." /><AdminEmptyState icon="secure" title="Acceso restringido" description="Esta superficie contiene diagnóstico técnico y no forma parte de la vista Dirección." /></main>;
+    }
+    const [waRulesWithoutTemplate, waQueued] = await Promise.all([
+      prisma.automationRule.count({ where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] } }),
+      prisma.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
+    ]);
+    return <main className="container admin-shell technical-center">
+      <AdminNav view={view} />
+      <AdminPageHeader eyebrow="Sistema" title="Centro técnico" description="Estado operativo, configuración y diagnóstico de los canales conectados al CRM." />
+      <HealthStrip />
+      <IntegrationStatusPanel technical />
+      <details className="panel technical-tools">
+        <summary><span><strong>Herramientas y comprobaciones</strong><small>Pruebas controladas, plantillas y diagnóstico detallado.</small></span><span>Mostrar</span></summary>
+        <div className="technical-tools-body">
+          <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
+          <WhatsAppTestPanel />
+          <EmailTestPanel />
+          <TemplateManager />
+        </div>
+      </details>
+    </main>;
+  }
 
-  const estadoFiltrado = esEstadoVisible(filters.status) ? filters.status : undefined;
+  const now = new Date();
+  const visibleStatus = esEstadoVisible(filters.status) ? filters.status : undefined;
+  const search = filters.q ?? filters.lead;
+  const channel = filters.channel === "EMAIL" || filters.channel === "WHATSAPP" ? filters.channel : undefined;
   const where: Prisma.OutboundMessageWhereInput = {
-    ...(filters.channel ? { channel: filters.channel as "EMAIL" | "WHATSAPP" } : {}),
-    ...(estadoFiltrado ? filtroDe(estadoFiltrado, ahora) : {}),
-    ...(filters.lead ? { lead: { fullName: { contains: filters.lead, mode: "insensitive" } } } : {}),
+    ...(channel ? { channel } : {}),
+    ...(visibleStatus ? filtroDe(visibleStatus, now) : {}),
+    ...(search ? { OR: [
+      { lead: { fullName: { contains: search, mode: "insensitive" } } },
+      { lead: { email: { contains: search, mode: "insensitive" } } },
+      { toAddress: { contains: search, mode: "insensitive" } },
+      { subject: { contains: search, mode: "insensitive" } },
+    ] } : {}),
     ...(filters.course ? { enrollment: { courseId: filters.course } } : {}),
-    // El filtro por fecha se combina con el del estado, que tambien usa
-    // scheduledAt: `AND` los mantiene a los dos en lugar de pisar uno.
     ...(filters.from ? { AND: [{ scheduledAt: { gte: new Date(`${filters.from}T00:00:00-05:00`) } }] } : {}),
   };
 
-  /**
-   * Cada cifra del resumen se cuenta con la MISMA consulta que usara el filtro
-   * al que enlaza. Antes se escribian por separado y ya divergieron una vez:
-   * el resumen anuncio "87 con problema" cuando no habia ninguno, porque
-   * contaba como fallos avisos futuros que nadie habia intentado enviar.
-   */
-  const [messages, courses, dispatchQueue, waRulesWithoutTemplate, waQueued, listos, requierenConfig, noEntregados] = await Promise.all([
+  const [messages, courses, total, dispatchQueue, ready, requiresConfiguration, notDelivered] = await Promise.all([
     prisma.outboundMessage.findMany({ where, orderBy: { scheduledAt: "desc" }, take: 150, include: { lead: true, enrollment: { include: { course: true } } } }),
     prisma.course.findMany({ where: { isPublished: true }, orderBy: { title: "asc" }, select: { id: true, title: true } }),
-    // Cola real del envio automatico: incluye los reintentos, que no son un
-    // estado que Direccion necesite ver pero si trabajo pendiente de verdad.
-    prisma.outboundMessage.count({ where: { OR: [{ status: "PROGRAMADO", scheduledAt: { lte: ahora } }, { status: "FALLIDO", attemptCount: { lt: 5 }, nextAttemptAt: { lte: ahora } }] } }),
-    prisma.automationRule.count({ where: { channel: "WHATSAPP", status: { in: ["ACTIVE", "PAUSED"] }, OR: [{ waTemplateName: null }, { waTemplateName: "" }] } }),
-    prisma.outboundMessage.count({ where: { channel: "WHATSAPP", status: "PROGRAMADO" } }),
-    prisma.outboundMessage.count({ where: filtroDe("listo", ahora) }),
-    prisma.outboundMessage.count({ where: filtroDe("requiere_config", ahora) }),
-    prisma.outboundMessage.count({ where: filtroDe("no_entregado", ahora) }),
+    prisma.outboundMessage.count({ where }),
+    prisma.outboundMessage.count({ where: { OR: [{ status: "PROGRAMADO", scheduledAt: { lte: now } }, { status: "FALLIDO", attemptCount: { lt: 5 }, nextAttemptAt: { lte: now } }] } }),
+    prisma.outboundMessage.count({ where: filtroDe("listo", now) }),
+    prisma.outboundMessage.count({ where: filtroDe("requiere_config", now) }),
+    prisma.outboundMessage.count({ where: filtroDe("no_entregado", now) }),
   ]);
 
   const rows: MessageRow[] = messages.map((message) => ({
@@ -93,85 +105,41 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     courseId: message.enrollment?.courseId ?? null,
   }));
 
-  const hayFiltro = Boolean(filters.channel || estadoFiltrado || filters.lead || filters.course || filters.from);
+  const hasFilters = Boolean(channel || visibleStatus || search || filters.course || filters.from);
 
   return <main className="container admin-shell">
     <AdminNav view={view} />
     <AdminPageHeader
       eyebrow="Comunicación"
       title="Comunicaciones"
-      description="Todo lo que el sistema envía a los contactos: qué salió, a quién y si llegó."
-      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={dispatchQueue} blockedCount={requierenConfig} />}
+      description="Historial operativo de lo enviado, programado y pendiente por contacto."
+      actions={<DispatchButton simulation={isMessagingSimulation()} pendingCount={dispatchQueue} blockedCount={requiresConfiguration} />}
     />
-
     <ChannelModeBanner />
 
-    <section className={`summary-line ${noEntregados > 0 || requierenConfig > 0 ? "is-attention" : ""}`}>
-      <strong>{messages.length}</strong> mensaje{messages.length === 1 ? "" : "s"} en la vista
-      {/* Cada cifra enlaza al filtro que la produce, y por construcción ese
-          filtro devuelve exactamente esos mensajes. */}
-      {listos > 0 ? <>
-        <span className="summary-sep">·</span>
-        <Link href="/admin/mensajes?status=listo"><strong>{listos}</strong> listos para enviar</Link>
-      </> : null}
-      {requierenConfig > 0 ? <>
-        <span className="summary-sep">·</span>
-        <Link href="/admin/mensajes?status=requiere_config"><strong>{requierenConfig}</strong> requieren configuración</Link>
-      </> : null}
-      {noEntregados > 0 ? <>
-        <span className="summary-sep">·</span>
-        <Link href="/admin/mensajes?status=no_entregado"><strong>{noEntregados}</strong> no entregados</Link>
-      </> : null}
-      {listos === 0 && requierenConfig === 0 && noEntregados === 0 ? <>
-        <span className="summary-sep">·</span>
-        todo al día
-      </> : null}
+    <section className={`summary-line ${notDelivered > 0 || requiresConfiguration > 0 ? "is-attention" : ""}`} aria-label="Resumen de comunicaciones">
+      <span><strong>{total}</strong> en la vista</span><span className="summary-sep">·</span>
+      <Link href="/admin/mensajes?status=listo"><strong>{ready}</strong> listos</Link><span className="summary-sep">·</span>
+      <Link href="/admin/mensajes?status=requiere_config"><strong>{requiresConfiguration}</strong> requieren configuración</Link><span className="summary-sep">·</span>
+      <Link href="/admin/mensajes?status=no_entregado"><strong>{notDelivered}</strong> no entregados</Link>
+      {technical ? <Link className="btn-sm ghost" href="/admin/mensajes?vista=integraciones">Abrir Centro técnico</Link> : null}
     </section>
 
-    <form>
-      <div className="filter-bar">
-        <input name="lead" aria-label="Buscar por contacto" defaultValue={filters.lead ?? ""} placeholder="Buscar contacto…" />
-        <select name="channel" aria-label="Canal" defaultValue={filters.channel ?? ""}>
-          <option value="">Correo y WhatsApp</option>
-          <option value="EMAIL">Solo correo</option>
-          <option value="WHATSAPP">Solo WhatsApp</option>
-        </select>
-        <select name="status" aria-label="Estado" defaultValue={estadoFiltrado ?? ""}>
-          <option value="">Todos los estados</option>
-          {ESTADOS_VISIBLES.map((estado) => <option key={estado.key} value={estado.key}>{estado.label}</option>)}
-        </select>
-        <button type="submit" className="btn-sm">Filtrar</button>
-        {hayFiltro ? <Link className="btn-sm ghost" href="/admin/mensajes">Quitar filtros</Link> : null}
+    <form className="phase3-primary-filters">
+      <div className="filter-bar phase3-message-filter-grid">
+        <input name="q" aria-label="Buscar comunicación" defaultValue={search ?? ""} placeholder="Buscar contacto, correo o asunto" />
+        <select name="channel" aria-label="Canal" defaultValue={channel ?? ""}><option value="">Todos los canales</option><option value="EMAIL">Correo</option><option value="WHATSAPP">WhatsApp</option></select>
+        <select name="status" aria-label="Estado" defaultValue={visibleStatus ?? ""}><option value="">Todos los estados</option>{ESTADOS_VISIBLES.map((status) => <option key={status.key} value={status.key}>{status.label}</option>)}</select>
+        <select name="course" aria-label="Curso" defaultValue={filters.course ?? ""}><option value="">Todos los cursos</option>{courses.map((course) => <option value={course.id} key={course.id}>{course.title}</option>)}</select>
+        <input name="from" type="date" defaultValue={filters.from ?? ""} aria-label="Desde esta fecha" />
+        <div className="filter-actions"><button type="submit" className="btn-sm">Filtrar</button>{hasFilters ? <Link className="btn-sm ghost" href="/admin/mensajes">Quitar filtros</Link> : null}</div>
       </div>
-      <details className="disclosure">
-        <summary>Más filtros</summary>
-        <div className="disclosure-body filter-bar">
-          <select name="course" aria-label="Curso" defaultValue={filters.course ?? ""}>
-            <option value="">Todos los cursos</option>
-            {courses.map((course) => <option value={course.id} key={course.id}>{course.title}</option>)}
-          </select>
-          <input name="from" type="date" defaultValue={filters.from ?? ""} aria-label="Desde esta fecha" />
-          <button type="submit" className="btn-sm">Aplicar</button>
-        </div>
-      </details>
     </form>
 
-    <section className="panel">
+    <section className="panel phase3-table-panel">
       {rows.length === 0
-        ? <AdminEmptyState
-            icon="messages"
-            title={hayFiltro ? "No hay mensajes con estos filtros" : "Todavía no se ha enviado nada"}
-            description={hayFiltro ? "Prueba a quitar algún filtro." : "Cuando alguien se inscriba, su confirmación aparecerá aquí."}
-          />
-        : <MessageList messages={rows} now={ahora} />}
+        ? <AdminEmptyState icon="messages" title={hasFilters ? "No hay mensajes con estos filtros" : "Todavía no se ha enviado nada"} description={hasFilters ? "Prueba a quitar algún filtro." : "Cuando alguien se inscriba, su confirmación aparecerá aquí."} />
+        : <MessageList messages={rows} now={now} technical={technical} />}
     </section>
-
-    {tecnico ? <>
-      <IntegrationStatusPanel technical only={["email", "whatsapp", "cron"]} />
-      <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
-      <WhatsAppTestPanel />
-      <EmailTestPanel />
-      <TemplateManager />
-    </> : null}
   </main>;
 }

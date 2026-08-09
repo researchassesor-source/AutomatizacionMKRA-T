@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../../AdminEmptyState";
+import { AdminActionMenu } from "../../AdminActionMenu";
 import { presentAdminValue } from "../../adminPresentation";
 import { useFeedback } from "../../Feedback";
 
@@ -65,6 +66,33 @@ const SITUACION: Record<string, string> = {
   CANCELADO: "Cancelado",
 };
 
+function landingPresentation(value: string | null): { label: string; href: string | null } {
+  if (!value) return { label: "No registrada", href: null };
+  try {
+    const url = new URL(value);
+    return url.pathname === "/"
+      ? { label: `Sitio web ${url.hostname}`, href: value }
+      : { label: "Ver página de origen ↗", href: value };
+  } catch {
+    return { label: "Origen registrado", href: null };
+  }
+}
+
+function formatEcuadorDateTime(value: string): string {
+  const parts = new Intl.DateTimeFormat("es-EC", {
+    timeZone: "America/Guayaquil",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("day")}/${part("month")}/${part("year")}, ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
 export function LeadDetailManager({
   lead,
   enrollments,
@@ -84,7 +112,9 @@ export function LeadDetailManager({
   const { confirm } = useFeedback();
   const canEdit = role === "ADMIN" || role === "VENTAS";
   const canDelete = role === "ADMIN";
+  const isTechnical = role === "ADMIN";
   const isRealContact = !["TEST", "DEMO"].includes(lead.classification);
+  const landing = landingPresentation(lead.landingUrl);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -150,10 +180,6 @@ ${lead.fullName}`);
     if (result.ok) router.replace("/admin/leads");
     else setMessage(result.data.error);
   }
-
-
-
-
   async function addEnrollment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -188,45 +214,36 @@ ${lead.fullName}`);
 
   return (
     <>
-      <div className="toolbar">
+      <div className="toolbar contact-detail-toolbar">
         {lead.phone && <a className="btn-sm" href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Abrir WhatsApp ↗</a>}
         {lead.email && <a className="btn-sm ghost" href={`mailto:${lead.email}`}>Abrir correo</a>}
-        {canEdit && <button type="button" className="btn-sm ghost" onClick={archive}>{lead.isArchived ? "Restaurar" : "Archivar"}</button>}
-        {canDelete && <button type="button" className="btn-sm danger" disabled={busy} onClick={deleteContact}>{isRealContact ? "Eliminar contacto" : "Eliminar registro de prueba"}</button>}
+        {canEdit || canDelete ? <AdminActionMenu label={`Más acciones para ${lead.fullName}`}>
+          {canEdit && <button type="button" onClick={archive}>{lead.isArchived ? "Restaurar contacto" : "Archivar contacto"}</button>}
+          {canDelete && <button type="button" className="is-danger" disabled={busy} onClick={deleteContact}>{isRealContact ? "Eliminar contacto" : "Eliminar registro de prueba"}</button>}
+        </AdminActionMenu> : null}
         {message && <span className="result-line" role="status">{message}</span>}
       </div>
 
       <div className="lead-grid">
         <form className="panel" onSubmit={save}>
           <h2>Datos personales y comerciales</h2>
-          <div className="form-row"><input name="firstName" aria-label="Nombres" defaultValue={lead.firstName ?? ""} placeholder="Nombres" disabled={!canEdit} /><input name="lastName" aria-label="Apellidos" defaultValue={lead.lastName ?? ""} placeholder="Apellidos" disabled={!canEdit} /></div>
-          <div className="form-row"><input name="email" aria-label="Correo electrónico" type="email" defaultValue={lead.email} disabled={!canEdit} /><input name="phone" aria-label="WhatsApp" defaultValue={lead.phone ?? ""} disabled={!canEdit} /></div>
-          <div className="form-row">
-            <select name="stage" aria-label="Etapa comercial" defaultValue={lead.stage} disabled={!canEdit}>{["NUEVO","INSCRITO","EN_CURSO","CERTIFICADO","OPORTUNIDAD","CLIENTE","PERDIDO"].map((stage) => <option key={stage} value={stage}>{presentAdminValue(stage)}</option>)}</select>
-            
-          </div>
-          
-          <div className="form-row"></div>
+          <div className="form-row"><label className="field"><span>Nombres</span><input name="firstName" defaultValue={lead.firstName ?? ""} placeholder="Nombres" disabled={!canEdit} /></label><label className="field"><span>Apellidos</span><input name="lastName" defaultValue={lead.lastName ?? ""} placeholder="Apellidos" disabled={!canEdit} /></label></div>
+          <div className="form-row"><label className="field"><span>Correo electrónico</span><input name="email" type="email" defaultValue={lead.email} disabled={!canEdit} /></label><label className="field"><span>WhatsApp</span><input name="phone" defaultValue={lead.phone ?? ""} disabled={!canEdit} /></label></div>
+          <label className="field"><span>Etapa comercial</span><select name="stage" defaultValue={lead.stage} disabled={!canEdit}>{["NUEVO","INSCRITO","EN_CURSO","CERTIFICADO","OPORTUNIDAD","CLIENTE","PERDIDO"].map((stage) => <option key={stage} value={stage}>{presentAdminValue(stage)}</option>)}</select></label>
           {canEdit && <button type="submit" className="btn-sm" disabled={busy}>Guardar cambios</button>}
         </form>
-        <section className="panel"><h2>Procedencia</h2><dl className="detail-list"><dt>Procedencia</dt><dd>{lead.utmSource ?? lead.source ?? "—"}</dd><dt>Página de origen</dt><dd>{lead.landingUrl
-              ? (new URL(lead.landingUrl).pathname === "/"
-                  // Solo tenemos el dominio: prometer "abrir la pagina" sugeriria
-                  // que sabemos por cual entro, y no lo sabemos.
-                  ? <>Sitio web {new URL(lead.landingUrl).hostname}</>
-                  : <a href={lead.landingUrl} target="_blank" rel="noreferrer">Abrir página ↗</a>)
-              : <span className="muted">No registrada</span>}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${new Date(lead.consentAt).toLocaleString("es-EC")}` : ""}` : "No registrado"}</dd><dt>Puntaje</dt><dd>{lead.score}</dd></dl></section>
+        <section className="panel"><h2>Procedencia</h2><dl className="detail-list"><dt>Origen</dt><dd>{lead.utmSource ?? lead.source ?? "Orgánico"}</dd><dt>Página de origen</dt><dd>{landing.href ? <a href={landing.href} target="_blank" rel="noreferrer">{landing.label}</a> : <span className="muted">{landing.label}</span>}</dd><dt>Referencia</dt><dd>{lead.referrer ? <span className="contact-referrer">Sitio de referencia registrado</span> : <span className="muted">No registrada</span>}</dd><dt>Consentimiento</dt><dd>{lead.consent ? `Registrado${lead.consentAt ? ` · ${formatEcuadorDateTime(lead.consentAt)}` : ""}` : "No registrado"}</dd></dl>{isTechnical ? <details className="technical-context"><summary>Contexto técnico de captación</summary><dl className="detail-list"><dt>Campaña</dt><dd>{lead.utmCampaign ?? "—"}</dd><dt>Medio</dt><dd>{lead.utmMedium ?? "—"}</dd><dt>Contenido</dt><dd>{lead.utmContent ?? "—"}</dd><dt>Término</dt><dd>{lead.utmTerm ?? "—"}</dd><dt>Clasificación</dt><dd>{presentAdminValue(lead.classification)}</dd><dt>Puntaje</dt><dd>{lead.score}</dd></dl></details> : null}</section>
       </div>
 
       <section className="panel">
         <h2>Cursos e inscripciones</h2>
-        {interestCourse ? <p className="muted">Interés inicial: <strong>{interestCourse.title}</strong>. La situación real de cada curso está en la tabla.</p> : null}
+        {interestCourse ? <p className="interest-summary"><span className="pill info">Interés registrado</span><strong>{interestCourse.title}</strong><span className="muted">Aún no equivale a una inscripción confirmada.</span></p> : null}
         {canEdit ? <form className="form-row enrollment-form" onSubmit={addEnrollment}>
           <label className="field"><span>Curso</span><select name="courseId" required defaultValue=""><option value="" disabled>Selecciona un curso</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
           <label className="field"><span>Estado inicial</span><select name="status" defaultValue="INSCRITO"><option value="INSCRITO">Inscrito</option><option value="INTERESADO">Interesado</option></select></label>
           <button type="submit" className="btn-sm" disabled={busy}>{busy ? "Creando…" : "Crear inscripción"}</button>
         </form> : null}
-        {enrollments.length === 0 ? <AdminEmptyState icon="courses" title="Sin inscripciones" description="Este contacto todavía no está asociado a un curso." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Curso</th><th>Estado</th><th>Origen</th></tr></thead><tbody>{enrollments.map((item) => <tr key={item.id}><td><a href={item.course.officialCourseUrl} target="_blank" rel="noreferrer">{item.course.title} ↗</a></td><td><span className={`status-dot ${item.status === "INSCRITO" || item.status === "COMPLETADO" ? "is-done" : "is-waiting"}`}>{SITUACION[item.status] ?? item.status}</span></td><td>{item.utmSource ?? item.source ?? "Orgánico"}<div className="muted">{[item.utmCampaign, item.utmContent, item.utmTerm].filter(Boolean).join(" · ")}</div>{item.landingUrl ? <a className="muted" href={item.landingUrl} target="_blank" rel="noreferrer">Landing ↗</a> : null}</td></tr>)}</tbody></table></div>}
+        {enrollments.length === 0 ? <AdminEmptyState icon="courses" title="Sin inscripciones confirmadas" description="Este contacto puede tener un interés registrado, pero todavía no está inscrito." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Curso</th><th>Situación</th><th>Origen</th></tr></thead><tbody>{enrollments.map((item) => <tr key={item.id}><td><a href={item.course.officialCourseUrl} target="_blank" rel="noreferrer">{item.course.title} ↗</a></td><td><span className={`status-dot ${item.status === "INSCRITO" || item.status === "COMPLETADO" ? "is-done" : "is-waiting"}`}>{SITUACION[item.status] ?? presentAdminValue(item.status)}</span></td><td>{item.utmSource ?? item.source ?? "Orgánico"}{isTechnical && [item.utmCampaign, item.utmContent, item.utmTerm].some(Boolean) ? <div className="muted">{[item.utmCampaign, item.utmContent, item.utmTerm].filter(Boolean).join(" · ")}</div> : null}{item.landingUrl ? <a className="muted" href={item.landingUrl} target="_blank" rel="noreferrer">Ver origen ↗</a> : null}</td></tr>)}</tbody></table></div>}
       </section>
     </>
   );

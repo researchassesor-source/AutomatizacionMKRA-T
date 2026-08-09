@@ -209,8 +209,9 @@ export function CourseManager({
           {message && <p className="form-error" role="alert">{message}</p>}
         </form>
       )}
-      <div className="panel">
-        <div className="panel-header"><div><h2>Administración de cursos</h2><p>Edita la información interna, publicación y disponibilidad de registro de cada curso.</p></div></div>
+      <details className="panel course-admin-details">
+        <summary><span><strong>Administración de cursos</strong><small>Edita información, publicación y disponibilidad de registro.</small></span><span>Mostrar herramientas</span></summary>
+        <div className="course-admin-details-body">
         {courses.length === 0 ? <AdminEmptyState icon="courses" title="No hay cursos con estos filtros" description="Ajusta los criterios o crea un nuevo curso si tienes permisos." /> : (
           <div className="table-wrap">
             <table className="data course-admin-table">
@@ -229,7 +230,8 @@ export function CourseManager({
             </table>
           </div>
         )}
-      </div>
+        </div>
+      </details>
     </>
   );
 }

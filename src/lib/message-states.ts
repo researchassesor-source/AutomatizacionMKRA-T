@@ -121,7 +121,7 @@ export const ESTADOS_VISIBLES: readonly EstadoVisible[] = [
   },
   {
     key: "prueba",
-    label: "Prueba",
+    label: "En simulación",
     tono: "test",
     hint: "Prueba interna: no se contactó a nadie.",
     condiciones: [{ estados: ["SIMULADO"], momento: "cualquiera" }],

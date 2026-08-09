@@ -271,13 +271,13 @@ export function integrationStatuses(verificadas: PublicacionesVerificadas = {}):
  * código y credenciales pero no ejecución automática comprobada.
  */
 export const INTEGRATION_STATE_LABELS: Record<IntegrationState, string> = {
-  READY: "Publicación verificada",
-  CONNECTED_UNVERIFIED: "Conexión configurada",
-  SIMULATED: "Aprobada en simulación",
-  PENDING_CONFIGURATION: "Falta configuración",
-  PENDING_EXTERNAL_VERIFICATION: "Bloqueada por verificación externa",
-  PENDING_PROVIDER_APPROVAL: "Pendiente de aprobación del proveedor",
-  PENDING_AD_ACCOUNT: "Falta cuenta publicitaria",
-  NOT_READY: "No implementada",
-  ERROR: "Con error",
+  READY: "Operativo",
+  CONNECTED_UNVERIFIED: "Configurado",
+  SIMULATED: "En simulación",
+  PENDING_CONFIGURATION: "Requiere configuración",
+  PENDING_EXTERNAL_VERIFICATION: "En revisión externa",
+  PENDING_PROVIDER_APPROVAL: "Esperando proveedor",
+  PENDING_AD_ACCOUNT: "Requiere configuración",
+  NOT_READY: "Desconectado",
+  ERROR: "Incidencia",
 };

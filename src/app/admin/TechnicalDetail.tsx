@@ -76,3 +76,9 @@ export function TechnicalOnly({ children }: { children: React.ReactNode }) {
   if (!enabled) return null;
   return <span className="tech-detail">{children}</span>;
 }
+
+/** Bloque plegable ya autorizado por una superficie técnica del servidor. */
+export function TechnicalSection({ children, visible }: { children: React.ReactNode; visible: boolean }) {
+  if (!visible) return null;
+  return <div className="technical-section">{children}</div>;
+}

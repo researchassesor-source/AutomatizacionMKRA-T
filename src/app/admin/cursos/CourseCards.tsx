@@ -28,16 +28,17 @@ export function CourseCards({ courses, canEdit }: { courses: CourseCard[]; canEd
       {courses.map((course) => {
         const sinFecha = course.sessionsCount === 0;
         const estado = sinFecha
-          ? { tone: "is-attention", text: "Sesión pendiente de programar" }
+          ? { tone: "is-attention", text: "Requiere configuración: sesión" }
           : course.hasStreamUrl
             ? { tone: "is-done", text: "Listo" }
-            : { tone: "is-attention", text: "Falta enlace de acceso" };
+            : { tone: "is-attention", text: "Requiere configuración: enlace" };
 
         return (
           <article className="course-card-row" id={`curso-${course.id}`} key={course.id}>
             <div className="course-card-main">
               <Link href={`/admin/cursos/${course.id}`} className="course-card-title">{course.title}</Link>
               <div className="course-card-meta">
+                <span className={`pill ${course.isPublished ? "ok" : ""}`}>{course.isPublished ? "Publicado" : "No publicado"}</span>
                 {course.modality ? <span>{course.modality}</span> : null}
                 <span>{course.enrollments} inscrito{course.enrollments === 1 ? "" : "s"}</span>
                 {course.nextSessionAt

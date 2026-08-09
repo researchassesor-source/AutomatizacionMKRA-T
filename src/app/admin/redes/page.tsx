@@ -39,9 +39,67 @@ export default async function SocialPage() {
     platform: account.platform,
     displayName: account.displayName,
   }));
-  return <main className="container admin-shell"><AdminNav view={view} /><AdminPageHeader eyebrow="Contenido" title="Publicaciones" description="Publica y programa contenido en Facebook, Instagram y TikTok." /><IntegrationStatusPanel technical={view === "tecnica"} only={view === "tecnica" ? ["facebook", "instagram", "tiktok", "whatsapp", "meta_ads"] : ["facebook", "instagram", "tiktok"]} />{view === "tecnica" ? <TikTokPanel /> : null}<PublishComposer accounts={publicables} /><PostsBoard posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, platform: item.account.platform, accountName: item.account.displayName, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, providerPostUrl: item.providerPostUrl }))} recurrentes={schedules.map((item) => ({ id: item.id, name: item.name, caption: item.caption, weekday: item.weekday, localTime: item.localTime, isActive: item.isActive, nextRunAt: item.nextRunAt.toISOString(), platform: item.account.platform }))} />{view === "tecnica" ? <RedesManager
-    accounts={accounts.map((item) => ({ id: item.id, platform: item.platform, displayName: item.displayName, externalId: item.externalId, isActive: item.isActive, connectorState: socialConnectionState(item.platform), connectionStatus: item.connectionStatus, connectionCheckedAt: item.connectionCheckedAt?.toISOString() ?? null, connectionError: item.connectionError }))}
-    posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, account: `${item.account.platform} · ${item.account.displayName}`, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, errorCode: item.errorCode, providerPostUrl: item.providerPostUrl, externalPostId: item.externalPostId }))}
-    schedules={schedules.map((item) => ({ id: item.id, name: item.name, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, weekday: item.weekday, localTime: item.localTime, isActive: item.isActive, nextRunAt: item.nextRunAt.toISOString(), account: `${item.account.platform} · ${item.account.displayName}` }))}
-  /> : null}</main>;
+  const boardPosts = posts.map((item) => ({
+    id: item.id,
+    caption: item.caption,
+    mediaUrl: item.mediaUrl,
+    linkUrl: item.linkUrl,
+    status: item.status,
+    platform: item.account.platform,
+    accountName: item.account.displayName,
+    scheduledAt: item.scheduledAt?.toISOString() ?? null,
+    error: item.errorMessage ?? item.error,
+    providerPostUrl: item.providerPostUrl,
+  }));
+  const recurrentes = schedules.map((item) => ({
+    id: item.id,
+    name: item.name,
+    caption: item.caption,
+    weekday: item.weekday,
+    localTime: item.localTime,
+    isActive: item.isActive,
+    nextRunAt: item.nextRunAt.toISOString(),
+    platform: item.account.platform,
+  }));
+
+  return (
+    <main className="container admin-shell">
+      <AdminNav view={view} />
+      <AdminPageHeader
+        eyebrow="Contenido"
+        title="Publicaciones"
+        description="Crea, programa y revisa contenido para Facebook, Instagram y TikTok."
+      />
+
+      {view === "direccion" ? (
+        <IntegrationStatusPanel technical={false} only={["facebook", "instagram", "tiktok"]} />
+      ) : (
+        <details className="panel social-advanced-tools">
+          <summary>
+            <span>
+              <strong>Herramientas técnicas de canales</strong>
+              <small>Conexiones, cuentas y diagnósticos. No es necesario abrirlas para publicar.</small>
+            </span>
+            <span aria-hidden="true">Ver herramientas</span>
+          </summary>
+          <div className="social-advanced-content">
+            <IntegrationStatusPanel technical only={["facebook", "instagram", "tiktok", "whatsapp", "meta_ads"]} />
+            <details className="technical-subtools">
+              <summary>Administrar conexión de TikTok</summary>
+              <TikTokPanel />
+            </details>
+            <RedesManager
+              technicalOnly
+              accounts={accounts.map((item) => ({ id: item.id, platform: item.platform, displayName: item.displayName, externalId: item.externalId, isActive: item.isActive, connectorState: socialConnectionState(item.platform), connectionStatus: item.connectionStatus, connectionCheckedAt: item.connectionCheckedAt?.toISOString() ?? null, connectionError: item.connectionError }))}
+              posts={posts.map((item) => ({ id: item.id, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, status: item.status, account: `${item.account.platform} · ${item.account.displayName}`, scheduledAt: item.scheduledAt?.toISOString() ?? null, error: item.errorMessage ?? item.error, errorCode: item.errorCode, providerPostUrl: item.providerPostUrl, externalPostId: item.externalPostId }))}
+              schedules={schedules.map((item) => ({ id: item.id, name: item.name, caption: item.caption, mediaUrl: item.mediaUrl, linkUrl: item.linkUrl, weekday: item.weekday, localTime: item.localTime, isActive: item.isActive, nextRunAt: item.nextRunAt.toISOString(), account: `${item.account.platform} · ${item.account.displayName}` }))}
+            />
+          </div>
+        </details>
+      )}
+
+      <PublishComposer accounts={publicables} />
+      <PostsBoard posts={boardPosts} recurrentes={recurrentes} />
+    </main>
+  );
 }

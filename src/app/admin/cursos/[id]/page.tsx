@@ -8,6 +8,7 @@ import { resolveCourseSessions } from "@/lib/course-sessions";
 import { buildCourseTimeline } from "@/lib/course-timeline";
 import { formatDay, formatMoment, formatTime } from "@/lib/message-presentation";
 import { AdminNav } from "../../AdminNav";
+import { AdminEmptyState } from "../../AdminEmptyState";
 import { AdminPageHeader } from "../../AdminPageHeader";
 import { TechnicalOnly } from "../../TechnicalDetail";
 import { CourseTimeline } from "../CourseTimeline";
@@ -83,27 +84,28 @@ export default async function CoursePage({
           `${course._count.enrollments} inscrito${course._count.enrollments === 1 ? "" : "s"}`,
           course.isPublished ? "Publicado" : "No publicado",
         ].filter(Boolean).join(" · ")}
-        actions={sinFecha && canEdit ? (
-          <ScheduleSessionButton
+        actions={<>
+          <span className={`pill ${course.isPublished ? "ok" : ""}`}>{course.isPublished ? "Publicado" : "No publicado"}</span>
+          {sinFecha && canEdit ? <ScheduleSessionButton
             courseId={course.id}
             courseTitle={course.title}
             enrollments={course._count.enrollments}
             modality={course.modality}
-          />
-        ) : null}
+          /> : null}
+        </>}
       />
 
       {sinFecha ? (
         <section className="summary-line is-attention">
-          <strong>Sesión pendiente de programar.</strong>
-          {course._count.enrollments > 0
+          <span><strong>Requiere configuración.</strong> {course._count.enrollments > 0
             ? ` ${course._count.enrollments} ${course._count.enrollments === 1 ? "persona está inscrita" : "personas están inscritas"} y sus recordatorios no pueden calcularse hasta que definas fecha y hora.`
-            : " Define fecha y hora para que las automatizaciones puedan calcularse."}
+            : "Define fecha y hora para que las automatizaciones puedan calcularse."}</span>
+          <Link className="btn-sm ghost" href={tabHref("calendario")}>Ir a Sesiones</Link>
         </section>
       ) : proxima && !proxima.streamUrl ? (
         <section className="summary-line is-attention">
-          <strong>El enlace de acceso todavía está pendiente.</strong>
-          {" Puedes añadirlo más adelante. Los recordatorios que necesiten el enlace no se enviarán hasta que esté disponible."}
+          <span><strong>Requiere configuración.</strong> El enlace de acceso todavía está pendiente. Los recordatorios que lo necesiten esperarán hasta que esté disponible.</span>
+          <Link className="btn-sm ghost" href={tabHref("calendario")}>Ir a Sesiones</Link>
         </section>
       ) : null}
 
@@ -116,7 +118,7 @@ export default async function CoursePage({
       </nav>
 
       {tab === "resumen" ? (
-          <section className="panel">
+          <section className="panel course-summary-panel">
             <h2>Datos del curso</h2>
             <dl className="data-grid">
               <div><dt>Modalidad</dt><dd>{course.modality ?? <span className="muted">No especificada</span>}</dd></div>
@@ -144,7 +146,7 @@ export default async function CoursePage({
           <section className="panel">
             <h2>Personas inscritas</h2>
             {inscritos.length === 0 ? (
-              <p className="muted">Todavía no hay nadie inscrito en este curso.</p>
+              <AdminEmptyState icon="contacts" title="Todavía no hay personas inscritas" description="Cuando una inscripción se confirme, aparecerá en esta lista." />
             ) : (
               <div className="table-wrap">
                 <table className="data">
@@ -189,7 +191,7 @@ export default async function CoursePage({
           <p className="muted" style={{ marginTop: -8, marginBottom: 18 }}>
             El recorrido completo desde que alguien se inscribe hasta que termina el curso.
           </p>
-          <CourseTimeline hasSchedule={sessions.length > 0} steps={steps} />
+          <CourseTimeline hasSchedule={sessions.length > 0} steps={steps} sessionsHref={tabHref("calendario")} />
         </section>
       ) : null}
     </main>

@@ -36,10 +36,10 @@ describe("cobertura del catálogo de estados", () => {
       "Leído",
       "No entregado",
       "Cancelado",
-      // "Prueba" no es un estado operativo: es lo que produce el modo
+      // "En simulación" no es un estado operativo: es lo que produce el modo
       // simulación. Se lista aparte pero necesita filtro propio, o los
       // ensayos internos se contarían junto a los envíos reales.
-      "Prueba",
+      "En simulación",
     ]);
   });
 

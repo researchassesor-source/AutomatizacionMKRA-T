@@ -32,9 +32,11 @@ function stateClass(step: TimelineStep): string {
   return "is-active";
 }
 
-export function CourseTimeline({ steps, hasSchedule }: { steps: TimelineStep[]; hasSchedule: boolean }) {
+export function CourseTimeline({ steps, hasSchedule, sessionsHref }: { steps: TimelineStep[]; hasSchedule: boolean; sessionsHref: string }) {
   return (
-    <div className="timeline">
+    <>
+      {steps.some((step) => step.blockedReason) ? <div className="timeline-config-note"><span><strong>Requiere configuración.</strong> Completa la sesión o el enlace pendiente para habilitar los avisos.</span><a className="btn-sm ghost" href={sessionsHref}>Ir a Sesiones</a></div> : null}
+      <div className="timeline">
       {steps.map((step) => (
         <div className={`timeline-step ${stateClass(step)}`} key={step.planKey}>
           <div className="timeline-rail" aria-hidden="true"><span /></div>
@@ -55,10 +57,11 @@ export function CourseTimeline({ steps, hasSchedule }: { steps: TimelineStep[]; 
             {step.scheduledAt
               ? formatMoment(step.scheduledAt)
               : <span className="muted">{hasSchedule ? "—" : "sin fecha"}</span>}
-            <small>{step.blockedReason ? "No puede salir" : step.active ? "Activo" : "Desactivado"}</small>
+            <small>{step.blockedReason ? "Requiere configuración" : step.active ? "Activo" : "Desactivado"}</small>
           </div>
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 }

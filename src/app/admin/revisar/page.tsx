@@ -7,6 +7,7 @@ import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { ImportScheduleButton } from "../cursos/ImportScheduleButton";
 import { ScheduleSessionButton } from "../cursos/ScheduleSessionButton";
+import { reviewPresentation } from "./reviewPresentation";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export default async function RevisarPage() {
       <AdminPageHeader
         eyebrow="Pendientes"
         title="Revisar"
-        description="Lo que impide que algo salga o que ya falló. Cada punto lleva al sitio donde se resuelve."
+        description="Decisiones y ajustes que necesitan una revisión humana. Cada punto lleva al sitio donde se resuelve."
       />
 
       {data.attention.length === 0 ? (
@@ -39,9 +40,12 @@ export default async function RevisarPage() {
         </div>
       ) : (
         <div className="attention-list">
-          {data.attention.map((item) => (
-            <article className={`attention-item ${item.severity === "error" ? "is-error" : ""}`} key={item.id}>
+          {data.attention.map((item) => {
+            const presentation = reviewPresentation(item.id, item.severity);
+            return (
+            <article className={`attention-item is-${presentation.category}`} key={item.id}>
               <div className="attention-copy">
+                <span className={`pill ${presentation.tone}`}>{presentation.label}</span>
                 <strong>{item.title}</strong>
                 <small>{item.detail}</small>
               </div>
@@ -60,7 +64,8 @@ export default async function RevisarPage() {
                 <Link className="btn-sm" href={item.href}>{item.actionLabel}</Link>
               )}
             </article>
-          ))}
+            );
+          })}
         </div>
       )}
     </main>

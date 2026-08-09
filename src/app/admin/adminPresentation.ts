@@ -1,8 +1,11 @@
+import { ROLE_PRESENTATION } from "@/lib/auth/role-presentation";
+
 const labels: Record<string, string> = {
-  ADMIN: "Administrador",
-  MARKETING: "Marketing",
-  VENTAS: "Ventas",
-  LECTURA: "Solo lectura",
+  ADMIN: ROLE_PRESENTATION.ADMIN.label,
+  DIRECCION: ROLE_PRESENTATION.DIRECCION.label,
+  MARKETING: ROLE_PRESENTATION.MARKETING.label,
+  VENTAS: ROLE_PRESENTATION.VENTAS.label,
+  LECTURA: ROLE_PRESENTATION.LECTURA.label,
   NUEVO: "Nuevo",
   CONTACTADO: "Contactado",
   OPORTUNIDAD: "Oportunidad",
@@ -215,4 +218,35 @@ const ACCIONES_AUDITORIA: Record<string, string> = {
 /** Traduccion de una accion de auditoria; si no se conoce, se deja legible. */
 export function presentAuditAction(action: string): string {
   return ACCIONES_AUDITORIA[action] ?? action.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+}
+
+/** Área humana derivada de claves ya existentes; no cambia el evento guardado. */
+export function presentAuditArea(action: string, entityType: string): string {
+  if (action.startsWith("AUTH_") || entityType === "Session" || entityType === "AdminUser") return "Acceso";
+  if (action.startsWith("LEAD_") || action.startsWith("CONTACT_") || entityType === "Lead" || entityType === "Enrollment") return "Contactos";
+  if (action.startsWith("COURSE_") || action.startsWith("CATALOG_") || entityType === "Course" || entityType === "CourseSession") return "Cursos";
+  if (action.startsWith("MESSAGE_") || entityType === "OutboundMessage" || entityType === "MessageTemplate") return "Comunicaciones";
+  if (action.startsWith("AUTOMATION_") || entityType === "AutomationRule" || entityType === "Campaign") return "Automatizaciones";
+  if (action.startsWith("SOCIAL_") || entityType === "SocialPost" || entityType === "SocialAccount") return "Publicaciones";
+  if (action.includes("WEBHOOK") || action.includes("CONNECTION")) return "Integraciones";
+  return "Sistema";
+}
+
+const SENSITIVE_AUDIT_KEY = /(password|passphrase|secret|token|authorization|cookie|credential|api[-_]?key|database[-_]?url)/i;
+
+/** Copia de presentación que oculta secretos sin modificar los metadatos persistidos. */
+export function redactAuditMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactAuditMetadata);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      SENSITIVE_AUDIT_KEY.test(key) ? "[oculto]" : redactAuditMetadata(item),
+    ]));
+  }
+  if (typeof value === "string") {
+    return value
+      .replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/gi, "$1[credenciales ocultas]@")
+      .replace(/(bearer\s+)[a-z0-9._~-]+/gi, "$1[oculto]");
+  }
+  return value;
 }

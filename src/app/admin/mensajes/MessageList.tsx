@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
-import { TechnicalOnly } from "../TechnicalDetail";
+import { useEffect, useMemo, useState } from "react";
+import { TechnicalSection } from "../TechnicalDetail";
 import { MessageActions } from "./MessageActions";
-import { formatDay, formatTime, humanReason, humanStatusFor, relativeMoment, statusDotClass } from "@/lib/message-presentation";
+import { formatDay, formatMoment, formatTime, humanReason, humanStatusFor, relativeMoment, statusDotClass } from "@/lib/message-presentation";
 import type { MessageChannel, MessageStatus } from "@prisma/client";
 
 export type MessageRow = {
@@ -28,107 +31,144 @@ export type MessageRow = {
   courseId: string | null;
 };
 
-/**
- * Historial de mensajes agrupado por dia.
- *
- * Doscientas filas seguidas obligan a leer la fecha de cada una para situarse.
- * Con un encabezado por dia, la fecha se lee una vez y las filas quedan libres
- * para lo que de verdad cambia entre ellas.
- */
 function dayKey(date: Date): string {
-  return new Intl.DateTimeFormat("es-EC", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "America/Guayaquil" }).format(date);
+  return new Intl.DateTimeFormat("es-EC", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "America/Guayaquil" }).format(date).replace(/[\u00a0\u202f]/g, " ");
 }
 
 function dayLabel(date: Date, now: Date): string {
-  const hoy = dayKey(now);
-  const ayer = dayKey(new Date(now.getTime() - 86_400_000));
+  const today = dayKey(now);
+  const yesterday = dayKey(new Date(now.getTime() - 86_400_000));
   const key = dayKey(date);
-  if (key === hoy) return "Hoy";
-  if (key === ayer) return "Ayer";
-  return new Intl.DateTimeFormat("es-EC", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Guayaquil" }).format(date);
+  if (key === today) return "Hoy";
+  if (key === yesterday) return "Ayer";
+  return new Intl.DateTimeFormat("es-EC", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Guayaquil" }).format(date).replace(/[\u00a0\u202f]/g, " ");
 }
 
-/** Momento que de verdad importa mostrar segun el estado del mensaje. */
-function moment(message: MessageRow): { texto: string; detalle: string } {
-  if (message.readAt) return { texto: relativeMoment(message.readAt), detalle: `Leído ${formatTime(message.readAt)}` };
-  if (message.deliveredAt) return { texto: relativeMoment(message.deliveredAt), detalle: `Recibido ${formatTime(message.deliveredAt)}` };
-  if (message.acceptedAt) return { texto: relativeMoment(message.acceptedAt), detalle: `Enviado ${formatTime(message.acceptedAt)}` };
-  return { texto: relativeMoment(message.scheduledAt), detalle: `Previsto ${formatTime(message.scheduledAt)}` };
+function meaningfulMoment(message: MessageRow): { text: string; detail: string } {
+  if (message.readAt) return { text: relativeMoment(message.readAt), detail: `Leído ${formatTime(message.readAt)}` };
+  if (message.deliveredAt) return { text: relativeMoment(message.deliveredAt), detail: `Recibido ${formatTime(message.deliveredAt)}` };
+  if (message.acceptedAt) return { text: relativeMoment(message.acceptedAt), detail: `Enviado ${formatTime(message.acceptedAt)}` };
+  return { text: relativeMoment(message.scheduledAt), detail: `Previsto ${formatTime(message.scheduledAt)}` };
 }
 
-export function MessageList({ messages, now }: { messages: MessageRow[]; now: Date }) {
-  const grupos: Array<{ label: string; items: MessageRow[] }> = [];
-  for (const message of messages) {
-    const label = dayLabel(message.scheduledAt, now);
-    const ultimo = grupos.at(-1);
-    if (ultimo?.label === label) ultimo.items.push(message);
-    else grupos.push({ label, items: [message] });
-  }
+export function MessageList({ messages, now, technical }: { messages: MessageRow[]; now: Date; technical: boolean }) {
+  const [pageSize, setPageSize] = useState(25);
+  const [visibleCount, setVisibleCount] = useState(25);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const messageSetKey = messages.map((message) => message.id).join("|");
+
+  useEffect(() => {
+    void messageSetKey;
+    setVisibleCount(pageSize);
+    setSelectedId(null);
+  }, [messageSetKey, pageSize]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedId(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedId]);
+
+  const visibleMessages = messages.slice(0, visibleCount);
+  const selected = messages.find((message) => message.id === selectedId) ?? null;
+  const groups = useMemo(() => {
+    const result: Array<{ label: string; items: MessageRow[] }> = [];
+    for (const message of visibleMessages) {
+      const label = dayLabel(message.scheduledAt, now);
+      const last = result.at(-1);
+      if (last?.label === label) last.items.push(message);
+      else result.push({ label, items: [message] });
+    }
+    return result;
+  }, [now, visibleMessages]);
 
   return (
-    <div className="message-groups">
-      {grupos.map((grupo) => (
-        <section className="message-group" key={grupo.label}>
-          <h3 className="message-group-title">
-            {grupo.label} <span>{grupo.items.length}</span>
-          </h3>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Contacto</th>
-                  <th>Mensaje</th>
-                  <th>Estado</th>
-                  <th>Cuándo</th>
-                  <th aria-label="Acciones" />
-                </tr>
-              </thead>
-              <tbody>
-                {grupo.items.map((message) => {
-                  const humano = humanStatusFor(message.status, message.scheduledAt, now);
-                  const motivo = humano.tone === "problem" || humano.tone === "blocked" ? humanReason(message.errorCode, message.errorMessage ?? message.error) : null;
-                  const cuando = moment(message);
-                  return (
-                    <tr key={message.id}>
-                      <td>
-                        <Link href={`/admin/leads/${message.leadId}`} className="row-title">{message.leadName}</Link>
-                        <div className="muted">{message.channel === "EMAIL" ? "Correo" : "WhatsApp"} · {message.toAddress}</div>
-                      </td>
-                      <td>
-                        <strong className="row-title">{message.subject ?? (message.channel === "WHATSAPP" ? "Mensaje de WhatsApp" : "Sin asunto")}</strong>
-                        <div className="muted">{message.courseTitle ?? "Sin curso"}</div>
-                        <details className="row-details">
-                          <summary>Ver texto</summary>
-                          <p className="message-body">{message.body}</p>
-                        </details>
-                      </td>
-                      <td>
-                        <span className={statusDotClass(message.status, message.scheduledAt)}>
-                          {humano.label}
-                        </span>
-                        <div className="muted">{motivo ?? humano.hint}</div>
-                        {humano.tone === "blocked" && message.courseId ? (
-                          <Link className="row-fix" href={`/admin/cursos/${message.courseId}?tab=calendario`}>Ir a Sesiones →</Link>
-                        ) : null}
-                        <TechnicalOnly>{message.status}</TechnicalOnly>
-                        {message.errorCode ? <TechnicalOnly>{message.errorCode}</TechnicalOnly> : null}
-                        {message.providerMessageId ? <TechnicalOnly>{message.providerMessageId}</TechnicalOnly> : null}
-                        {message.attemptCount > 1 ? <TechnicalOnly>{message.attemptCount} intentos</TechnicalOnly> : null}
-                        {message.providerName ? <TechnicalOnly>{message.providerName}</TechnicalOnly> : null}
-                      </td>
-                      <td>
-                        <span className="row-when">{cuando.texto}</span>
-                        <div className="muted">{formatDay(message.scheduledAt)} · {cuando.detalle}</div>
-                      </td>
-                      <td><MessageActions id={message.id} status={message.status} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ))}
-    </div>
+    <>
+      <fieldset className="table-presentation-toolbar"><legend className="sr-only">Controles de presentación</legend>
+        <span>Mostrando {Math.min(visibleCount, messages.length)} de {messages.length}</span>
+        <label>
+          Filas por bloque
+          <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <div className="message-groups">
+        {groups.map((group) => (
+          <section className="message-group" key={group.label}>
+            <h3 className="message-group-title">{group.label} <span>{group.items.length}</span></h3>
+            <div className="table-wrap message-table-wrap">
+              <table className="data message-table">
+                <thead><tr><th>Destinatario</th><th>Mensaje</th><th>Canal</th><th>Estado</th><th>Fecha</th><th aria-label="Acciones" /></tr></thead>
+                <tbody>
+                  {group.items.map((message) => {
+                    const human = humanStatusFor(message.status, message.scheduledAt, now);
+                    const reason = human.tone === "problem" || human.tone === "blocked" ? humanReason(message.errorCode, message.errorMessage ?? message.error) : null;
+                    const when = meaningfulMoment(message);
+                    return (
+                      <tr className="message-table-row" key={message.id}>
+                        <td data-label="Destinatario">
+                          <Link href={`/admin/leads/${message.leadId}`} className="row-title">{message.leadName}</Link>
+                          <div className="muted row-truncate">{message.toAddress}</div>
+                        </td>
+                        <td data-label="Mensaje">
+                          <strong className="row-title row-truncate">{message.subject ?? (message.channel === "WHATSAPP" ? "Mensaje de WhatsApp" : "Sin asunto")}</strong>
+                          <div className="muted row-truncate">{message.courseTitle ?? "Sin curso"}</div>
+                        </td>
+                        <td data-label="Canal">{message.channel === "EMAIL" ? "Correo" : "WhatsApp"}</td>
+                        <td data-label="Estado">
+                          <span className={statusDotClass(message.status, message.scheduledAt, now)}>{human.label}</span>
+                          <div className="muted row-status-hint">{reason ?? human.hint}</div>
+                        </td>
+                        <td data-label="Fecha"><span className="row-when">{when.text}</span><div className="muted">{formatDay(message.scheduledAt)} · {when.detail}</div></td>
+                        <td className="row-actions-cell"><MessageActions id={message.id} status={message.status} onView={() => setSelectedId(message.id)} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {visibleCount < messages.length ? (
+        <div className="table-more"><button type="button" className="btn-sm ghost" onClick={() => setVisibleCount((count) => count + pageSize)}>Mostrar {Math.min(pageSize, messages.length - visibleCount)} más</button></div>
+      ) : null}
+
+      {selected ? (
+        <div className="dialog-backdrop message-detail-backdrop" role="presentation">
+          <section className="dialog is-wide message-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="message-detail-title">
+            <header><div><span className="eyebrow">Detalle de comunicación</span><h2 id="message-detail-title">{selected.subject ?? (selected.channel === "WHATSAPP" ? "Mensaje de WhatsApp" : "Sin asunto")}</h2></div><button type="button" className="admin-dialog-close" aria-label="Cerrar detalle" onClick={() => setSelectedId(null)}>×</button></header>
+            <dl className="detail-list message-detail-summary">
+              <dt>Destinatario</dt><dd>{selected.leadName} · {selected.toAddress}</dd>
+              <dt>Curso</dt><dd>{selected.courseTitle ?? "Sin curso"}</dd>
+              <dt>Canal</dt><dd>{selected.channel === "EMAIL" ? "Correo electrónico" : "WhatsApp"}</dd>
+              <dt>Fecha prevista</dt><dd>{formatMoment(selected.scheduledAt)}</dd>
+            </dl>
+            <div className="message-detail-body"><h3>Contenido</h3><p>{selected.body}</p></div>
+            <TechnicalSection visible={technical}>
+              <details className="technical-context">
+                <summary>Ver detalle técnico</summary>
+                <dl className="detail-list">
+                  <dt>Estado interno</dt><dd>{selected.status}</dd>
+                  <dt>Identificador</dt><dd>{selected.id}</dd>
+                  <dt>Proveedor</dt><dd>{selected.providerName ?? "Sin proveedor"}</dd>
+                  <dt>Referencia del proveedor</dt><dd>{selected.providerMessageId ?? "—"}</dd>
+                  <dt>Intentos</dt><dd>{selected.attemptCount}</dd>
+                  <dt>Código de diagnóstico</dt><dd>{selected.errorCode ?? "—"}</dd>
+                  <dt>Diagnóstico</dt><dd>{selected.errorMessage ?? selected.error ?? "Sin incidencias"}</dd>
+                </dl>
+              </details>
+            </TechnicalSection>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatMoment, relativeMoment } from "@/lib/message-presentation";
 import { useFeedback } from "../Feedback";
+import { postStatusPresentation } from "./postPresentation";
 
 export type BoardPost = {
   id: string;
@@ -102,10 +103,16 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
   }
 
   return (
-    <section className="panel">
-      <h2>Publicaciones</h2>
+    <section className="panel posts-board">
+      <div className="panel-head posts-board-heading">
+        <div>
+          <span className="section-kicker">Seguimiento</span>
+          <h2>Publicaciones</h2>
+          <p className="muted">Revisa qué está por salir y el resultado de cada destino.</p>
+        </div>
+      </div>
 
-      <nav className="tabs" aria-label="Estado de las publicaciones">
+      <div className="tabs" aria-label="Estado de las publicaciones" role="tablist">
         {PESTANAS.map((item) => {
           const total = item.key === "recurrentes" ? recurrentes.length : posts.filter((post) => item.estados.includes(post.status)).length;
           return (
@@ -114,29 +121,29 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
               key={item.key}
               className={pestana === item.key ? "is-active" : ""}
               onClick={() => setPestana(item.key)}
-              aria-pressed={pestana === item.key}
+              aria-selected={pestana === item.key}
+              role="tab"
             >
               {item.label} {total > 0 ? <span className="tab-count">{total}</span> : null}
             </button>
           );
         })}
-      </nav>
+      </div>
 
       {pestana === "recurrentes" ? (
         recurrentes.length === 0 ? (
-          <p className="muted">No hay ninguna publicación recurrente. Al programar una, marca «Repetir cada semana».</p>
+          <div className="posts-empty"><strong>Sin publicaciones recurrentes</strong><span>Al programar una publicación, activa “Repetir cada semana”.</span></div>
         ) : (
           <div className="post-list">
             {recurrentes.map((item) => (
-              <article className="post-row" key={item.id}>
+              <article className="post-row" key={item.id} aria-label={`Publicación recurrente en ${nombreRed(item.platform)}`}>
                 <div className="post-main">
-                  <span className="post-network">{nombreRed(item.platform)}</span>
+                  <div className="post-meta-line"><span className="post-network">{nombreRed(item.platform)}</span><span className={`pill ${item.isActive ? "ok" : "info"}`}>{item.isActive ? "Activa" : "En pausa"}</span></div>
                   <p>{item.caption.slice(0, 140)}{item.caption.length > 140 ? "…" : ""}</p>
                   <small>
                     Cada {DIAS[item.weekday] ?? "semana"} a las {item.localTime} · próxima {formatMoment(item.nextRunAt)}
                   </small>
                 </div>
-                <span className={`status-dot ${item.isActive ? "is-done" : "is-waiting"}`}>{item.isActive ? "Activa" : "En pausa"}</span>
                 <div className="post-actions">
                   <button type="button" className="btn-sm ghost" disabled={busy === item.id} onClick={() => recurrencia(item)}>
                     {item.isActive ? "Pausar" : "Reactivar"}
@@ -147,21 +154,25 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
           </div>
         )
       ) : visibles.length === 0 ? (
-        <p className="muted">
-          {pestana === "programadas" ? "No hay nada esperando salir." : pestana === "publicadas" ? "Todavía no se ha publicado nada." : pestana === "guardadas" ? "No has guardado ninguna publicación para reutilizar." : "Ninguna publicación ha fallado."}
-        </p>
+        <div className="posts-empty">
+          <strong>{pestana === "programadas" ? "Nada pendiente" : pestana === "publicadas" ? "Aún no hay publicaciones" : pestana === "guardadas" ? "Sin publicaciones guardadas" : "Todo salió correctamente"}</strong>
+          <span>{pestana === "programadas" ? "Las publicaciones programadas aparecerán aquí." : pestana === "publicadas" ? "Los contenidos publicados aparecerán aquí." : pestana === "guardadas" ? "Guarda una publicación para reutilizarla más adelante." : "No hay publicaciones que requieran un reintento."}</span>
+        </div>
       ) : (
         <div className="post-list">
-          {visibles.map((post) => (
-            <article className="post-row" key={post.id}>
-              {post.mediaUrl ? <span className="post-thumb" style={{ backgroundImage: `url(${post.mediaUrl})` }} aria-hidden="true" /> : null}
+          {visibles.map((post) => {
+            const presentation = postStatusPresentation(post.status);
+            return (
+            <article className="post-row" key={post.id} aria-label={`Publicación para ${nombreRed(post.platform)}, ${presentation.label}`}>
+              {post.mediaUrl ? <span className="post-thumb" style={{ backgroundImage: `url(${post.mediaUrl})` }} aria-hidden="true" /> : <span className="post-thumb is-empty" aria-hidden="true">RA</span>}
               <div className="post-main">
-                <span className="post-network">{nombreRed(post.platform)}</span>
-                <p>{post.caption.slice(0, 160)}{post.caption.length > 160 ? "…" : ""}</p>
-                <small>
-                  {post.scheduledAt ? `${formatMoment(post.scheduledAt)} · ${relativeMoment(post.scheduledAt)}` : "Sin fecha"}
-                  {post.error ? ` · ${post.error.slice(0, 90)}` : ""}
-                </small>
+                <div className="post-meta-line">
+                  <span className="post-destination"><span className="post-network">{nombreRed(post.platform)}</span><span>{post.accountName}</span></span>
+                  <span className={`pill ${presentation.tone}`}>{presentation.label}</span>
+                </div>
+                <p>{post.caption.slice(0, 140)}{post.caption.length > 140 ? "…" : ""}</p>
+                <small>{post.scheduledAt ? `${formatMoment(post.scheduledAt)} · ${relativeMoment(post.scheduledAt)}` : "Sin fecha programada"}</small>
+                {post.error ? <small className="post-human-error">No se pudo enviar a este destino. Revisa el canal o vuelve a intentarlo.</small> : null}
               </div>
               <div className="post-actions">
                 {post.providerPostUrl ? (
@@ -187,7 +198,8 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
                 ) : null}
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

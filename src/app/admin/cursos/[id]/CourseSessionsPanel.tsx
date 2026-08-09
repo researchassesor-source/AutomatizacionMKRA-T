@@ -6,6 +6,7 @@ import { useFeedback } from "../../Feedback";
 import { ScheduleSessionButton } from "../ScheduleSessionButton";
 import { ImportScheduleButton } from "../ImportScheduleButton";
 import { formatDay, formatTime } from "@/lib/message-presentation";
+import { AdminActionMenu } from "../../AdminActionMenu";
 
 type SessionRow = { id: string; title: string | null; startAt: string; endAt: string | null; streamUrl: string | null };
 
@@ -206,11 +207,9 @@ export function CourseSessionsPanel({
                 )}
               </div>
 
-              {canEdit && editing !== sessionRow.id ? (
-                <button type="button" className="btn-sm ghost danger" onClick={() => remove(sessionRow)} disabled={busy === sessionRow.id}>
-                  Eliminar
-                </button>
-              ) : null}
+              {canEdit && editing !== sessionRow.id ? <AdminActionMenu label={`Acciones de ${sessionRow.title?.trim() || "la sesión"}`}>
+                <button type="button" className="is-danger" onClick={() => remove(sessionRow)} disabled={busy === sessionRow.id}>Eliminar sesión</button>
+              </AdminActionMenu> : null}
             </article>
           ))}
         </div>

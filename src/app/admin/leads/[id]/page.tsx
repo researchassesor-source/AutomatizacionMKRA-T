@@ -5,7 +5,7 @@ import { resolveViewMode } from "@/lib/auth/view-mode";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { AdminNav } from "../../AdminNav";
 import { AdminPageHeader } from "../../AdminPageHeader";
-import { presentAdminValue } from "../../adminPresentation";
+import { presentAdminValue, presentAuditAction } from "../../adminPresentation";
 import { LeadDetailManager } from "./LeadDetailManager";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +42,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     orderBy: { createdAt: "desc" },
     take: 30,
   });
+  const auditOrigin = (action: string, actorEmail: string | null) => {
+    if (action.startsWith("FORM_") || action.startsWith("CONTACT_")) return "Formulario web";
+    if (!actorEmail) return "Sistema";
+    return view === "tecnica" ? actorEmail : "Equipo CRM";
+  };
   const serializedLead = {
     id: lead.id, firstName: lead.firstName, lastName: lead.lastName, fullName: lead.fullName,
     email: lead.email, phone: lead.phone, stage: lead.stage, source: lead.source,
@@ -73,15 +78,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         courses={courses}
         role={session.role}
       />
-      <div className="grid">
-        <section className="panel"><h2>Notas</h2>{lead.notes.length === 0 ? <AdminEmptyState icon="contacts" title="Sin notas" description="Las notas del equipo aparecerán aquí." /> : lead.notes.map((note) => <article className="timeline-item" key={note.id}><strong>{note.author?.name ?? "Equipo CRM"}</strong><p>{note.content}</p><small>{formatDate(note.createdAt)}</small></article>)}</section>
-        <section className="panel"><h2>Próximas acciones</h2>{lead.followUps.length === 0 ? <AdminEmptyState icon="calendar" title="Sin seguimientos" description="Las próximas acciones programadas aparecerán aquí." /> : lead.followUps.map((item) => <article className="timeline-item" key={item.id}><strong>{presentAdminValue(item.type)} · {presentAdminValue(item.status)}</strong><p>{item.notes ?? "Sin detalle"}</p><small>{formatDate(item.dueAt)} · {item.assignedTo?.name ?? "Sin asignar"}</small></article>)}</section>
-      </div>
-      <section className="panel"><h2>Auditoría relacionada</h2>{relatedAudits.length === 0 ? <AdminEmptyState icon="audit" title="Sin eventos de auditoría" description="Las acciones administrativas relacionadas aparecerán aquí." /> : <div className="table-wrap"><table className="data"><thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Resultado</th><th>Referencia</th></tr></thead><tbody>{relatedAudits.map((event) => <tr key={event.id}><td>{formatDate(event.createdAt)}</td><td>{event.actorEmail ?? "Sistema"}</td><td>{presentAdminValue(event.action)}</td><td>{presentAdminValue(event.result)}</td><td>{event.entityId ?? "—"}</td></tr>)}</tbody></table></div>}</section>
-      <div className="grid">
-        <section className="panel"><h2>Mensajes</h2>{lead.messages.length === 0 ? <AdminEmptyState icon="messages" title="Sin mensajes" description="Los mensajes asociados aparecerán aquí." /> : lead.messages.map((message) => <article className="timeline-item" key={message.id}><strong>{presentAdminValue(message.channel)} · {presentAdminValue(message.status)}</strong><p>{message.subject ?? message.body.slice(0, 140)}</p><small>{formatDate(message.createdAt)}</small></article>)}</section>
-        <section className="panel"><h2>Actividad</h2>{lead.events.length === 0 ? <AdminEmptyState icon="activity" title="Sin actividad registrada" description="Los eventos del contacto aparecerán aquí." /> : lead.events.map((event) => <article className="timeline-item" key={event.id}><strong>{presentAdminValue(event.type)}</strong><small>{formatDate(event.createdAt)}</small></article>)}</section>
-      </div>
+      {lead.notes.length > 0 || lead.followUps.length > 0 ? <div className="grid">
+        {lead.notes.length > 0 ? <section className="panel"><h2>Notas</h2>{lead.notes.map((note) => <article className="timeline-item" key={note.id}><strong>{note.author?.name ?? "Equipo CRM"}</strong><p>{note.content}</p><small>{formatDate(note.createdAt)}</small></article>)}</section> : null}
+        {lead.followUps.length > 0 ? <section className="panel"><h2>Próximas acciones</h2>{lead.followUps.map((item) => <article className="timeline-item" key={item.id}><strong>{presentAdminValue(item.type)} · {presentAdminValue(item.status)}</strong><p>{item.notes ?? "Sin detalle"}</p><small>{formatDate(item.dueAt)} · {item.assignedTo?.name ?? "Sin asignar"}</small></article>)}</section> : null}
+      </div> : null}
+      <section className="panel contact-audit"><h2>Historial administrativo</h2>{relatedAudits.length === 0 ? <AdminEmptyState icon="audit" title="Sin eventos administrativos" description="Las acciones relacionadas con este contacto aparecerán aquí." /> : <div className="table-wrap"><table className="data audit-human-table"><thead><tr><th>Fecha</th><th>Origen</th><th>Acción</th><th>Resultado</th></tr></thead><tbody>{relatedAudits.map((event) => <tr key={event.id}><td data-label="Fecha">{formatDate(event.createdAt)}</td><td data-label="Origen">{auditOrigin(event.action, event.actorEmail)}</td><td data-label="Acción">{presentAuditAction(event.action)}</td><td data-label="Resultado">{presentAdminValue(event.result)}</td></tr>)}</tbody></table></div>}</section>
+      <section className="panel contact-messages"><h2>Mensajes</h2>{lead.messages.length === 0 ? <AdminEmptyState icon="messages" title="Sin mensajes" description="Los mensajes asociados aparecerán aquí." /> : lead.messages.map((message) => <article className="timeline-item" key={message.id}><strong>{presentAdminValue(message.channel)} · {presentAdminValue(message.status)}</strong><p>{message.subject ?? message.body.slice(0, 140)}</p><small>{formatDate(message.createdAt)}</small></article>)}</section>
+      {lead.events.length > 0 ? <details className="panel contact-activity-details"><summary>Ver actividad del formulario ({lead.events.length})</summary><div>{lead.events.map((event) => <article className="timeline-item" key={event.id}><strong>{presentAdminValue(event.type)}</strong><small>{formatDate(event.createdAt)}</small></article>)}</div></details> : null}
     </main>
   );
 }

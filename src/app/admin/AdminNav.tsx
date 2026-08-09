@@ -2,10 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AdminIcon, type AdminIconName } from "./AdminIcon";
-import { profileLabel } from "@/lib/auth/roles";
+import { roleLabel } from "@/lib/auth/role-presentation";
 import type { ViewMode } from "@/lib/auth/view-mode-shared";
 import { useAdminSession } from "./AdminSession";
 import { ViewSwitch } from "./ViewSwitch";
@@ -47,6 +47,7 @@ const TODOS = [...TRABAJO, ...GESTION_LINKS, ...SISTEMA];
 
 export function AdminNav({ view }: { view: ViewMode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { role, name, email, legacy, technical } = useAdminSession();
   const [open, setOpen] = useState(false);
@@ -90,11 +91,12 @@ export function AdminNav({ view }: { view: ViewMode }) {
   }, [open]);
 
   const currentPage = useMemo(() => {
+    if (pathname === "/admin/mensajes" && searchParams.get("vista") === "integraciones") return "Centro técnico";
     return TODOS
       .map((item) => ({ ...item, path: item.href.split("?")[0] }))
       .filter((item) => pathname === item.path || (item.path !== "/admin" && pathname.startsWith(`${item.path}/`)))
       .sort((a, b) => b.path.length - a.path.length)[0]?.label ?? "Panel";
-  }, [pathname]);
+  }, [pathname, searchParams]);
 
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join("") || "RA";
 
@@ -106,7 +108,12 @@ export function AdminNav({ view }: { view: ViewMode }) {
   }
 
   function isActive(href: string) {
-    const path = href.split("?")[0];
+    const [path, query] = href.split("?");
+    if (query) {
+      const target = new URLSearchParams(query);
+      return pathname === path && Array.from(target.entries()).every(([key, value]) => searchParams.get(key) === value);
+    }
+    if (pathname === path && searchParams.get("vista")) return false;
     return pathname === path || (path !== "/admin" && pathname.startsWith(`${path}/`));
   }
 
@@ -145,8 +152,8 @@ export function AdminNav({ view }: { view: ViewMode }) {
         <div className="admin-sidebar-footer">
           <span className="admin-avatar" aria-hidden="true">{initials}</span>
           <span className="admin-sidebar-user">
-            <strong>{name}</strong>
-            <small>{legacy ? "Acceso temporal" : profileLabel(role)}</small>
+            <strong title={name}>{name}</strong>
+            <small>{legacy ? "Acceso temporal" : roleLabel(role)}</small>
           </span>
           <button type="button" onClick={logout} disabled={loggingOut} aria-label="Cerrar sesión" title="Cerrar sesión">
             <AdminIcon name="logout" size={17} />
@@ -174,13 +181,22 @@ export function AdminNav({ view }: { view: ViewMode }) {
 
         <div className="admin-topbar-actions">
           {technical ? <ViewSwitch current={view} /> : null}
-          <details className="admin-user-menu">
-            <summary aria-label="Menú de usuario">
+          <details className="admin-user-menu" onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+          }}>
+            <summary aria-label={`Menú de ${name}, perfil ${roleLabel(role)}`}>
               <span className="admin-avatar" aria-hidden="true">{initials}</span>
+              <span className="admin-user-copy">
+                <strong title={name}>{name}</strong>
+                <small>{legacy ? "Acceso temporal" : roleLabel(role)}</small>
+              </span>
               <AdminIcon name="chevron" size={15} />
             </summary>
             <div className="admin-user-popover">
-              <div className="admin-user-identity"><strong>{name}</strong><span>{email}</span><em>Perfil {profileLabel(role)}</em></div>
+              <div className="admin-user-identity"><strong>{name}</strong><span>{email}</span><em>Perfil {roleLabel(role)}</em></div>
               <a href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">
                 <AdminIcon name="external" size={16} />
                 Ver catálogo público

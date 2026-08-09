@@ -91,7 +91,7 @@ export default async function AdminHome() {
         {data.sessions.length === 0 ? (
           <div className="home-empty">
             <p><strong>Aún no hay sesiones programadas.</strong></p>
-            <p>Tienes cursos con personas inscritas. Programa la primera sesión para activar sus recordatorios.</p>
+            <p>Programa la primera sesión de un curso para activar el calendario de recordatorios.</p>
             <Link className="btn-sm" href="/admin/cursos">Ir a Cursos</Link>
           </div>
         ) : (
@@ -107,9 +107,9 @@ export default async function AdminHome() {
                   </small>
                 </div>
                 <span className={`status-dot ${session_.hasStreamUrl ? "is-done" : "is-attention"}`}>
-                  {session_.hasStreamUrl ? "Listo" : "Falta enlace"}
+                  {session_.hasStreamUrl ? "Listo" : "Requiere configuración"}
                 </span>
-                <Link className="btn-sm ghost" href={`/admin/cursos#curso-${session_.courseId}`}>Ver curso</Link>
+                <Link className="btn-sm ghost" href={`/admin/cursos/${session_.courseId}`}>Ver curso</Link>
               </article>
             ))}
           </div>

@@ -1,4 +1,5 @@
 import type { SessionRole } from "./session";
+import { roleLabel } from "./role-presentation";
 
 /**
  * Grupos de acceso con nombre.
@@ -45,16 +46,5 @@ export function isTechnicalProfile(role: SessionRole): boolean {
 
 /** Nombre del perfil tal como se muestra en la interfaz. */
 export function profileLabel(role: SessionRole): string {
-  switch (role) {
-    case "ADMIN":
-      return "Técnico";
-    case "DIRECCION":
-      return "Dirección";
-    case "MARKETING":
-      return "Marketing";
-    case "VENTAS":
-      return "Ventas";
-    default:
-      return "Consulta";
-  }
+  return roleLabel(role);
 }

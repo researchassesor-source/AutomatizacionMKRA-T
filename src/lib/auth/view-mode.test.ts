@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseViewMode } from "./view-mode-shared";
 import { isTechnicalProfile, profileLabel, CONTENIDO, COMERCIAL, GESTION, TECNICO, CONSULTA, OPERACION } from "./roles";
+import { ASSIGNABLE_PRODUCT_ROLES, roleDescription, roleLabel } from "./role-presentation";
 
 describe("vista del panel", () => {
   it("solo reconoce las dos vistas reales", () => {
@@ -34,5 +35,12 @@ describe("perfiles", () => {
   it("los perfiles se nombran en español, no con el rol interno", () => {
     expect(profileLabel("ADMIN")).toBe("Técnico");
     expect(profileLabel("DIRECCION")).toBe("Dirección");
+    expect(roleLabel("DIRECCION")).not.toBe("Administrador");
+  });
+
+  it("la interfaz solo permite asignar los dos perfiles actuales", () => {
+    expect(ASSIGNABLE_PRODUCT_ROLES).toEqual(["DIRECCION", "ADMIN"]);
+    expect(roleDescription("DIRECCION")).toContain("Gestión completa de la operación");
+    expect(roleDescription("ADMIN")).toContain("auditoría técnica");
   });
 });

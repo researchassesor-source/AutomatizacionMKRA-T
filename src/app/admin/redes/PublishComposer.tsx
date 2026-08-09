@@ -314,21 +314,28 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
 
   if (accounts.length === 0) {
     return (
-      <section className="panel">
+      <section className="panel composer-empty">
+        <span className="section-kicker">Crear contenido</span>
         <h2>Nueva publicación</h2>
-        <p className="muted">Todavía no hay ninguna cuenta lista para publicar.</p>
+        <p className="muted">Todavía no hay canales listos para publicar. Revisa la configuración de las cuentas.</p>
       </section>
     );
   }
 
   return (
     <section className="panel composer">
-      <h2>Nueva publicación</h2>
+      <div className="panel-head composer-heading">
+        <div>
+          <span className="section-kicker">Crear contenido</span>
+          <h2>Nueva publicación</h2>
+          <p className="muted">Elige los destinos, prepara el contenido y decide cuándo debe salir.</p>
+        </div>
+      </div>
 
       <div className="composer-grid">
         <div className="composer-form">
           <fieldset className="composer-networks">
-            <legend>Publicar en</legend>
+            <legend><span className="composer-step-number" aria-hidden="true">1</span> Destinos</legend>
             {REDES.map((red) => {
               const cuentas = porRed.get(red.platform) ?? [];
               if (cuentas.length === 0) {
@@ -348,14 +355,26 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
             })}
           </fieldset>
 
-          <label className="composer-field">
-            Texto
+          <label className="composer-field composer-field-primary">
+            <span className="composer-field-title"><span className="composer-step-number" aria-hidden="true">2</span> Contenido</span>
             <textarea ref={textoRef} rows={6} value={texto} onChange={(event) => setTexto(event.target.value)} placeholder="Escribe la publicación…" />
             <small>{texto.length} caracteres</small>
           </label>
 
+          <div className="composer-field composer-media-field">
+            <span className="composer-field-title"><span className="composer-step-number" aria-hidden="true">3</span> Imagen <span className="field-optional">opcional</span></span>
+            <div className="composer-media">
+              <label className="btn-sm ghost">
+                {guardando === "imagen" ? "Subiendo…" : "Subir imagen"}
+                <input type="file" accept="image/*" hidden onChange={subir} />
+              </label>
+              <input aria-label="URL de la imagen" type="url" value={imagen} onChange={(event) => setImagen(event.target.value)} placeholder="o pega una URL" />
+              {imagen ? <button type="button" className="btn-sm ghost" onClick={() => setImagen("")}>Quitar</button> : null}
+            </div>
+          </div>
+
           <fieldset className="composer-cta">
-            <legend>Enlace / llamada a la acción</legend>
+            <legend><span className="composer-step-number" aria-hidden="true">4</span> Enlace y llamada a la acción</legend>
 
             <label className="composer-field">
               URL de destino <span className="field-optional">opcional</span>
@@ -393,21 +412,10 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
             ) : null}
           </fieldset>
 
-          <div className="composer-field">
-            Imagen <span className="field-optional">opcional</span>
-            <div className="composer-media">
-              <label className="btn-sm ghost">
-                {guardando === "imagen" ? "Subiendo…" : "Subir imagen"}
-                <input type="file" accept="image/*" hidden onChange={subir} />
-              </label>
-              <input type="url" value={imagen} onChange={(event) => setImagen(event.target.value)} placeholder="o pega una URL" />
-              {imagen ? <button type="button" className="btn-sm ghost" onClick={() => setImagen("")}>Quitar</button> : null}
-            </div>
-          </div>
-
           <label className="composer-field">
-            Programar para <span className="field-optional">déjalo vacío para publicar ahora</span>
+            <span className="composer-field-title"><span className="composer-step-number" aria-hidden="true">5</span> Momento de publicación</span>
             <input type="datetime-local" value={cuando} onChange={(event) => setCuando(event.target.value)} />
+            <small>Déjalo vacío para publicar ahora.</small>
           </label>
 
           {cuando ? (
@@ -418,7 +426,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
           ) : null}
 
           <div className="composer-actions">
-            <button type="button" className="btn-sm" disabled={guardando !== null} onClick={() => publicar(Boolean(cuando))}>
+            <button type="button" className="btn-sm composer-primary-action" disabled={guardando !== null} aria-busy={guardando === "publicar"} onClick={() => publicar(Boolean(cuando))}>
               {guardando === "publicar" ? "Guardando…" : cuando ? "Programar publicación" : "Crear publicación"}
             </button>
             <button type="button" className="btn-sm ghost" onClick={guardarPlantilla}>Guardar como plantilla</button>

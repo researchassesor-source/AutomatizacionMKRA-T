@@ -155,7 +155,7 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
   if (failedMessages > 0) {
     attention.push({
       id: "mensajes-fallidos",
-      title: `${failedMessages} mensaje${failedMessages === 1 ? "" : "s"} no llegó a su destinatario`,
+      title: `${failedMessages} mensaje${failedMessages === 1 ? " no llegó" : "s no llegaron"} a su destinatario`,
       detail: "Revisa el motivo en Comunicaciones para saber si hay que corregir un dato.",
       href: "/admin/mensajes?status=FALLIDO",
       actionLabel: "Ver",

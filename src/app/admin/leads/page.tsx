@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
 import { COMERCIAL } from "@/lib/auth/roles";
 import { resolveViewMode } from "@/lib/auth/view-mode";
+import { AdminActionMenu } from "../AdminActionMenu";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
@@ -25,9 +26,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const view = await resolveViewMode(session.role);
   const canCreate = COMERCIAL.includes(session.role);
   const canExport = COMERCIAL.includes(session.role);
-  const advancedFiltersActive = Boolean(filters.from || filters.to);
+  const advancedFiltersActive = Boolean(filters.assignedTo || filters.classification || (filters.sort && filters.sort !== "newest"));
   const hasFilters = Boolean(
-    filters.q || filters.stage || filters.course || filters.assignedTo || advancedFiltersActive
+    filters.q || filters.stage || filters.course || filters.source || filters.from || filters.to || filters.assignedTo || advancedFiltersActive
     || filters.classification || (filters.sort && filters.sort !== "newest") || filters.archived === "true",
   );
   const where: Prisma.LeadWhereInput = {
@@ -87,10 +88,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       <form>
         <AdminFilterPanel label="Filtros de contactos">
         <div className="contact-filters">
-          <div className="contact-filter-grid">
+          <div className="contact-filter-grid phase2-contact-filter-grid">
             <label className="filter-field filter-field-search">
               <span>Buscar contactos</span>
-              <input name="q" defaultValue={filters.q} placeholder="Nombre, correo o WhatsApp" />
+              <input name="q" defaultValue={filters.q} placeholder="Buscar por nombre, correo o teléfono" />
               <small>Busca utilizando cualquiera de estos datos.</small>
             </label>
             <label className="filter-field">
@@ -101,15 +102,27 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               <span>Curso</span>
               <select name="course" defaultValue={filters.course ?? ""}><option value="">Todos los cursos activos</option>{activeCourses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
             </label>
+            <label className="filter-field">
+              <span>Origen</span>
+              <input name="source" defaultValue={filters.source} placeholder="Sitio web, Facebook…" />
+            </label>
+            <label className="filter-field"><span>Registrado desde</span><input name="from" type="date" defaultValue={filters.from} /></label>
+            <label className="filter-field"><span>Registrado hasta</span><input name="to" type="date" defaultValue={filters.to} /></label>
           </div>
-          <label className="filter-field"><span>Registrado desde</span><input name="from" type="date" defaultValue={filters.from} /></label>
-          <label className="filter-field"><span>Registrado hasta</span><input name="to" type="date" defaultValue={filters.to} /></label>
+
+          <details className="advanced-filters" open={advancedFiltersActive}>
+            <summary><span>Más filtros</span><small>Responsable, clasificación y orden</small></summary>
+            <div className="advanced-filter-grid">
+              <label className="filter-field"><span>Responsable</span><select name="assignedTo" defaultValue={filters.assignedTo ?? ""}><option value="">Todos los responsables</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+              <label className="filter-field"><span>Clasificación</span><select name="classification" defaultValue={filters.classification ?? ""}><option value="">Todas</option>{["REAL", "TEST", "DEMO", "UNKNOWN"].map((value) => <option key={value} value={value}>{presentAdminValue(value)}</option>)}</select></label>
+              <label className="filter-field filter-sort"><span>Ordenar por</span><select name="sort" defaultValue={filters.sort ?? "newest"}><option value="newest">Más recientes</option><option value="oldest">Más antiguos</option><option value="score">Mayor puntaje</option></select></label>
+            </div>
+          </details>
 
           <div className="contact-filter-actions">
-            <label className="filter-field filter-sort"><span>Ordenar por</span><select name="sort" defaultValue={filters.sort ?? "newest"}><option value="newest">Más recientes</option><option value="oldest">Más antiguos</option><option value="score">Mayor puntaje</option></select></label>
             <input type="hidden" name="archived" value={filters.archived ?? "false"} />
             <button type="submit" className="btn-sm">Aplicar filtros</button>
-            <Link className="btn-sm ghost" href="/admin/leads">Limpiar filtros</Link>
+            <Link className="btn-sm ghost" href="/admin/leads">Quitar filtros</Link>
           </div>
         </div>
         </AdminFilterPanel>
@@ -120,24 +133,32 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           title={hasFilters ? "No encontramos resultados" : "Todavía no hay contactos"}
           description={hasFilters ? "Prueba con otros términos o limpia los filtros aplicados." : "Los registros del formulario y los contactos creados manualmente aparecerán aquí."}
           action={hasFilters
-            ? <Link className="btn-sm ghost" href="/admin/leads">Limpiar filtros</Link>
+            ? <Link className="btn-sm ghost" href="/admin/leads">Quitar filtros</Link>
             : canCreate ? <NewContactForm courses={activeCourses} users={users} /> : null}
         /> : (
-          <div className="table-wrap"><table className="data">
-            <thead><tr><th>Contacto</th><th>WhatsApp</th><th>Etapa</th><th>Clasificación</th><th>Cursos</th><th>Origen</th><th>Fecha</th></tr></thead>
-            <tbody>{leads.map((lead) => <tr key={lead.id}>
-              <td><Link href={`/admin/leads/${lead.id}`}><strong>{lead.fullName}</strong></Link>{lead.email ? <div className="muted">{lead.email}</div> : null}</td>
-              <td><a href={lead.phone ? `https://wa.me/${lead.phone.replace(/\D/g, "")}` : undefined}>{lead.phone ?? "—"}</a></td>
-              <td><span className="pill info">{presentAdminValue(lead.stage)}</span><div className="muted">Puntaje {lead.score}</div></td>
-              <td><span className={`pill ${lead.classification === "REAL" ? "ok" : lead.classification === "UNKNOWN" ? "warn" : "info"}`}>{presentAdminValue(lead.classification)}</span></td>
-              <td>{[
+          <div className="table-wrap contacts-table-wrap"><table className="data contacts-table">
+            <thead><tr><th>Contacto</th><th>Estado</th><th>Curso / interés</th><th>Origen</th><th>Fecha</th><th aria-label="Acciones">Acciones</th></tr></thead>
+            <tbody>{leads.map((lead) => {
+              const confirmedEnrollment = lead.enrollments.find((item) => !["INTERESADO", "CANCELADO"].includes(item.status));
+              const hasInterest = Boolean(lead.course || lead.enrollments.some((item) => item.status === "INTERESADO"));
+              const situation = confirmedEnrollment ? presentAdminValue(confirmedEnrollment.status) : hasInterest ? "Interés registrado" : presentAdminValue(lead.stage);
+              const courseNames = Array.from(new Set([
                 ...lead.enrollments.map((item) => item.course.title),
-                ...(lead.course && !lead.enrollments.some((item) => item.courseId === lead.courseId) ? [`${lead.course.title} (interés)`] : []),
-              ].join(", ") || "—"}</td>
-              <td>{lead.utmSource ?? lead.source ?? "—"}<div className="muted">{lead.utmCampaign ?? ""}</div></td>
-              <td>{lead.assignedTo?.name ?? "Sin asignar"}</td>
-              <td>{formatDate(lead.createdAt)}</td>
-            </tr>)}</tbody>
+                ...(lead.course ? [lead.course.title] : []),
+              ]));
+              return <tr key={lead.id} className="contacts-table-row">
+                <td data-label="Contacto"><Link href={`/admin/leads/${lead.id}`}><strong>{lead.fullName}</strong></Link>{lead.email ? <div className="muted">{lead.email}</div> : null}{lead.phone ? <div className="muted">{lead.phone}</div> : null}</td>
+                <td data-label="Estado"><span className={`pill ${confirmedEnrollment ? "ok" : hasInterest ? "info" : ""}`}>{situation}</span>{lead.assignedTo ? <div className="muted">{lead.assignedTo.name}</div> : null}</td>
+                <td data-label="Curso / interés">{courseNames.join(", ") || <span className="muted">Sin curso asociado</span>}{hasInterest && !confirmedEnrollment ? <div className="muted">Interés, aún no inscrito</div> : null}</td>
+                <td data-label="Origen">{lead.utmSource ?? lead.source ?? "Orgánico"}</td>
+                <td data-label="Fecha">{formatDate(lead.createdAt)}</td>
+                <td data-label="Acciones" className="row-actions-cell"><AdminActionMenu label={`Acciones para ${lead.fullName}`}>
+                  <Link href={`/admin/leads/${lead.id}`}>Ver contacto</Link>
+                  {lead.phone ? <a href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Abrir WhatsApp ↗</a> : null}
+                  {lead.email ? <a href={`mailto:${lead.email}`}>Enviar correo</a> : null}
+                </AdminActionMenu></td>
+              </tr>;
+            })}</tbody>
           </table></div>
         )}
         <div className="pagination"><span className="muted">{total} contactos · página {page} de {pages}</span><div className="card-actions">{page > 1 && <Link className="btn-sm ghost" href={pageLink(page - 1)}>Anterior</Link>}{page < pages && <Link className="btn-sm ghost" href={pageLink(page + 1)}>Siguiente</Link>}</div></div>

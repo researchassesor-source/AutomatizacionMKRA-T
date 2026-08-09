@@ -85,8 +85,8 @@ export function isRealFailure(status: MessageStatus, scheduledAt: Date | string 
 }
 
 /** Clase del punto de color que acompaña al estado. */
-export function statusDotClass(status: MessageStatus, scheduledAt?: Date | string | null): string {
-  return `status-dot is-${humanStatusFor(status, scheduledAt).tone}`;
+export function statusDotClass(status: MessageStatus, scheduledAt?: Date | string | null, now = new Date()): string {
+  return `status-dot is-${humanStatusFor(status, scheduledAt, now).tone}`;
 }
 
 /**
@@ -131,22 +131,27 @@ const guayaquil = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeSt
 const guayaquilCorto = new Intl.DateTimeFormat("es-EC", { day: "numeric", month: "short", timeZone: "America/Guayaquil" });
 const guayaquilHora = new Intl.DateTimeFormat("es-EC", { timeStyle: "short", timeZone: "America/Guayaquil" });
 
+/** Evita diferencias de hidratación entre los espacios Unicode de Node y Chromium. */
+function normalizeDateText(value: string): string {
+  return value.replace(/[\u00a0\u202f]/g, " ");
+}
+
 export function formatMoment(value: Date | string | null | undefined): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  return Number.isNaN(date.getTime()) ? "—" : guayaquil.format(date);
+  return Number.isNaN(date.getTime()) ? "—" : normalizeDateText(guayaquil.format(date));
 }
 
 export function formatDay(value: Date | string | null | undefined): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  return Number.isNaN(date.getTime()) ? "—" : guayaquilCorto.format(date);
+  return Number.isNaN(date.getTime()) ? "—" : normalizeDateText(guayaquilCorto.format(date));
 }
 
 export function formatTime(value: Date | string | null | undefined): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  return Number.isNaN(date.getTime()) ? "—" : guayaquilHora.format(date);
+  return Number.isNaN(date.getTime()) ? "—" : normalizeDateText(guayaquilHora.format(date));
 }
 
 /** "hace 2 h", "en 3 días": mas legible que una marca de tiempo absoluta. */
@@ -160,8 +165,8 @@ export function relativeMoment(value: Date | string | null | undefined, now = ne
   const hora = 60 * minuto;
   const dia = 24 * hora;
   const formatter = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
-  if (abs < hora) return formatter.format(Math.round(diff / minuto), "minute");
-  if (abs < dia) return formatter.format(Math.round(diff / hora), "hour");
-  if (abs < 30 * dia) return formatter.format(Math.round(diff / dia), "day");
-  return guayaquil.format(date);
+  if (abs < hora) return normalizeDateText(formatter.format(Math.round(diff / minuto), "minute"));
+  if (abs < dia) return normalizeDateText(formatter.format(Math.round(diff / hora), "hour"));
+  if (abs < 30 * dia) return normalizeDateText(formatter.format(Math.round(diff / dia), "day"));
+  return normalizeDateText(guayaquil.format(date));
 }

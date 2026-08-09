@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatMoment, relativeMoment } from "@/lib/message-presentation";
 import { useFeedback } from "../Feedback";
+import { ArchiveSocialPostButton } from "./ArchiveSocialPostButton";
 import { postStatusPresentation } from "./postPresentation";
 
 export type BoardPost = {
@@ -188,6 +189,7 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
                   <>
                     <button type="button" className="btn-sm" disabled={busy === post.id} onClick={() => accion(post, "retry")}>Reintentar</button>
                     <button type="button" className="btn-sm ghost" disabled={busy === post.id} onClick={() => accion(post, "duplicate")}>Duplicar</button>
+                    <ArchiveSocialPostButton postId={post.id} />
                   </>
                 ) : null}
                 {activa.key === "guardadas" ? (

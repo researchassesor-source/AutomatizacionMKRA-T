@@ -7,6 +7,7 @@ import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { ImportScheduleButton } from "../cursos/ImportScheduleButton";
 import { ScheduleSessionButton } from "../cursos/ScheduleSessionButton";
+import { ArchiveSocialPostButton } from "../redes/ArchiveSocialPostButton";
 import { reviewPresentation } from "./reviewPresentation";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,8 @@ export default async function RevisarPage() {
                   modality={item.scheduleCourse.modality}
                   label={item.actionLabel}
                 />
+              ) : item.socialPostId ? (
+                <ArchiveSocialPostButton postId={item.socialPostId} />
               ) : (
                 <Link className="btn-sm" href={item.href}>{item.actionLabel}</Link>
               )}

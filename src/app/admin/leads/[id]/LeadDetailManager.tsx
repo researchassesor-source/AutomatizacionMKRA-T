@@ -109,7 +109,7 @@ export function LeadDetailManager({
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { confirm } = useFeedback();
+  const { confirm, toast } = useFeedback();
   const canEdit = role === "ADMIN" || role === "VENTAS";
   const canDelete = role === "ADMIN";
   const isTechnical = role === "ADMIN";
@@ -158,26 +158,24 @@ export function LeadDetailManager({
 
   async function deleteContact() {
     if (!canDelete || busy) return;
-    // Un contacto real exige un aviso previo: se borra a una persona y todo su
-    // historial de inscripciones y mensajes, y no hay deshacer.
-    if (isRealContact && !window.confirm(
-      `${lead.fullName} está clasificado como contacto REAL.
-
-Eliminarlo borra también sus inscripciones, mensajes y seguimientos. Esta acción no se puede deshacer.
-
-¿Continuar?`,
-    )) return;
-    const confirmation = window.prompt(`Para confirmar la eliminación escribe exactamente el nombre:
-${lead.fullName}`);
-    if (confirmation !== lead.fullName) { setMessage("La confirmación no coincide. No se eliminó ningún dato."); return; }
+    const accepted = await confirm({
+      title: "¿Eliminar este contacto?",
+      body: "Esta acción eliminará el registro del CRM y la información relacionada que el sistema deba eliminar según sus relaciones existentes.",
+      confirmLabel: "Eliminar contacto",
+      tone: "danger",
+    });
+    if (!accepted) return;
     setBusy(true);
     const result = await jsonRequest(`/api/admin/leads/${lead.id}`, "DELETE", {
       mode: "delete-test",
-      confirmName: confirmation,
+      confirmName: lead.fullName,
       acknowledgeRealDeletion: isRealContact,
     });
     setBusy(false);
-    if (result.ok) router.replace("/admin/leads");
+    if (result.ok) {
+      toast({ tone: "success", title: "Contacto eliminado" });
+      router.replace("/admin/leads");
+    }
     else setMessage(result.data.error);
   }
   async function addEnrollment(event: React.FormEvent<HTMLFormElement>) {

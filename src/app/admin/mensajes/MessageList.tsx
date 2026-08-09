@@ -112,20 +112,20 @@ export function MessageList({ messages, now, technical }: { messages: MessageRow
                     const when = meaningfulMoment(message);
                     return (
                       <tr className="message-table-row" key={message.id}>
-                        <td data-label="Destinatario">
+                        <td className="message-recipient-cell" data-label="Destinatario">
                           <Link href={`/admin/leads/${message.leadId}`} className="row-title">{message.leadName}</Link>
                           <div className="muted row-truncate">{message.toAddress}</div>
                         </td>
-                        <td data-label="Mensaje">
+                        <td className="message-preview-cell" data-label="Mensaje">
                           <strong className="row-title row-truncate">{message.subject ?? (message.channel === "WHATSAPP" ? "Mensaje de WhatsApp" : "Sin asunto")}</strong>
                           <div className="muted row-truncate">{message.courseTitle ?? "Sin curso"}</div>
                         </td>
-                        <td data-label="Canal">{message.channel === "EMAIL" ? "Correo" : "WhatsApp"}</td>
-                        <td data-label="Estado">
+                        <td className="message-channel-cell" data-label="Canal">{message.channel === "EMAIL" ? "Correo" : "WhatsApp"}</td>
+                        <td className="message-status-cell" data-label="Estado">
                           <span className={statusDotClass(message.status, message.scheduledAt, now)}>{human.label}</span>
                           <div className="muted row-status-hint">{reason ?? human.hint}</div>
                         </td>
-                        <td data-label="Fecha"><span className="row-when">{when.text}</span><div className="muted">{formatDay(message.scheduledAt)} · {when.detail}</div></td>
+                        <td className="message-date-cell" data-label="Fecha"><span className="row-when">{when.text}</span><div className="muted">{formatDay(message.scheduledAt)} · {when.detail}</div></td>
                         <td className="row-actions-cell"><MessageActions id={message.id} status={message.status} onView={() => setSelectedId(message.id)} /></td>
                       </tr>
                     );

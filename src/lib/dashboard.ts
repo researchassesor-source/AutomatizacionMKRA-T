@@ -15,6 +15,8 @@ export type AttentionItem = {
   href: string;
   actionLabel: string;
   severity: "warn" | "error";
+  /** Publicación fallida que puede archivarse localmente desde Revisar. */
+  socialPostId?: string;
   /** Curso al que programar una sesion desde el propio aviso. */
   scheduleCourse?: { id: string; title: string; enrollments: number; modality: string | null };
 };
@@ -150,6 +152,7 @@ export async function loadDashboard(now = new Date()): Promise<DashboardData> {
       href: "/admin/redes",
       actionLabel: "Revisar publicación",
       severity: "error",
+      socialPostId: post.id,
     });
   }
   if (failedMessages > 0) {

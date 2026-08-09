@@ -25,6 +25,7 @@ describe("correcciones post-producción", () => {
     expect(styles).toContain(".message-table { width: 100%; table-layout: fixed; }");
     expect(styles).toContain(".message-table th:nth-child(6) { width: 7%; }");
     expect(styles).toContain("td:not(.row-actions-cell) { overflow: hidden; }");
+    expect(styles).toContain(".message-date-cell .muted");
   });
 
   it("trunca los previews largos y limita la explicación de estado a dos líneas", () => {

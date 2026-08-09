@@ -2128,7 +2128,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .message-table-row { height: 72px; }
 .admin-shell .message-table-row td { max-width: 0; padding-block: 9px; vertical-align: middle; }
 .admin-shell .message-table-row td:not(.row-actions-cell) { overflow: hidden; }
-.message-channel-cell, .message-date-cell { white-space: nowrap; }
+.message-channel-cell { white-space: nowrap; }
+.message-date-cell .row-when { display: block; white-space: nowrap; }
+.message-date-cell .muted { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.25; }
 .message-status-cell .status-dot { max-width: 100%; white-space: normal; line-height: 1.25; }
 .row-status-hint { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.3; }
 .message-status-cell .row-status-hint { max-width: 100%; }

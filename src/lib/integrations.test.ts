@@ -5,6 +5,7 @@ import { isFinanceSimulation } from "./finance/client";
 import { nextGuayaquilOccurrence, socialConnectionState } from "./social/orchestrator";
 import { POST as legacyComplete } from "@/app/api/courses/complete/route";
 import { moodleCompletionSchema, signMoodleWebhookBody, verifyMoodleWebhookSignature } from "./moodle";
+import { INTEGRATION_STATE_LABELS, integrationStatuses } from "./integration-status";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -80,5 +81,18 @@ describe("integraciones seguras", () => {
     expect(schema).toMatch(/idempotencyKey\s+String\?\s+@unique/);
     expect(schema).toMatch(/occurrenceKey\s+String\?\s+@unique/);
     expect(schema).toContain("@@unique([leadId, enrollmentId, sequenceKey, stepKey])");
+  });
+  it("presenta el scheduler configurado sin afirmar que verifica el servicio externo", () => {
+    vi.stubEnv("CRON_SECRET", "secreto-de-cron-de-prueba");
+    const status = integrationStatuses().find((item) => item.key === "cron");
+    if (!status) throw new Error("Falta el estado de procesos programados");
+    expect(status).toMatchObject({ state: "CONNECTED_UNVERIFIED", nextStep: null });
+    expect(INTEGRATION_STATE_LABELS[status.state]).toBe("Configurado");
+  });
+  it("sigue solicitando configuración cuando falta la autenticación del scheduler", () => {
+    vi.stubEnv("CRON_SECRET", "");
+    const status = integrationStatuses().find((item) => item.key === "cron");
+    if (!status) throw new Error("Falta el estado de procesos programados");
+    expect(status.state).toBe("PENDING_CONFIGURATION");
   });
 });

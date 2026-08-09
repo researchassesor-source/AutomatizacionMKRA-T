@@ -230,9 +230,8 @@ function adsStatus(): IntegrationStatus {
 }
 
 /**
- * El cron vive en GitHub Actions y su workflow se niega a correr si la rama
- * predeterminada no es `main`. Tener el secreto no basta: mientras esa
- * condición no se cumpla, no hay ejecución automática real.
+ * Presenta únicamente si la autenticación del scheduler está configurada.
+ * La ejecución real sigue dependiendo del scheduler externo y sus logs.
  */
 function cronStatus(): IntegrationStatus {
   const secretConfigured = Boolean(process.env.CRON_SECRET?.trim());
@@ -248,9 +247,9 @@ function cronStatus(): IntegrationStatus {
   return {
     key: "cron",
     name: "Procesos programados",
-    state: "PENDING_CONFIGURATION",
-    detail: "El secreto está configurado y los endpoints lo exigen, pero el reloj automático depende de una condición externa al código.",
-    nextStep: "El workflow automation-cron.yml solo se ejecuta si la rama predeterminada del repositorio es main. Mientras no se cambie, no hay ejecución automática y la cola solo avanza con la ejecución manual desde el panel.",
+    state: "CONNECTED_UNVERIFIED",
+    detail: "La autenticación de los procesos programados está configurada. La ejecución se comprueba en los logs del scheduler externo.",
+    nextStep: null,
   };
 }
 

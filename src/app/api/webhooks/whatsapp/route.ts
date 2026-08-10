@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit";
 import { applyMessageProviderEvent } from "@/lib/nurture/provider-events";
 import { resolveWhatsAppConfig } from "@/lib/whatsapp/config";
+import { handleInboundSupportReply } from "@/lib/whatsapp/inbound-reply";
 import { parseWebhookPayload, resolveVerification, SIGNATURE_HEADER, verifySignature } from "@/lib/whatsapp/webhook";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +86,13 @@ export async function POST(request: Request) {
   let applied = 0;
   let unknownMessage = 0;
   let duplicated = 0;
+  let inboundReplied = 0;
+  let inboundRateLimited = 0;
+  let inboundSelfIgnored = 0;
+  let inboundNotLive = 0;
+  let inboundInvalid = 0;
+  let inboundFailed = 0;
+  const inboundErrors = new Set<string>();
 
   for (const event of parsed.statuses) {
     try {
@@ -108,17 +116,42 @@ export async function POST(request: Request) {
     }
   }
 
-  // Los entrantes se reconocen y se auditan, pero todavia no se almacenan: no
-  // hay bandeja de conversaciones y un modelo a medias seria peor que ninguno.
+  for (const notice of parsed.inbound) {
+    try {
+      const outcome = await handleInboundSupportReply(notice);
+      if (outcome.status === "sent") inboundReplied++;
+      else if (outcome.status === "rate_limited") inboundRateLimited++;
+      else if (outcome.status === "self_message") inboundSelfIgnored++;
+      else if (outcome.status === "not_live") inboundNotLive++;
+      else if (outcome.status === "send_failed") {
+        inboundFailed++;
+        inboundErrors.add(outcome.errorCode);
+      } else {
+        inboundInvalid++;
+      }
+    } catch {
+      inboundFailed++;
+      inboundErrors.add("WHATSAPP_INBOUND_EXCEPTION");
+    }
+  }
+
+  // No hay bandeja de conversaciones: se procesa el evento sin guardar cuerpo
+  // ni número. La auditoría conserva únicamente contadores y códigos técnicos.
   if (parsed.inbound.length > 0) {
     await writeAudit({
       actorEmail: "whatsapp-webhook",
-      action: "WHATSAPP_INBOUND_IGNORED",
+      action: "WHATSAPP_INBOUND_PROCESSED",
       entityType: "Webhook",
       metadata: {
         count: parsed.inbound.length,
         types: [...new Set(parsed.inbound.map((item) => item.type))],
-        nota: "Recepción de mensajes no implementada; el evento se descarta sin error.",
+        replied: inboundReplied,
+        rateLimited: inboundRateLimited,
+        selfIgnored: inboundSelfIgnored,
+        notLive: inboundNotLive,
+        invalid: inboundInvalid,
+        failed: inboundFailed,
+        errorCodes: [...inboundErrors],
       },
     }).catch(() => undefined);
   }
@@ -138,5 +171,18 @@ export async function POST(request: Request) {
     }).catch(() => undefined);
   }
 
-  return NextResponse.json({ ok: true, statuses: parsed.statuses.length, applied, duplicated, unknownMessage, inbound: parsed.inbound.length });
+  return NextResponse.json({
+    ok: true,
+    statuses: parsed.statuses.length,
+    applied,
+    duplicated,
+    unknownMessage,
+    inbound: parsed.inbound.length,
+    inboundReplied,
+    inboundRateLimited,
+    inboundSelfIgnored,
+    inboundNotLive,
+    inboundInvalid,
+    inboundFailed,
+  });
 }

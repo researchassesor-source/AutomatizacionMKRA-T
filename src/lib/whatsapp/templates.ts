@@ -25,13 +25,13 @@ export type WhatsAppTemplateSpec = {
    */
   urlVar?: string;
   /**
-   * Cuerpo EXACTO con el que la plantilla esta registrada en Meta, con sus
-   * saltos de linea y su firma. No es una aproximacion ni un resumen.
+   * Cuerpo final que debe registrarse en Meta, con sus saltos de linea y su
+   * firma. No es una aproximacion ni un resumen.
    *
    * Es lo que ve quien revisa una plantilla desde el panel, asi que si aqui
    * dice una cosa y Meta envia otra, el CRM esta enseñando un mensaje que
-   * nadie recibio. Cualquier cambio del texto en Meta se copia aqui primero;
-   * la prueba de contrato falla si dejan de coincidir.
+   * nadie recibio. Cualquier cambio se somete a revision en Meta antes de
+   * activar el canal; la prueba de contrato fija literalmente el texto final.
    */
   sample: string;
 };
@@ -55,19 +55,19 @@ export const WHATSAPP_TEMPLATES: Record<
     name: "ra_training_bienvenida_inscripcion",
     language: "es",
     bodyVars: ["nombre", "curso", "fecha", "hora"],
-    sample: "Hola {{1}}.\n\nTu inscripción a *{{2}}* fue registrada correctamente.\n\nFecha: {{3}}\nHora: {{4}}\n\nRecibirás por este medio los recordatorios y la información de acceso correspondientes a esta actividad.\n\nR.A. Training",
+    sample: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
   },
   reminder_24h: {
     name: "ra_training_recordatorio_24h",
     language: "es",
     bodyVars: ["nombre", "curso", "fechaSesion", "horaSesion"],
-    sample: "Hola {{1}}.\n\nTe recordamos que mañana tienes una sesión de *{{2}}*.\n\nFecha: {{3}}\nHora: {{4}}\n\nMás adelante recibirás la información de acceso correspondiente.\n\nR.A. Training",
+    sample: "⏰ Hola {{1}}, te recordamos que mañana tienes tu sesión de {{2}}.\n\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nTe recomendamos tener listo tu dispositivo y una conexión estable para ingresar sin inconvenientes.\n\nPor este número seguiremos enviándote la información necesaria para tu sesión.\n\nR.A. Training 📚",
   },
   reminder_2h: {
     name: "ra_training_acceso_2h",
     language: "es",
     bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "Hola {{1}}.\n\nTu sesión de *{{2}}* comienza en 2 horas.\n\nHora: {{3}}\nEnlace de acceso: {{4}}\n\nR.A. Training",
+    sample: "🎓 Hola {{1}}, tu sesión de {{2}} comienza en aproximadamente 2 horas.\n\n🕒 Hora: {{3}}\n🔗 Enlace de acceso: {{4}}\n\nGuarda este enlace y procura ingresar unos minutos antes del inicio de la sesión.\n\n¡Nos vemos pronto!\nR.A. Training 💙",
   },
   reminder_15m: {
     name: "ra_training_acceso_15min",
@@ -76,13 +76,13 @@ export const WHATSAPP_TEMPLATES: Record<
     // tres producia el error 132000 ("numero de parametros incorrecto") en el
     // primer envio real, que es justo donde no conviene descubrirlo.
     bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "Hola {{1}}.\n\nEstamos por comenzar tu sesión de *{{2}}*.\n\nHora: {{3}}\nIngresa aquí: {{4}}\n\nLa sesión inicia en aproximadamente 15 minutos.\n\nR.A. Training",
+    sample: "🚀 Hola {{1}}, ¡ya casi comenzamos!\n\nTu sesión de {{2}} inicia en 15 minutos.\n\n🕒 Hora: {{3}}\n🔗 Ingresa aquí: {{4}}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚",
   },
   thank_you: {
     name: "ra_training_agradecimiento_final",
     language: "es",
     bodyVars: ["nombre", "curso"],
-    sample: "Hola {{1}}.\n\nHas finalizado *{{2}}*.\n\nGracias por haber participado en esta actividad de R.A. Training.\n\nEsperamos que los contenidos desarrollados hayan sido útiles para tu formación.",
+    sample: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
   },
 };
 

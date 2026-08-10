@@ -96,6 +96,10 @@ export type InboundNotice = {
   type: string;
   /** Identificador del mensaje entrante, util para trazar sin exponer el texto. */
   providerMessageId: string;
+  /** Remitente declarado por Meta. Solo se usa para responder y limitar frecuencia. */
+  sender: string;
+  /** Número automático receptor, usado para impedir respuestas a sí mismo. */
+  businessPhone?: string;
 };
 
 export type ParsedWebhook = {
@@ -132,7 +136,7 @@ export function parseWebhookPayload(payload: unknown): ParsedWebhook {
         continue;
       }
       const value = (change as { value?: unknown })?.value as
-        | { statuses?: unknown; messages?: unknown }
+        | { statuses?: unknown; messages?: unknown; metadata?: unknown }
         | undefined;
       if (!value || typeof value !== "object") continue;
 
@@ -159,10 +163,19 @@ export function parseWebhookPayload(payload: unknown): ParsedWebhook {
       }
 
       if (Array.isArray(value.messages)) {
+        const metadata = value.metadata as { display_phone_number?: unknown } | undefined;
+        const businessPhone = typeof metadata?.display_phone_number === "string"
+          ? metadata.display_phone_number
+          : undefined;
         for (const raw of value.messages) {
-          const item = raw as { id?: unknown; type?: unknown };
-          if (typeof item?.id !== "string") continue;
-          result.inbound.push({ providerMessageId: item.id, type: typeof item.type === "string" ? item.type : "desconocido" });
+          const item = raw as { id?: unknown; type?: unknown; from?: unknown };
+          if (typeof item?.id !== "string" || typeof item.from !== "string") continue;
+          result.inbound.push({
+            providerMessageId: item.id,
+            type: typeof item.type === "string" ? item.type : "desconocido",
+            sender: item.from,
+            businessPhone,
+          });
         }
       }
     }

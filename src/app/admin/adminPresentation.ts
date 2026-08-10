@@ -210,6 +210,7 @@ const ACCIONES_AUDITORIA: Record<string, string> = {
   SOCIAL_POST_FAILED: "La publicación no pudo enviarse",
   WHATSAPP_WEBHOOK_PROCESSED: "Aviso de WhatsApp procesado",
   WHATSAPP_INBOUND_IGNORED: "Mensaje entrante de WhatsApp descartado",
+  WHATSAPP_INBOUND_PROCESSED: "Respuesta automática de WhatsApp procesada",
   WHATSAPP_WEBHOOK_SIGNATURE_REJECTED: "Aviso de WhatsApp con firma no válida",
   WHATSAPP_WEBHOOK_VERIFICATION_REJECTED: "Verificación de WhatsApp rechazada",
   WHATSAPP_WEBHOOK_MALFORMED: "Aviso de WhatsApp no interpretable",

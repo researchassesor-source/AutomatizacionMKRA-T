@@ -120,6 +120,7 @@ describe("lectura del payload", () => {
         changes: [{
           field: "messages",
           value: {
+            metadata: { display_phone_number: "+593 99 111 2222" },
             messages: [{ id: "wamid.IN", from: "593999999999", type: "text", text: { body: "hola, información por favor" } }],
             statuses: [{ id: "wamid.OUT", status: "delivered", timestamp: "1786000000" }],
           },
@@ -127,7 +128,12 @@ describe("lectura del payload", () => {
       }],
     });
     expect(parsed.statuses).toHaveLength(1);
-    expect(parsed.inbound).toEqual([{ providerMessageId: "wamid.IN", type: "text" }]);
+    expect(parsed.inbound).toEqual([{
+      providerMessageId: "wamid.IN",
+      type: "text",
+      sender: "593999999999",
+      businessPhone: "+593 99 111 2222",
+    }]);
     expect(JSON.stringify(parsed)).not.toContain("información por favor");
   });
 

@@ -114,6 +114,18 @@ describe("plan estándar de WhatsApp", () => {
     expect(new Set(nombres).size).toBe(nombres.length);
   });
 
+  it("conserva exactamente los cinco mappings aprobados", () => {
+    expect(Object.fromEntries(
+      Object.entries(WHATSAPP_TEMPLATES).map(([key, spec]) => [key, spec.bodyVars]),
+    )).toEqual({
+      welcome: ["nombre", "curso", "fecha", "hora"],
+      reminder_24h: ["nombre", "curso", "fechaSesion", "horaSesion"],
+      reminder_2h: ["nombre", "curso", "horaSesion", "streamUrl"],
+      reminder_15m: ["nombre", "curso", "horaSesion", "streamUrl"],
+      thank_you: ["nombre", "curso"],
+    });
+  });
+
   it("todas las variables de plantilla existen en el motor", () => {
     // Una variable que el motor no resuelve llegaría vacía a Meta y el mensaje
     // se rechazaría; que el nombre exista aquí es la única garantía barata.
@@ -139,58 +151,52 @@ describe("plan estándar de WhatsApp", () => {
     expect(gracias?.enrollmentStatuses).toContain("COMPLETADO");
   });
 
-  /**
-   * Este bloque es una copia literal del alta en Meta. No se toca para que las
-   * pruebas pasen: si falla, o el codigo se desvio del alta real o alguien
-   * cambio la plantilla en Meta sin avisar. Ambas cosas terminan en un 132000
-   * en el primer envio, y ese es exactamente el fallo que esto existe para
-   * atrapar antes. Si la plantilla cambia en Meta, primero se edita aqui.
-   */
-  const REGISTRADAS_EN_META = {
+  /** Contrato literal que debe someterse a revisión y quedar aprobado en Meta. */
+  const TEXTOS_FINALES = {
     ra_training_bienvenida_inscripcion: {
       idioma: "es",
       variables: 4,
-      texto: "Hola {{1}}.\n\nTu inscripción a *{{2}}* fue registrada correctamente.\n\nFecha: {{3}}\nHora: {{4}}\n\nRecibirás por este medio los recordatorios y la información de acceso correspondientes a esta actividad.\n\nR.A. Training",
+      texto: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
     },
     ra_training_recordatorio_24h: {
       idioma: "es",
       variables: 4,
-      texto: "Hola {{1}}.\n\nTe recordamos que mañana tienes una sesión de *{{2}}*.\n\nFecha: {{3}}\nHora: {{4}}\n\nMás adelante recibirás la información de acceso correspondiente.\n\nR.A. Training",
+      texto: "⏰ Hola {{1}}, te recordamos que mañana tienes tu sesión de {{2}}.\n\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nTe recomendamos tener listo tu dispositivo y una conexión estable para ingresar sin inconvenientes.\n\nPor este número seguiremos enviándote la información necesaria para tu sesión.\n\nR.A. Training 📚",
     },
     ra_training_acceso_2h: {
       idioma: "es",
       variables: 4,
-      texto: "Hola {{1}}.\n\nTu sesión de *{{2}}* comienza en 2 horas.\n\nHora: {{3}}\nEnlace de acceso: {{4}}\n\nR.A. Training",
+      texto: "🎓 Hola {{1}}, tu sesión de {{2}} comienza en aproximadamente 2 horas.\n\n🕒 Hora: {{3}}\n🔗 Enlace de acceso: {{4}}\n\nGuarda este enlace y procura ingresar unos minutos antes del inicio de la sesión.\n\n¡Nos vemos pronto!\nR.A. Training 💙",
     },
     ra_training_acceso_15min: {
       idioma: "es",
       variables: 4,
-      texto: "Hola {{1}}.\n\nEstamos por comenzar tu sesión de *{{2}}*.\n\nHora: {{3}}\nIngresa aquí: {{4}}\n\nLa sesión inicia en aproximadamente 15 minutos.\n\nR.A. Training",
+      texto: "🚀 Hola {{1}}, ¡ya casi comenzamos!\n\nTu sesión de {{2}} inicia en 15 minutos.\n\n🕒 Hora: {{3}}\n🔗 Ingresa aquí: {{4}}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚",
     },
     ra_training_agradecimiento_final: {
       idioma: "es",
       variables: 2,
-      texto: "Hola {{1}}.\n\nHas finalizado *{{2}}*.\n\nGracias por haber participado en esta actividad de R.A. Training.\n\nEsperamos que los contenidos desarrollados hayan sido útiles para tu formación.",
+      texto: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
     },
   } as const;
 
-  it("cada plantilla del código coincide con su alta en Meta: nombre, idioma y número de variables", () => {
+  it("cada plantilla conserva el nombre, idioma y número exacto de variables", () => {
     const enCodigo = Object.values(WHATSAPP_TEMPLATES);
-    expect(enCodigo.map((spec) => spec.name).sort()).toEqual(Object.keys(REGISTRADAS_EN_META).sort());
+    expect(enCodigo.map((spec) => spec.name).sort()).toEqual(Object.keys(TEXTOS_FINALES).sort());
     for (const spec of enCodigo) {
-      const alta = REGISTRADAS_EN_META[spec.name as keyof typeof REGISTRADAS_EN_META];
-      expect(alta, `La plantilla ${spec.name} no figura entre las registradas en Meta.`).toBeDefined();
+      const alta = TEXTOS_FINALES[spec.name as keyof typeof TEXTOS_FINALES];
+      expect(alta, `La plantilla ${spec.name} no figura entre los textos finales.`).toBeDefined();
       expect(spec.language, `Idioma de ${spec.name}`).toBe(alta.idioma);
       expect(spec.bodyVars.length, `Número de variables de ${spec.name}`).toBe(alta.variables);
     }
   });
 
-  it("el texto del catálogo es literalmente el registrado en Meta", () => {
+  it("el texto del catálogo coincide literalmente con el texto final", () => {
     // Comparacion caracter a caracter, saltos de linea incluidos. Un texto
     // "parecido" es peor que uno distinto: nadie lo revisa dos veces y el
     // panel acaba enseñando un mensaje que ningun contacto recibio.
     for (const spec of Object.values(WHATSAPP_TEMPLATES)) {
-      const alta = REGISTRADAS_EN_META[spec.name as keyof typeof REGISTRADAS_EN_META];
+      const alta = TEXTOS_FINALES[spec.name as keyof typeof TEXTOS_FINALES];
       expect(spec.sample, `Cuerpo de ${spec.name}`).toBe(alta.texto);
     }
   });
@@ -208,7 +214,7 @@ describe("plan estándar de WhatsApp", () => {
   it("la vista previa reproduce el mensaje con los valores puestos", () => {
     const quince = WHATSAPP_TEMPLATES.reminder_15m;
     expect(fillTemplateBody(quince, (variable) => VARS[variable as keyof typeof VARS])).toBe(
-      `Hola Angel.\n\nEstamos por comenzar tu sesión de *${VARS.curso}*.\n\nHora: ${VARS.horaSesion}\nIngresa aquí: ${VARS.streamUrl}\n\nLa sesión inicia en aproximadamente 15 minutos.\n\nR.A. Training`,
+      `🚀 Hola Angel, ¡ya casi comenzamos!\n\nTu sesión de ${VARS.curso} inicia en 15 minutos.\n\n🕒 Hora: ${VARS.horaSesion}\n🔗 Ingresa aquí: ${VARS.streamUrl}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚`,
     );
   });
 

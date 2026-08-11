@@ -151,6 +151,12 @@ describe("plan estándar de WhatsApp", () => {
     expect(gracias?.enrollmentStatuses).toContain("COMPLETADO");
   });
 
+  it("solo una inscripcion confirmada recibe la bienvenida de WhatsApp", () => {
+    const bienvenida = WHATSAPP_AUTOMATION_PLAN.find((entry) => entry.planKey === "welcome");
+    expect(bienvenida?.enrollmentStatuses).toEqual(["INSCRITO"]);
+    expect(WHATSAPP_AUTOMATION_PLAN.every((entry) => !entry.enrollmentStatuses.includes("INTERESADO"))).toBe(true);
+  });
+
   /** Contrato literal que debe someterse a revisión y quedar aprobado en Meta. */
   const TEXTOS_FINALES = {
     ra_training_bienvenida_inscripcion: {

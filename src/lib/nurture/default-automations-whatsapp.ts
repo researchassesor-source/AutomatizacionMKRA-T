@@ -37,7 +37,7 @@ export type WhatsAppPlanEntry = {
   enrollmentStatuses: EnrollmentStatus[];
 };
 
-const AUDIENCE: EnrollmentStatus[] = ["INTERESADO", "INSCRITO", "EN_CURSO"];
+const CONFIRMED_AUDIENCE: EnrollmentStatus[] = ["INSCRITO", "EN_CURSO"];
 
 /** Todo lo del plan salvo el cuerpo, que se deriva de la plantilla. */
 type WhatsAppPlanDraft = Omit<WhatsAppPlanEntry, "body">;
@@ -51,7 +51,7 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     trigger: "ON_REGISTRATION",
     offsetMinutes: 0,
     requiresStreamUrl: false,
-    enrollmentStatuses: AUDIENCE,
+    enrollmentStatuses: ["INSCRITO"],
   },
   {
     planKey: "reminder_24h",
@@ -61,7 +61,7 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     trigger: "BEFORE_COURSE",
     offsetMinutes: 24 * 60,
     requiresStreamUrl: false,
-    enrollmentStatuses: AUDIENCE,
+    enrollmentStatuses: CONFIRMED_AUDIENCE,
   },
   {
     planKey: "reminder_2h",
@@ -73,7 +73,7 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     // A diferencia del correo, aqui SI se exige el enlace: la plantilla lo
     // lleva como parametro obligatorio y Meta rechaza un parametro vacio.
     requiresStreamUrl: true,
-    enrollmentStatuses: AUDIENCE,
+    enrollmentStatuses: CONFIRMED_AUDIENCE,
   },
   {
     planKey: "reminder_15m",
@@ -83,7 +83,7 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     trigger: "BEFORE_COURSE",
     offsetMinutes: 15,
     requiresStreamUrl: true,
-    enrollmentStatuses: AUDIENCE,
+    enrollmentStatuses: CONFIRMED_AUDIENCE,
   },
   {
     planKey: "thank_you",
@@ -93,7 +93,7 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     trigger: "AFTER_COURSE",
     offsetMinutes: 60,
     requiresStreamUrl: false,
-    enrollmentStatuses: [...AUDIENCE, "COMPLETADO"],
+    enrollmentStatuses: [...CONFIRMED_AUDIENCE, "COMPLETADO"],
   },
 ];
 

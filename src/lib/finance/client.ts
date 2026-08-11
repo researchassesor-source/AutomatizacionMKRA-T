@@ -26,11 +26,12 @@ export function financeVerificationUrl(inscripcionId: string): string {
   return base ? `${base}/verificar/${encodeURIComponent(inscripcionId)}` : "";
 }
 
-/** URL administrativa. Si Finance no publica una ruta por id, abre su app. */
+/** URL administrativa que abre la inscripción exacta en Finance. */
 export function financeEnrollmentUrl(inscripcionId: string): string {
   const template = process.env.FINANCE_ENROLLMENT_URL_TEMPLATE?.trim();
   if (template) return template.replace("{id}", encodeURIComponent(inscripcionId));
-  return financeAppUrl();
+  const base = financeAppUrl();
+  return base ? `${base}/inscripciones?open=${encodeURIComponent(inscripcionId)}` : "";
 }
 
 async function rawCall<T>(
@@ -126,6 +127,7 @@ export function buildFinanceInscripcionPayload(input: FinanceEnrollmentInput) {
 
 export async function createInscripcion(input: FinanceEnrollmentInput): Promise<{ id: string }> {
   const response = await authedCall<unknown>("addInscripcion", {
+    idempotencyKey: input.crmEnrollmentId,
     inscripcion: buildFinanceInscripcionPayload(input),
   });
   if (!response.success) throw new Error("Finance no pudo crear la inscripción.");

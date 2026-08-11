@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
 import { resolveViewMode } from "@/lib/auth/view-mode";
+import { resolveCourseSessions } from "@/lib/course-sessions";
+import { financeEnrollmentUrl } from "@/lib/finance/client";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { AdminNav } from "../../AdminNav";
 import { AdminPageHeader } from "../../AdminPageHeader";
@@ -21,7 +23,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       where: { id },
       include: {
         course: true,
-        enrollments: { include: { course: true }, orderBy: { createdAt: "desc" } },
+        enrollments: { include: { course: { include: { sessions: true } } }, orderBy: { createdAt: "desc" } },
         notes: { include: { author: true }, orderBy: { createdAt: "desc" } },
         followUps: { include: { assignedTo: true }, orderBy: { dueAt: "asc" } },
         messages: { orderBy: { createdAt: "desc" }, take: 30 },
@@ -58,15 +60,28 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     assignedToId: lead.assignedToId, lostReason: lead.lostReason,
     nextActionAt: lead.nextActionAt?.toISOString() ?? null, score: lead.score,
   };
-  const enrollments = lead.enrollments.map((item) => ({
-    id: item.id, status: item.status, financeStatus: item.financeStatus,
-    certificateStatus: item.certificateStatus, financeInscripcionId: item.financeInscripcionId,
-    moodleCompletionDate: item.moodleCompletionDate?.toISOString() ?? null,
-    source: item.source, utmSource: item.utmSource, utmMedium: item.utmMedium,
-    utmCampaign: item.utmCampaign, utmContent: item.utmContent, utmTerm: item.utmTerm,
-    landingUrl: item.landingUrl, referrer: item.referrer,
-    course: { title: item.course.title, officialCourseUrl: item.course.officialCourseUrl, moodleCourseUrl: item.course.moodleCourseUrl },
-  }));
+  const enrollments = lead.enrollments.map((item) => {
+    const schedule = resolveCourseSessions(item.course, item.course.sessions);
+    const first = schedule[0] ?? null;
+    const last = schedule[schedule.length - 1] ?? null;
+    return {
+      id: item.id, status: item.status, financeStatus: item.financeStatus,
+      certificateStatus: item.certificateStatus, financeInscripcionId: item.financeInscripcionId,
+      financeUrl: item.financeInscripcionId ? financeEnrollmentUrl(item.financeInscripcionId) : "",
+      moodleCompletionDate: item.moodleCompletionDate?.toISOString() ?? null,
+      source: item.source, utmSource: item.utmSource, utmMedium: item.utmMedium,
+      utmCampaign: item.utmCampaign, utmContent: item.utmContent, utmTerm: item.utmTerm,
+      landingUrl: item.landingUrl, referrer: item.referrer,
+      course: {
+        title: item.course.title,
+        officialCourseUrl: item.course.officialCourseUrl,
+        moodleCourseUrl: item.course.moodleCourseUrl,
+        modality: item.course.modality,
+        startDate: first?.startAt.toISOString() ?? null,
+        endDate: last ? (last.endAt ?? last.startAt).toISOString() : null,
+      },
+    };
+  });
   return (
     <main className="container admin-shell">
       <AdminNav view={view} />

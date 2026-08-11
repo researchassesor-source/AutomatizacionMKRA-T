@@ -26,6 +26,13 @@ export function financeVerificationUrl(inscripcionId: string): string {
   return base ? `${base}/verificar/${encodeURIComponent(inscripcionId)}` : "";
 }
 
+/** URL administrativa. Si Finance no publica una ruta por id, abre su app. */
+export function financeEnrollmentUrl(inscripcionId: string): string {
+  const template = process.env.FINANCE_ENROLLMENT_URL_TEMPLATE?.trim();
+  if (template) return template.replace("{id}", encodeURIComponent(inscripcionId));
+  return financeAppUrl();
+}
+
 async function rawCall<T>(
   action: string,
   params: Record<string, unknown>,
@@ -70,27 +77,56 @@ async function authedCall<T>(action: string, params: Record<string, unknown>) {
   return response;
 }
 
-export type InscripcionInput = {
-  clienteNombre: string;
-  clienteEmail?: string;
-  clienteTelefono?: string;
-  servicioNombre?: string;
-  modalidad?: string;
-  monto?: number;
-  notas?: string;
+export type FinanceEnrollmentInput = {
+  crmEnrollmentId: string;
+  crmContactId: string;
+  crmCourseId: string;
+  courseTitle: string;
+  courseSlug: string;
+  modality: string;
+  startDate: string;
+  endDate: string;
+  timezone: string;
+  participant: {
+    firstName: string | null;
+    lastName: string | null;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    identification: null;
+  };
+  amount: number | null;
 };
 
-export async function createInscripcion(input: InscripcionInput): Promise<{ id: string }> {
+export function buildFinanceInscripcionPayload(input: FinanceEnrollmentInput) {
+  return {
+    crmEnrollmentId: input.crmEnrollmentId,
+    crmContactId: input.crmContactId,
+    crmCourseId: input.crmCourseId,
+    courseTitle: input.courseTitle,
+    courseSlug: input.courseSlug,
+    modality: input.modality,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timezone: input.timezone,
+    participant: input.participant,
+    amount: input.amount,
+    source: "CRM",
+    // Compatibilidad con el receptor histórico mientras Finance adopta el
+    // contrato con identificadores CRM e idempotencia por enrollment.
+    servicioNombre: input.courseTitle,
+    modalidad: input.modality,
+    monto: input.amount,
+    clienteNombre: input.participant.fullName,
+    clienteEmail: input.participant.email,
+    clienteTelefono: input.participant.phone ?? "",
+    notas: `Inscripción CRM · ${input.crmEnrollmentId}`,
+  };
+};
+
+export async function createInscripcion(input: FinanceEnrollmentInput): Promise<{ id: string }> {
   const response = await authedCall<unknown>("addInscripcion", {
-    inscripcion: {
-      servicioNombre: input.servicioNombre ?? process.env.FINANCE_SERVICE_NAME ?? "Curso R.A. Training",
-      modalidad: input.modalidad ?? "Virtual",
-      monto: input.monto ?? 0,
-      clienteNombre: input.clienteNombre,
-      clienteEmail: input.clienteEmail ?? "",
-      clienteTelefono: input.clienteTelefono ?? "",
-      notas: input.notas ?? "",
-    },
+    inscripcion: buildFinanceInscripcionPayload(input),
   });
   if (!response.success) throw new Error("Finance no pudo crear la inscripción.");
   const data = response.data as { id?: string; ID?: string } | undefined;

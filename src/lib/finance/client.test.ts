@@ -67,11 +67,12 @@ describe("contrato CRM a Finance", () => {
 
     await expect(createInscripcion({ ...input, amount: 75.5 })).resolves.toEqual({ id: "FIN-TEST-001" });
     const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-    expect(request.payload).toMatchObject({
+    expect(request).toMatchObject({
       action: "addInscripcion",
       token: "test-token",
       idempotencyKey: "enrollment-1",
       inscripcion: { crmEnrollmentId: "enrollment-1", participant: { identification: null }, amount: 75.5 },
     });
+    expect(request).not.toHaveProperty("payload");
   });
 });

@@ -48,7 +48,7 @@ async function rawCall<T>(
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: body }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`Finance respondió ${response.status}.`);
   return (await response.json()) as FinanceResponse<T>;

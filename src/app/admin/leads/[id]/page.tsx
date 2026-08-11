@@ -4,6 +4,7 @@ import { currentAdminSession } from "@/lib/auth/server";
 import { resolveViewMode } from "@/lib/auth/view-mode";
 import { resolveCourseSessions } from "@/lib/course-sessions";
 import { financeEnrollmentUrl } from "@/lib/finance/client";
+import { formatMoment, messageMoment } from "@/lib/message-presentation";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { AdminNav } from "../../AdminNav";
 import { AdminPageHeader } from "../../AdminPageHeader";
@@ -26,7 +27,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         enrollments: { include: { course: { include: { sessions: true } } }, orderBy: { createdAt: "desc" } },
         notes: { include: { author: true }, orderBy: { createdAt: "desc" } },
         followUps: { include: { assignedTo: true }, orderBy: { dueAt: "asc" } },
-        messages: { orderBy: { createdAt: "desc" }, take: 30 },
+        messages: { orderBy: { scheduledAt: "desc" }, take: 30 },
         events: { orderBy: { createdAt: "desc" }, take: 50 },
       },
     }),
@@ -98,7 +99,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         {lead.followUps.length > 0 ? <section className="panel"><h2>Próximas acciones</h2>{lead.followUps.map((item) => <article className="timeline-item" key={item.id}><strong>{presentAdminValue(item.type)} · {presentAdminValue(item.status)}</strong><p>{item.notes ?? "Sin detalle"}</p><small>{formatDate(item.dueAt)} · {item.assignedTo?.name ?? "Sin asignar"}</small></article>)}</section> : null}
       </div> : null}
       <section className="panel contact-audit"><h2>Historial administrativo</h2>{relatedAudits.length === 0 ? <AdminEmptyState icon="audit" title="Sin eventos administrativos" description="Las acciones relacionadas con este contacto aparecerán aquí." /> : <div className="table-wrap"><table className="data audit-human-table"><thead><tr><th>Fecha</th><th>Origen</th><th>Acción</th><th>Resultado</th></tr></thead><tbody>{relatedAudits.map((event) => <tr key={event.id}><td data-label="Fecha">{formatDate(event.createdAt)}</td><td data-label="Origen">{auditOrigin(event.action, event.actorEmail)}</td><td data-label="Acción">{presentAuditAction(event.action)}</td><td data-label="Resultado">{presentAdminValue(event.result)}</td></tr>)}</tbody></table></div>}</section>
-      <section className="panel contact-messages"><h2>Mensajes</h2>{lead.messages.length === 0 ? <AdminEmptyState icon="messages" title="Sin mensajes" description="Los mensajes asociados aparecerán aquí." /> : lead.messages.map((message) => <article className="timeline-item" key={message.id}><strong>{presentAdminValue(message.channel)} · {presentAdminValue(message.status)}</strong><p>{message.subject ?? message.body.slice(0, 140)}</p><small>{formatDate(message.createdAt)}</small></article>)}</section>
+      <section className="panel contact-messages"><h2>Mensajes</h2>{lead.messages.length === 0 ? <AdminEmptyState icon="messages" title="Sin mensajes" description="Los mensajes asociados aparecerán aquí." /> : lead.messages.map((message) => {
+        const moment = messageMoment(message);
+        return <article className="timeline-item" key={message.id}><strong>{presentAdminValue(message.channel)} · {presentAdminValue(message.status)}</strong><p>{message.subject ?? message.body.slice(0, 140)}</p><small>{moment.label}: {formatMoment(moment.at)}</small></article>;
+      })}</section>
       {lead.events.length > 0 ? <details className="panel contact-activity-details"><summary>Ver actividad del formulario ({lead.events.length})</summary><div>{lead.events.map((event) => <article className="timeline-item" key={event.id}><strong>{presentAdminValue(event.type)}</strong><small>{formatDate(event.createdAt)}</small></article>)}</div></details> : null}
     </main>
   );

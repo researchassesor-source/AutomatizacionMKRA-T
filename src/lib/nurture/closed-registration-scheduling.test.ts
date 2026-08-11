@@ -181,7 +181,7 @@ describe("motivo visible cuando no se genera nada", () => {
 
   it("informa y audita cuando hay reglas activas pero ninguna aplica", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({
-      status: "CANCELADO",
+      status: "COMPLETADO",
       rules: planRules().map((rule) => ({ ...rule, enrollmentStatuses: ["INSCRITO"] })),
     }));
     const result = await scheduleEnrollmentAutomations("enrollment-qa", NOW);

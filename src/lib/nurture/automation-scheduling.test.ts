@@ -15,6 +15,8 @@ vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 
 import { rescheduleCourseAutomations, renderMessageTemplate, scheduleEnrollmentAutomations } from "./engine";
+import { DEFAULT_AUTOMATION_PLAN } from "./default-automations";
+import { WHATSAPP_AUTOMATION_PLAN } from "./default-automations-whatsapp";
 
 type StoredMessage = Record<string, any>;
 
@@ -42,13 +44,13 @@ function rule(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function enrollment(overrides: { sessions?: any[]; rules?: any[]; streamUrl?: string | null; startsAt?: Date | null } = {}) {
+function enrollment(overrides: { sessions?: any[]; rules?: any[]; streamUrl?: string | null; startsAt?: Date | null; status?: string } = {}) {
   return {
     id: "enrollment-1",
     leadId: "lead-1",
     courseId: "course-1",
     campaignId: null,
-    status: "INSCRITO",
+    status: overrides.status ?? "INSCRITO",
     createdAt: new Date("2026-08-01T12:00:00.000Z"),
     lead: { id: "lead-1", firstName: "Ana", lastName: "Pérez", fullName: "Ana Pérez", email: "ana@example.test", phone: "+593987654321", classification: "REAL", consent: true, assignedToId: null },
     course: {
@@ -90,6 +92,82 @@ beforeEach(() => {
 });
 
 describe("programación de recordatorios por sesión", () => {
+  it("INTERESADO programa comunicaciones sin esperar a INSCRITO", async () => {
+    const welcome = [rule({ id: "rule-welcome", trigger: "ON_REGISTRATION", offsetMinutes: 0 })];
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ status: "INTERESADO", rules: welcome }));
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(result.enqueued).toBe(1);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].scheduledAt).toEqual(new Date("2026-08-01T12:00:00.000Z"));
+  });
+
+  it("la transición INTERESADO a INSCRITO reutiliza las mismas claves y no duplica", async () => {
+    const welcome = [rule({ id: "rule-welcome", trigger: "ON_REGISTRATION", offsetMinutes: 0 })];
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ status: "INTERESADO", rules: welcome }));
+    await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    const originalId = messages[0].id;
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ status: "INSCRITO", rules: welcome }));
+    await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe(originalId);
+  });
+
+  it("calcula 24h, 2h y 15min desde una sesión real de 19:30 en Ecuador", async () => {
+    const session = { id: "s-1930", title: null, startAt: new Date("2026-08-12T00:30:00.000Z"), endAt: null, streamUrl: "https://meet.example.com/sala" };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({
+      sessions: [session],
+      rules: [
+        rule({ id: "rule-24h", offsetMinutes: 1440 }),
+        rule({ id: "rule-2h", offsetMinutes: 120 }),
+        rule({ id: "rule-15m", offsetMinutes: 15 }),
+      ],
+    }));
+    await scheduleEnrollmentAutomations("enrollment-1", new Date("2026-08-10T12:00:00.000Z"));
+    expect(messages.map((message) => message.scheduledAt.toISOString())).toEqual([
+      "2026-08-11T00:30:00.000Z",
+      "2026-08-11T22:30:00.000Z",
+      "2026-08-12T00:15:00.000Z",
+    ]);
+    const localTimes = messages.map((message) => new Intl.DateTimeFormat("es-EC", { timeStyle: "short", timeZone: "America/Guayaquil" }).format(message.scheduledAt).replace(/[\u00a0\u202f]/g, " "));
+    expect(localTimes).toEqual(["7:30 p. m.", "5:30 p. m.", "7:15 p. m."]);
+  });
+
+  it("omite el recordatorio vencido y conserva solo los momentos futuros", async () => {
+    const session = { id: "s-hoy", title: null, startAt: new Date("2026-08-12T00:30:00.000Z"), endAt: null, streamUrl: "https://meet.example.com/sala" };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({
+      status: "INTERESADO",
+      sessions: [session],
+      rules: [
+        rule({ id: "rule-24h", offsetMinutes: 1440 }),
+        rule({ id: "rule-2h", offsetMinutes: 120 }),
+        rule({ id: "rule-15m", offsetMinutes: 15 }),
+      ],
+    }));
+    await scheduleEnrollmentAutomations("enrollment-1", new Date("2026-08-11T17:47:00.000Z"));
+    expect(messages.map((message) => message.sequenceKey)).toEqual(["automation:rule-2h", "automation:rule-15m"]);
+  });
+
+  it("correo y WhatsApp comparten trigger, offset y audiencia temporal", () => {
+    for (const emailRule of DEFAULT_AUTOMATION_PLAN) {
+      const whatsappRule = WHATSAPP_AUTOMATION_PLAN.find((item) => item.planKey === emailRule.planKey);
+      expect(whatsappRule).toMatchObject({
+        trigger: emailRule.trigger,
+        offsetMinutes: emailRule.offsetMinutes,
+        enrollmentStatuses: emailRule.enrollmentStatuses,
+      });
+    }
+  });
+
+  it("CANCELADO nunca recibe mensajes aunque una regla no limite estados", async () => {
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({
+      status: "CANCELADO",
+      rules: [rule({ enrollmentStatuses: [] })],
+    }));
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(result.reason).toBe("ENROLLMENT_CANCELLED");
+    expect(messages).toHaveLength(0);
+  });
+
   it("un curso con una sola fecha conserva la clave idempotente histórica", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);

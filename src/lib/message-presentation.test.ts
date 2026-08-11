@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { humanReason, humanStatus, humanStatusFor, isRealFailure, relativeMoment, statusDotClass } from "./message-presentation";
+import { formatMoment, humanReason, humanStatus, humanStatusFor, isRealFailure, messageMoment, relativeMoment, statusDotClass } from "./message-presentation";
 
 describe("vocabulario humano de estados", () => {
   it("traduce los once estados internos sin dejar ninguno fuera", () => {
@@ -103,5 +103,25 @@ describe("tiempos relativos", () => {
   it("tolera valores ausentes o inválidos", () => {
     expect(relativeMoment(null, ahora)).toBe("—");
     expect(relativeMoment("no-es-fecha", ahora)).toBe("—");
+  });
+});
+
+describe("momento visible de una comunicación", () => {
+  const createdAt = new Date("2026-08-11T05:47:00.000Z");
+  const scheduledAt = new Date("2026-08-12T00:15:00.000Z");
+
+  it("Programado muestra scheduledAt y nunca createdAt", () => {
+    const moment = messageMoment({ status: "PROGRAMADO", createdAt, scheduledAt });
+    expect(moment).toEqual({ at: scheduledAt, label: "Programado para" });
+    expect(formatMoment(moment.at)).toContain("7:15 p. m.");
+  });
+
+  it("enviado, entregado y leído muestran el evento real disponible", () => {
+    const sentAt = new Date("2026-08-12T00:16:00.000Z");
+    const deliveredAt = new Date("2026-08-12T00:17:00.000Z");
+    const readAt = new Date("2026-08-12T00:18:00.000Z");
+    expect(messageMoment({ status: "ENVIADO", createdAt, scheduledAt, sentAt }).at).toBe(sentAt);
+    expect(messageMoment({ status: "ENTREGADO", createdAt, scheduledAt, deliveredAt }).at).toBe(deliveredAt);
+    expect(messageMoment({ status: "LEIDO", createdAt, scheduledAt, readAt }).at).toBe(readAt);
   });
 });

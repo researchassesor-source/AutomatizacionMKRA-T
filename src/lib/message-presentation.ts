@@ -154,6 +154,36 @@ export function formatTime(value: Date | string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? "—" : normalizeDateText(guayaquilHora.format(date));
 }
 
+type MessageMomentInput = {
+  status: MessageStatus;
+  scheduledAt: Date | string;
+  createdAt?: Date | string | null;
+  sentAt?: Date | string | null;
+  acceptedAt?: Date | string | null;
+  deliveredAt?: Date | string | null;
+  readAt?: Date | string | null;
+  bouncedAt?: Date | string | null;
+  failedAt?: Date | string | null;
+  cancelledAt?: Date | string | null;
+};
+
+/** Momento que describe el estado visible; `createdAt` es solo el último respaldo. */
+export function messageMoment(message: MessageMomentInput): { at: Date | string; label: string } {
+  if (message.status === "LEIDO" && message.readAt) return { at: message.readAt, label: "Leído" };
+  if (message.status === "ENTREGADO" && message.deliveredAt) return { at: message.deliveredAt, label: "Recibido" };
+  if (message.status === "REBOTADO" && message.bouncedAt) return { at: message.bouncedAt, label: "Rebotado" };
+  if (message.status === "FALLIDO" && message.failedAt) return { at: message.failedAt, label: "Falló" };
+  if (message.status === "ENVIADO" && (message.sentAt || message.acceptedAt)) {
+    return { at: message.sentAt ?? message.acceptedAt ?? message.scheduledAt, label: "Enviado" };
+  }
+  if (message.status === "ACEPTADO" && message.acceptedAt) return { at: message.acceptedAt, label: "Enviado" };
+  if (message.status === "CANCELADO" && message.cancelledAt) return { at: message.cancelledAt, label: "Cancelado" };
+  return {
+    at: message.scheduledAt ?? message.createdAt ?? new Date(0),
+    label: message.status === "PROGRAMADO" ? "Programado para" : "Fecha prevista",
+  };
+}
+
 /** "hace 2 h", "en 3 días": mas legible que una marca de tiempo absoluta. */
 export function relativeMoment(value: Date | string | null | undefined, now = new Date()): string {
   if (!value) return "—";

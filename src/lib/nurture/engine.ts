@@ -378,6 +378,7 @@ export type ScheduleAutomationsResult = {
 
 export type ScheduleSkipReason =
   | "ENROLLMENT_NOT_FOUND"
+  | "ENROLLMENT_CANCELLED"
   | "CONTACT_EXCLUDED"
   | "COURSE_NOT_PUBLISHED"
   | "NO_ACTIVE_RULES"
@@ -386,6 +387,7 @@ export type ScheduleSkipReason =
 /** Traducción para el administrador. Nunca se muestra el código técnico solo. */
 export const SCHEDULE_SKIP_MESSAGES: Record<ScheduleSkipReason, string> = {
   ENROLLMENT_NOT_FOUND: "No se encontró la inscripción al programar los mensajes.",
+  ENROLLMENT_CANCELLED: "La inscripción está cancelada, así que no recibe nuevos mensajes.",
   CONTACT_EXCLUDED: "El contacto no recibe automatizaciones: debe estar clasificado como real y tener consentimiento registrado.",
   COURSE_NOT_PUBLISHED: "El curso no está publicado, así que no se programaron mensajes.",
   NO_ACTIVE_RULES: "El curso todavía no tiene automatizaciones activas. Aplica el plan estándar de correos y actívalo.",
@@ -415,6 +417,7 @@ export async function scheduleEnrollmentAutomations(
   const empty = { enqueued: 0, updated: 0, skipped: 0, omitted: 0, activeRules: 0 };
   const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: enrollmentWithSchedule });
   if (!enrollment) return { ...empty, reason: "ENROLLMENT_NOT_FOUND" };
+  if (enrollment.status === "CANCELADO") return { ...empty, reason: "ENROLLMENT_CANCELLED" };
   if (!isAutomationEligibleContact(enrollment.lead.classification, enrollment.lead.consent)) {
     return { ...empty, reason: "CONTACT_EXCLUDED" };
   }

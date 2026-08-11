@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { TechnicalSection } from "../TechnicalDetail";
 import { MessageActions } from "./MessageActions";
-import { formatDay, formatMoment, formatTime, humanReason, humanStatusFor, relativeMoment, statusDotClass } from "@/lib/message-presentation";
+import { formatMoment, humanReason, humanStatusFor, messageMoment, relativeMoment, statusDotClass } from "@/lib/message-presentation";
 import type { MessageChannel, MessageStatus } from "@prisma/client";
 
 export type MessageRow = {
@@ -16,9 +16,14 @@ export type MessageRow = {
   subject: string | null;
   body: string;
   scheduledAt: Date;
+  createdAt: Date;
+  sentAt: Date | null;
   acceptedAt: Date | null;
   deliveredAt: Date | null;
   readAt: Date | null;
+  bouncedAt: Date | null;
+  failedAt: Date | null;
+  cancelledAt: Date | null;
   errorCode: string | null;
   errorMessage: string | null;
   error: string | null;
@@ -45,10 +50,8 @@ function dayLabel(date: Date, now: Date): string {
 }
 
 function meaningfulMoment(message: MessageRow): { text: string; detail: string } {
-  if (message.readAt) return { text: relativeMoment(message.readAt), detail: `Leído ${formatTime(message.readAt)}` };
-  if (message.deliveredAt) return { text: relativeMoment(message.deliveredAt), detail: `Recibido ${formatTime(message.deliveredAt)}` };
-  if (message.acceptedAt) return { text: relativeMoment(message.acceptedAt), detail: `Enviado ${formatTime(message.acceptedAt)}` };
-  return { text: relativeMoment(message.scheduledAt), detail: `Previsto ${formatTime(message.scheduledAt)}` };
+  const moment = messageMoment(message);
+  return { text: `${moment.label}: ${formatMoment(moment.at)}`, detail: relativeMoment(moment.at) };
 }
 
 export function MessageList({ messages, now, technical }: { messages: MessageRow[]; now: Date; technical: boolean }) {
@@ -77,7 +80,7 @@ export function MessageList({ messages, now, technical }: { messages: MessageRow
   const groups = useMemo(() => {
     const result: Array<{ label: string; items: MessageRow[] }> = [];
     for (const message of visibleMessages) {
-      const label = dayLabel(message.scheduledAt, now);
+      const label = dayLabel(new Date(messageMoment(message).at), now);
       const last = result.at(-1);
       if (last?.label === label) last.items.push(message);
       else result.push({ label, items: [message] });
@@ -125,7 +128,7 @@ export function MessageList({ messages, now, technical }: { messages: MessageRow
                           <span className={statusDotClass(message.status, message.scheduledAt, now)}>{human.label}</span>
                           <div className="muted row-status-hint">{reason ?? human.hint}</div>
                         </td>
-                        <td className="message-date-cell" data-label="Fecha"><span className="row-when">{when.text}</span><div className="muted">{formatDay(message.scheduledAt)} · {when.detail}</div></td>
+                        <td className="message-date-cell" data-label="Fecha"><span className="row-when">{when.text}</span><div className="muted">{when.detail}</div></td>
                         <td className="row-actions-cell"><MessageActions id={message.id} status={message.status} onView={() => setSelectedId(message.id)} /></td>
                       </tr>
                     );
@@ -149,7 +152,7 @@ export function MessageList({ messages, now, technical }: { messages: MessageRow
               <dt>Destinatario</dt><dd>{selected.leadName} · {selected.toAddress}</dd>
               <dt>Curso</dt><dd>{selected.courseTitle ?? "Sin curso"}</dd>
               <dt>Canal</dt><dd>{selected.channel === "EMAIL" ? "Correo electrónico" : "WhatsApp"}</dd>
-              <dt>Fecha prevista</dt><dd>{formatMoment(selected.scheduledAt)}</dd>
+              <dt>{messageMoment(selected).label}</dt><dd>{formatMoment(messageMoment(selected).at)}</dd>
             </dl>
             <div className="message-detail-body"><h3>Contenido</h3><p>{selected.body}</p></div>
             <TechnicalSection visible={technical}>

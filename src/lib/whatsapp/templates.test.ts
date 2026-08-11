@@ -151,10 +151,10 @@ describe("plan estándar de WhatsApp", () => {
     expect(gracias?.enrollmentStatuses).toContain("COMPLETADO");
   });
 
-  it("solo una inscripcion confirmada recibe la bienvenida de WhatsApp", () => {
+  it("todo registro del formulario recibe las automatizaciones de WhatsApp", () => {
     const bienvenida = WHATSAPP_AUTOMATION_PLAN.find((entry) => entry.planKey === "welcome");
-    expect(bienvenida?.enrollmentStatuses).toEqual(["INSCRITO"]);
-    expect(WHATSAPP_AUTOMATION_PLAN.every((entry) => !entry.enrollmentStatuses.includes("INTERESADO"))).toBe(true);
+    expect(bienvenida?.enrollmentStatuses).toEqual(["INTERESADO", "INSCRITO", "EN_CURSO"]);
+    expect(WHATSAPP_AUTOMATION_PLAN.every((entry) => entry.enrollmentStatuses.includes("INTERESADO"))).toBe(true);
   });
 
   /** Contrato literal que debe someterse a revisión y quedar aprobado en Meta. */

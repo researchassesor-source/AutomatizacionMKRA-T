@@ -28,6 +28,7 @@ export type PlantillaPublicacion = {
   texto: string;
   enlace: string;
   imagen: string;
+  mediaType?: "IMAGE" | "VIDEO";
   ctaInstagram: string;
   plataformas: string[];
   creadaEn: string;
@@ -38,6 +39,7 @@ export type EstadoRestaurable = {
   texto: string;
   enlace: string;
   imagen: string;
+  mediaType: "IMAGE" | "VIDEO";
   ctaInstagram: string;
   plataformas: string[];
 };
@@ -64,6 +66,7 @@ export function normalizarPlantilla(raw: unknown): PlantillaPublicacion | null {
     texto,
     enlace: typeof item.enlace === "string" ? item.enlace : "",
     imagen: typeof item.imagen === "string" ? item.imagen : "",
+    mediaType: item.mediaType === "VIDEO" ? "VIDEO" : "IMAGE",
     ctaInstagram: typeof item.ctaInstagram === "string" ? item.ctaInstagram : "",
     plataformas: Array.isArray(item.plataformas)
       ? item.plataformas.filter((valor): valor is string => typeof valor === "string" && valor.length > 0)
@@ -100,6 +103,7 @@ export type BorradorPlantilla = {
   texto: string;
   enlace: string;
   imagen: string;
+  mediaType?: "IMAGE" | "VIDEO";
   ctaInstagram: string;
   plataformas: string[];
 };
@@ -117,6 +121,7 @@ export function crearPlantilla(borrador: BorradorPlantilla, ahora = new Date(), 
     texto: borrador.texto,
     enlace: borrador.enlace,
     imagen: borrador.imagen,
+    mediaType: borrador.mediaType === "VIDEO" ? "VIDEO" : "IMAGE",
     ctaInstagram: borrador.ctaInstagram,
     plataformas: [...new Set(borrador.plataformas)],
     creadaEn: ahora.toISOString(),
@@ -149,6 +154,7 @@ export function aplicarPlantilla(plantilla: PlantillaPublicacion): EstadoRestaur
     texto: plantilla.texto,
     enlace: plantilla.enlace,
     imagen: plantilla.imagen,
+    mediaType: plantilla.mediaType === "VIDEO" ? "VIDEO" : "IMAGE",
     ctaInstagram: plantilla.ctaInstagram,
     plataformas: [...plantilla.plataformas],
   };

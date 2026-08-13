@@ -103,6 +103,27 @@ describe("integridad de la publicación", () => {
     expect(mocks.prisma.socialPost.updateMany.mock.calls[0][0].where.externalPostId).toBeNull();
   });
 
+  it("continúa un video aceptado usando el mismo identificador del proveedor", async () => {
+    liveEnv();
+    mocks.prisma.socialPost.findUnique
+      .mockResolvedValueOnce({ scheduledAt: post().scheduledAt, status: "ACEPTADO", providerStatus: "PROCESSING", externalPostId: "container-1" })
+      .mockResolvedValueOnce(post({
+        status: "ACEPTADO",
+        externalPostId: "container-1",
+        providerStatus: "PROCESSING",
+        providerResponse: { mediaType: "VIDEO", containerId: "container-1" },
+        account: { platform: "INSTAGRAM", isActive: true, displayName: "Instagram" },
+      }));
+    mocks.publish.mockResolvedValue({ ok: true, accepted: true, externalPostId: "container-1", providerStatus: "PROCESSING" });
+
+    const result = await publishPost("post-1");
+
+    expect(result).toMatchObject({ ok: true, accepted: true, externalPostId: "container-1" });
+    expect(mocks.prisma.socialPost.updateMany.mock.calls[0][0].where).toMatchObject({ status: "ACEPTADO", externalPostId: "container-1", providerStatus: "PROCESSING" });
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "VIDEO", externalPostId: "container-1", providerStatus: "PROCESSING" }));
+    expect(mocks.prisma.socialPost.update.mock.calls[0][0].data.status).toBe("ACEPTADO");
+  });
+
   it("una cuenta inactiva impide reclamar la publicación", async () => {
     liveEnv();
     mocks.prisma.socialPost.findUnique.mockResolvedValue({ scheduledAt: post().scheduledAt, status: "PROGRAMADO" });
@@ -156,6 +177,40 @@ describe("requisitos reales de Instagram", () => {
     fetchSpy.mockRestore();
   });
 
+  it("crea un Reel y queda procesando sin bloquear ni crear un segundo container", async () => {
+    const { MetaAdapter } = await vi.importActual<typeof import("./adapters/meta")>("./adapters/meta");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "ig-container-1" }), { status: 200 }),
+    );
+    const adapter = new MetaAdapter("INSTAGRAM", { accessToken: "t", igUserId: "1784", graphVersion: "v25.0" });
+    const result = await adapter.publish({ caption: "Video", mediaUrl: "https://blob.example.com/reel.mp4", mediaType: "VIDEO" });
+    expect(result).toMatchObject({ ok: true, accepted: true, externalPostId: "ig-container-1", providerStatus: "PROCESSING" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][1]?.body)).toContain("media_type=REELS");
+    expect(String(fetchSpy.mock.calls[0][1]?.body)).toContain("video_url=");
+    fetchSpy.mockRestore();
+  });
+
+  it("reanuda el mismo container de Instagram mientras sigue procesando", async () => {
+    const { MetaAdapter } = await vi.importActual<typeof import("./adapters/meta")>("./adapters/meta");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status_code: "IN_PROGRESS" }), { status: 200 }),
+    );
+    const adapter = new MetaAdapter("INSTAGRAM", { accessToken: "t", igUserId: "1784", graphVersion: "v25.0" });
+    const result = await adapter.publish({
+      caption: "Video",
+      mediaUrl: "https://blob.example.com/reel.mp4",
+      mediaType: "VIDEO",
+      externalPostId: "ig-container-1",
+      providerStatus: "PROCESSING",
+    });
+    expect(result).toMatchObject({ ok: true, accepted: true, externalPostId: "ig-container-1" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain("ig-container-1?fields=status_code,status");
+    expect(fetchSpy.mock.calls[0][1]?.method).toBeUndefined();
+    fetchSpy.mockRestore();
+  });
+
   /**
    * Graph simulada con una respuesta NUEVA por llamada.
    *
@@ -178,6 +233,26 @@ describe("requisitos reales de Instagram", () => {
     const adapter = new MetaAdapter("FACEBOOK", { accessToken: "t", pageId: "1190", graphVersion: "v25.0" });
     const result = await adapter.publish({ caption: "Solo texto" });
     expect(result).toMatchObject({ ok: true, externalPostId: "1190_777" });
+    fetchSpy.mockRestore();
+  });
+
+  it("Facebook conserva fotos y selecciona /videos solo para video", async () => {
+    const { MetaAdapter } = await vi.importActual<typeof import("./adapters/meta")>("./adapters/meta");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("fields=access_token")) return new Response(JSON.stringify({ access_token: "token-de-pagina" }), { status: 200 });
+      return new Response(JSON.stringify({ id: url.includes("/videos") ? "video-1" : "photo-1", post_id: url.includes("/photos") ? "post-photo-1" : undefined }), { status: 200 });
+    });
+    const adapter = new MetaAdapter("FACEBOOK", { accessToken: "t", pageId: "1190", graphVersion: "v25.0" });
+
+    const image = await adapter.publish({ caption: "Imagen", mediaUrl: "https://blob.example.com/foto.jpg", mediaType: "IMAGE" });
+    expect(image).toMatchObject({ ok: true, externalPostId: "post-photo-1" });
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).endsWith("/1190/photos"))).toBe(true);
+
+    fetchSpy.mockClear();
+    const video = await adapter.publish({ caption: "Video", mediaUrl: "https://blob.example.com/reel.mp4", mediaType: "VIDEO" });
+    expect(video).toMatchObject({ ok: true, accepted: true, externalPostId: "video-1", providerStatus: "PROCESSING" });
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).endsWith("/1190/videos"))).toBe(true);
     fetchSpy.mockRestore();
   });
 

@@ -36,6 +36,7 @@ describe("guardar una plantilla", () => {
       texto: BORRADOR.texto,
       enlace: BORRADOR.enlace,
       imagen: BORRADOR.imagen,
+      mediaType: "IMAGE",
       ctaInstagram: BORRADOR.ctaInstagram,
       plataformas: ["FACEBOOK", "INSTAGRAM"],
     });
@@ -79,6 +80,7 @@ describe("recuperar y utilizar", () => {
       texto: BORRADOR.texto,
       enlace: BORRADOR.enlace,
       imagen: BORRADOR.imagen,
+      mediaType: "IMAGE",
       ctaInstagram: BORRADOR.ctaInstagram,
       plataformas: ["FACEBOOK", "INSTAGRAM"],
     });
@@ -86,7 +88,7 @@ describe("recuperar y utilizar", () => {
 
   it("lo que se restaura no incluye programación", () => {
     const estado = aplicarPlantilla(crearPlantilla(BORRADOR, AHORA));
-    expect(Object.keys(estado).sort()).toEqual(["ctaInstagram", "enlace", "imagen", "plataformas", "texto"]);
+    expect(Object.keys(estado).sort()).toEqual(["ctaInstagram", "enlace", "imagen", "mediaType", "plataformas", "texto"]);
   });
 
   it("selecciona las cuentas de las redes guardadas", () => {

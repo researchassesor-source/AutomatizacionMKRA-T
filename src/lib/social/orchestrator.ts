@@ -14,6 +14,7 @@ import {
 } from "@/lib/live-activation";
 import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
 import { writeAudit } from "@/lib/audit";
+import { inferSocialMediaType, type SocialMediaType } from "./media";
 
 /**
  * Los adaptadores se construyen en cada uso para leer la configuracion vigente
@@ -158,6 +159,7 @@ export async function expandDueSchedules(now = new Date(), window: LiveWindow = 
           occurrenceKey,
           caption: schedule.caption,
           mediaUrl: schedule.mediaUrl,
+          providerResponse: schedule.mediaUrl ? { mediaType: inferSocialMediaType(schedule.mediaUrl) } : undefined,
           linkUrl: schedule.linkUrl,
           status: "PROGRAMADO",
           scheduledAt: schedule.nextRunAt,
@@ -195,7 +197,10 @@ export async function publishPost(postId: string) {
   if (window.state === "blocked") {
     return { ok: false, errorCode: window.errorCode, error: window.error };
   }
-  const scheduled = await prisma.socialPost.findUnique({ where: { id: postId }, select: { scheduledAt: true, status: true } });
+  const scheduled = await prisma.socialPost.findUnique({
+    where: { id: postId },
+    select: { scheduledAt: true, status: true, providerStatus: true, externalPostId: true },
+  });
   if (!scheduled) return { ok: false, error: "No se encontró la publicación." };
   // Un borrador sin fecha se publica a mano desde el panel: la fecha de corte
   // protege de la cola atrasada, no de una acción deliberada de hoy.
@@ -204,14 +209,20 @@ export async function publishPost(postId: string) {
     return { ok: false, errorCode: "BEFORE_LIVE_FROM", error: outsideLiveWindowMessage(window, SOCIAL_LIVE_FROM) };
   }
 
+  const continuingProviderProcessing = scheduled.status === "ACEPTADO"
+    && scheduled.providerStatus === "PROCESSING"
+    && Boolean(scheduled.externalPostId);
   const claimed = await prisma.socialPost.updateMany({
     where: {
       id: postId,
-      status: { in: ["BORRADOR", "PROGRAMADO", "FALLIDO", "SIMULADO"] },
+      status: continuingProviderProcessing
+        ? "ACEPTADO"
+        : { in: ["BORRADOR", "PROGRAMADO", "FALLIDO", "SIMULADO"] },
       // Un registro que ya tiene identificador del proveedor no vuelve a
       // publicarse nunca: es la garantia de que un cron repetido no duplica
       // contenido en Facebook o Instagram.
-      externalPostId: null,
+      externalPostId: continuingProviderProcessing ? scheduled.externalPostId : null,
+      ...(continuingProviderProcessing ? { providerStatus: "PROCESSING" } : {}),
       account: { isActive: true },
     },
     data: { status: "PUBLICANDO", publishStartedAt: new Date(), error: null },
@@ -241,10 +252,16 @@ export async function publishPost(postId: string) {
     return { ok: false, errorCode: "CONNECTOR_UNAVAILABLE", error };
   }
 
+  const previousProviderState = jsonScalarRecord(post.providerResponse);
+  const mediaType = resolveStoredMediaType(previousProviderState, post.mediaUrl);
   const rawResult = await adapter.publish({
     caption: post.caption,
     mediaUrl: post.mediaUrl ?? undefined,
+    mediaType: mediaType ?? undefined,
     linkUrl: post.linkUrl ?? undefined,
+    externalPostId: post.externalPostId ?? undefined,
+    providerStatus: post.providerStatus ?? undefined,
+    providerState: previousProviderState,
   });
   // Un "ok" sin identificador del proveedor no es una publicación verificable.
   // Marcarla como publicada dejaría un registro que afirma algo que no podemos
@@ -265,8 +282,9 @@ export async function publishPost(postId: string) {
           publishedAt: result.accepted ? null : new Date(),
           publishStartedAt: null,
           externalPostId: result.externalPostId,
+          providerStatus: result.providerStatus ?? (result.accepted ? "PROCESSING" : "PUBLISHED"),
           providerPostUrl: result.providerPostUrl,
-          providerResponse: result.providerResponse as Prisma.InputJsonValue | undefined,
+          providerResponse: { ...(mediaType ? { mediaType } : {}), ...(result.providerResponse ?? {}) },
           error: null,
           errorCode: null,
           errorMessage: null,
@@ -278,7 +296,8 @@ export async function publishPost(postId: string) {
           error: result.error?.slice(0, 500) ?? "No se pudo publicar.",
           errorCode: result.errorCode?.slice(0, 120) ?? "PROVIDER_ERROR",
           errorMessage: result.error?.slice(0, 500) ?? "No se pudo publicar.",
-          providerResponse: result.providerResponse as Prisma.InputJsonValue | undefined,
+          providerStatus: result.providerStatus ?? "ERROR",
+          providerResponse: { ...(mediaType ? { mediaType } : {}), ...(result.providerResponse ?? {}) },
         },
   });
   return result;
@@ -298,11 +317,35 @@ export async function processScheduledPosts(now = new Date()) {
     });
     return { blocked: true, errorCode: window.errorCode, error: window.error, expanded: 0, processed: 0, results: [] };
   }
+  // Si la función se interrumpe mientras consultaba un video ya aceptado por
+  // Meta, vuelve a ACEPTADO: el siguiente ciclo continúa el mismo ID.
+  await prisma.socialPost.updateMany({
+    where: {
+      status: "PUBLICANDO",
+      providerStatus: "PROCESSING",
+      externalPostId: { not: null },
+      publishStartedAt: { lt: new Date(now.getTime() - 15 * 60 * 1000) },
+    },
+    data: { status: "ACEPTADO", publishStartedAt: null, error: null },
+  });
   await prisma.socialPost.updateMany({
     where: { status: "PUBLICANDO", publishStartedAt: { lt: new Date(now.getTime() - 15 * 60 * 1000) } },
     data: { status: "FALLIDO", publishStartedAt: null, error: "La publicación quedó interrumpida y puede reintentarse." },
   });
   const expanded = await expandDueSchedules(now, window);
+  // Los videos ya aceptados tienen prioridad para que una cola llena de
+  // publicaciones nuevas no impida terminar su procesamiento.
+  const processing = await prisma.socialPost.findMany({
+    where: {
+      status: "ACEPTADO",
+      providerStatus: "PROCESSING",
+      externalPostId: { not: null },
+      account: { isActive: true, platform: { in: ["FACEBOOK", "INSTAGRAM"] } },
+    },
+    orderBy: { publishStartedAt: "asc" },
+    take: 25,
+    select: { id: true },
+  });
   const pending = await prisma.socialPost.findMany({
     where: {
       status: "PROGRAMADO",
@@ -310,10 +353,24 @@ export async function processScheduledPosts(now = new Date()) {
       account: { isActive: true },
     },
     orderBy: { scheduledAt: "asc" },
-    take: 25,
+    take: Math.max(0, 25 - processing.length),
     select: { id: true },
   });
   const results = [];
-  for (const post of pending) results.push({ id: post.id, ...(await publishPost(post.id)) });
+  for (const post of [...processing, ...pending]) results.push({ id: post.id, ...(await publishPost(post.id)) });
   return { blocked: false, errorCode: null, error: null, expanded, processed: results.length, results };
+}
+
+function jsonScalarRecord(value: Prisma.JsonValue | null): Record<string, string | number | boolean | null> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value).filter((entry): entry is [string, string | number | boolean | null] => {
+    const item = entry[1];
+    return item === null || ["string", "number", "boolean"].includes(typeof item);
+  });
+  return Object.fromEntries(entries);
+}
+
+function resolveStoredMediaType(state: Record<string, string | number | boolean | null> | undefined, mediaUrl: string | null): SocialMediaType | null {
+  if (state?.mediaType === "VIDEO" || state?.mediaType === "IMAGE") return state.mediaType;
+  return inferSocialMediaType(mediaUrl);
 }

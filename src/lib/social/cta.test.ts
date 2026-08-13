@@ -50,6 +50,15 @@ describe("comparación de URLs", () => {
 });
 
 describe("Facebook recibe la URL", () => {
+  it("elimina Markdown visual antes de guardar el caption de Meta", () => {
+    const salida = componerCaption({
+      plataforma: "FACEBOOK",
+      textoBase: "🚀 Aprende **Inteligencia Artificial** de forma *práctica*.",
+    });
+    expect(salida).toBe("🚀 Aprende Inteligencia Artificial de forma práctica.");
+    expect(salida).not.toMatch(/\*\*|__/);
+  });
+
   it("añade la URL al final, preservando saltos y hashtags", () => {
     const salida = componerCaption({ plataforma: "FACEBOOK", textoBase: TEXTO, urlDestino: URL_CURSO });
     expect(salida).toBe(`${TEXTO}\n\n${URL_CURSO}`);

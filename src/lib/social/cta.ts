@@ -1,4 +1,5 @@
 import type { Platform } from "./types";
+import { normalizeSocialCaption } from "./caption-formatting";
 
 /**
  * Llamada a la accion por red.
@@ -115,7 +116,7 @@ export type EntradaComposicion = {
  * añadido va siempre al final, separado por una linea en blanco.
  */
 export function componerCaption(entrada: EntradaComposicion): string {
-  const base = entrada.textoBase.replace(/\s+$/, "");
+  const base = normalizeSocialCaption(entrada.textoBase).replace(/\s+$/, "");
   const url = entrada.urlDestino?.trim() || "";
 
   if (entrada.plataforma === "INSTAGRAM") {

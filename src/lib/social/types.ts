@@ -12,7 +12,11 @@ export type Platform =
 export interface PublishInput {
   caption: string;
   mediaUrl?: string;
+  mediaType?: "IMAGE" | "VIDEO";
   linkUrl?: string;
+  externalPostId?: string;
+  providerStatus?: string;
+  providerState?: Record<string, string | number | boolean | null>;
 }
 
 export interface PublishResult {
@@ -20,6 +24,7 @@ export interface PublishResult {
   externalPostId?: string;
   providerPostUrl?: string;
   accepted?: boolean;
+  providerStatus?: string;
   providerResponse?: Record<string, string | number | boolean | null>;
   errorCode?: string;
   error?: string;

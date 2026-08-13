@@ -6,6 +6,7 @@ import { formatMoment, relativeMoment } from "@/lib/message-presentation";
 import { useFeedback } from "../Feedback";
 import { ArchiveSocialPostButton } from "./ArchiveSocialPostButton";
 import { postStatusPresentation } from "./postPresentation";
+import { inferSocialMediaType } from "@/lib/social/media";
 
 export type BoardPost = {
   id: string;
@@ -23,8 +24,8 @@ export type BoardPost = {
 type Clave = "programadas" | "publicadas" | "fallidas" | "guardadas" | "recurrentes";
 
 const PESTANAS: ReadonlyArray<{ key: Clave; label: string; estados: readonly string[] }> = [
-  { key: "programadas", label: "Programadas", estados: ["PROGRAMADO", "BORRADOR"] },
-  { key: "publicadas", label: "Publicadas", estados: ["PUBLICADO", "ACEPTADO", "SIMULADO"] },
+  { key: "programadas", label: "Programadas", estados: ["PROGRAMADO", "BORRADOR", "ACEPTADO", "PUBLICANDO"] },
+  { key: "publicadas", label: "Publicadas", estados: ["PUBLICADO", "SIMULADO"] },
   { key: "fallidas", label: "No salieron", estados: ["FALLIDO", "CANCELADO"] },
   { key: "guardadas", label: "Guardadas", estados: ["ARCHIVADO"] },
   { key: "recurrentes", label: "Recurrentes", estados: [] },
@@ -163,9 +164,14 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
         <div className="post-list">
           {visibles.map((post) => {
             const presentation = postStatusPresentation(post.status);
+            const mediaType = inferSocialMediaType(post.mediaUrl);
             return (
             <article className="post-row" key={post.id} aria-label={`Publicación para ${nombreRed(post.platform)}, ${presentation.label}`}>
-              {post.mediaUrl ? <span className="post-thumb" style={{ backgroundImage: `url(${post.mediaUrl})` }} aria-hidden="true" /> : <span className="post-thumb is-empty" aria-hidden="true">RA</span>}
+              {mediaType === "VIDEO"
+                ? <span className="post-thumb is-video" aria-hidden="true">▶</span>
+                : post.mediaUrl
+                  ? <span className="post-thumb" style={{ backgroundImage: `url(${post.mediaUrl})` }} aria-hidden="true" />
+                  : <span className="post-thumb is-empty" aria-hidden="true">RA</span>}
               <div className="post-main">
                 <div className="post-meta-line">
                   <span className="post-destination"><span className="post-network">{nombreRed(post.platform)}</span><span>{post.accountName}</span></span>
@@ -180,10 +186,12 @@ export function PostsBoard({ posts, recurrentes }: { posts: BoardPost[]; recurre
                   <a className="btn-sm ghost" href={post.providerPostUrl} target="_blank" rel="noreferrer">Ver publicada ↗</a>
                 ) : null}
                 {activa.key === "programadas" ? (
-                  <>
-                    <button type="button" className="btn-sm" disabled={busy === post.id} onClick={() => accion(post, "publish")}>Publicar ahora</button>
-                    <button type="button" className="btn-sm ghost" disabled={busy === post.id} onClick={() => accion(post, "cancel")}>Cancelar</button>
-                  </>
+                  ["BORRADOR", "PROGRAMADO"].includes(post.status) ? (
+                    <>
+                      <button type="button" className="btn-sm" disabled={busy === post.id} onClick={() => accion(post, "publish")}>Publicar ahora</button>
+                      <button type="button" className="btn-sm ghost" disabled={busy === post.id} onClick={() => accion(post, "cancel")}>Cancelar</button>
+                    </>
+                  ) : <span className="muted">Meta está procesando el archivo.</span>
                 ) : null}
                 {activa.key === "fallidas" ? (
                   <>

@@ -6,11 +6,13 @@ import { requireRole } from "@/lib/auth/authorization";
 import { canDeleteLocalSocialPost, publishPost } from "@/lib/social/orchestrator";
 import { writeAudit } from "@/lib/audit";
 import { CONTENIDO } from "@/lib/auth/roles";
+import { inferSocialMediaType, isPublicSocialMediaUrl } from "@/lib/social/media";
 
 const schema = z.object({
   action: z.enum(["update", "reschedule", "cancel", "duplicate", "retry", "archive"]),
   caption: z.string().trim().min(1).max(10000).optional(),
   mediaUrl: z.string().url().nullable().optional(),
+  mediaType: z.enum(["IMAGE", "VIDEO"]).nullable().optional(),
   linkUrl: z.string().url().nullable().optional(),
   scheduledAt: z.string().datetime().nullable().optional(),
   confirm: z.boolean().optional(),
@@ -43,6 +45,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         accountId: post.accountId,
         caption: post.caption,
         mediaUrl: post.mediaUrl,
+        providerResponse: post.mediaUrl ? { mediaType: inferSocialMediaType(post.mediaUrl) } : undefined,
         linkUrl: post.linkUrl,
         status: "BORRADOR",
         duplicatedFromId: post.id,
@@ -68,6 +71,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       : parsed.data.scheduledAt
         ? new Date(parsed.data.scheduledAt)
         : post.scheduledAt;
+    const nextMediaUrl = parsed.data.mediaUrl === undefined ? post.mediaUrl : parsed.data.mediaUrl;
+    if (nextMediaUrl && !isPublicSocialMediaUrl(nextMediaUrl)) {
+      return NextResponse.json({ error: "El archivo debe estar disponible mediante una URL pública HTTPS." }, { status: 422 });
+    }
+    const nextMediaType = nextMediaUrl
+      ? (parsed.data.mediaType ?? inferSocialMediaType(nextMediaUrl))
+      : null;
     await prisma.socialPost.update({
       where: { id },
       data: {
@@ -79,7 +89,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         error: null,
         errorCode: null,
         errorMessage: null,
-        providerResponse: Prisma.JsonNull,
+        providerResponse: nextMediaType ? { mediaType: nextMediaType } : Prisma.JsonNull,
+        providerStatus: null,
         status: scheduledAt ? "PROGRAMADO" : "BORRADOR",
       },
     });

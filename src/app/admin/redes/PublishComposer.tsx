@@ -12,6 +12,7 @@ import {
   requiereAvisoInstagram,
 } from "@/lib/social/cta";
 import type { Platform } from "@/lib/social/types";
+import { isSupportedSocialVideo, MAX_SOCIAL_VIDEO_BYTES, type SocialMediaType } from "@/lib/social/media";
 import {
   agregarPlantilla,
   aplicarPlantilla,
@@ -24,6 +25,7 @@ import {
   seleccionParaPlantilla,
 } from "@/lib/social/plantillas";
 import { useFeedback } from "../Feedback";
+import { SocialCopyPreview } from "./SocialCopyPreview";
 
 export type ComposerAccount = { id: string; platform: string; displayName: string };
 
@@ -58,6 +60,9 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
    */
   const [ctaInstagram, setCtaInstagram] = useState(CTA_INSTAGRAM_POR_DEFECTO);
   const [imagen, setImagen] = useState("");
+  const [mediaType, setMediaType] = useState<SocialMediaType>("IMAGE");
+  const [mediaFile, setMediaFile] = useState<{ name: string; size: number; duration: number | null } | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState("");
   const [cuando, setCuando] = useState("");
   const [seleccion, setSeleccion] = useState<string[]>(() => accounts.slice(0, 1).map((a) => a.id));
   const [repetir, setRepetir] = useState(false);
@@ -65,10 +70,29 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
   const [plantillas, setPlantillas] = useState<PlantillaPublicacion[]>([]);
   /** Para llevar el foco al compositor al aplicar una plantilla. */
   const textoRef = useRef<HTMLTextAreaElement>(null);
+  const mediaPreviewRef = useRef("");
 
   useEffect(() => {
     setPlantillas(leerPlantillas(window.localStorage.getItem(PLANTILLAS_KEY)));
   }, []);
+
+  useEffect(() => () => {
+    if (mediaPreviewRef.current) URL.revokeObjectURL(mediaPreviewRef.current);
+  }, []);
+
+  function limpiarMedia() {
+    if (mediaPreviewRef.current) URL.revokeObjectURL(mediaPreviewRef.current);
+    mediaPreviewRef.current = "";
+    setMediaPreviewUrl("");
+    setMediaFile(null);
+    setImagen("");
+  }
+
+  function elegirTipo(tipo: SocialMediaType) {
+    if (tipo === mediaType || guardando !== null) return;
+    limpiarMedia();
+    setMediaType(tipo);
+  }
 
   function persistir(lista: PlantillaPublicacion[]) {
     setPlantillas(lista);
@@ -92,6 +116,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
       texto,
       enlace,
       imagen,
+      mediaType,
       ctaInstagram,
       // Se guardan las plataformas y no los identificadores de cuenta: si una
       // cuenta se vuelve a registrar cambia de id y la plantilla apuntaria a
@@ -102,7 +127,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
     toast({
       tone: "success",
       title: "Plantilla guardada",
-      detail: "Incluye redes, textos, enlace e imagen. La fecha no se guarda.",
+      detail: "Incluye redes, textos, enlace y multimedia. La fecha no se guarda.",
     });
   }
 
@@ -117,7 +142,9 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
     const estado = aplicarPlantilla(plantilla);
     setTexto(estado.texto);
     setEnlace(estado.enlace);
+    limpiarMedia();
     setImagen(estado.imagen);
+    setMediaType(estado.mediaType);
     setCtaInstagram(estado.ctaInstagram);
     setSeleccion(seleccionParaPlantilla(plantilla, accounts, seleccion));
     setCuando("");
@@ -187,43 +214,67 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
     setSeleccion((actual) => (actual.includes(id) ? actual.filter((x) => x !== id) : [...actual, id]));
   }
 
-  /**
-   * Sube la imagen y deja su URL publica lista para la publicacion.
-   *
-   * Va contra `/api/admin/upload`, que recibe el archivo por multipart, lo
-   * normaliza a JPEG y devuelve la URL. Antes esto llamaba a
-   * `/api/admin/upload/token` esperando `{ uploadUrl, publicUrl }`, pero esa
-   * ruta implementa el protocolo de subida directa de Vercel Blob: espera un
-   * cuerpo con `type: "blob.generate-client-token"` y responde con un
-   * `clientToken`. Ni el cuerpo que se enviaba era el que esa ruta entiende,
-   * ni la respuesta contenia los campos que se leian aqui, asi que la subida
-   * no podia funcionar en ningun entorno. La ruta de token sigue en pie para
-   * los videos, que es para lo que existe.
-   */
+  /** Imagen conserva su ruta multipart; video usa la subida directa a Blob. */
   async function subir(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     // Permite volver a elegir el mismo archivo despues de un fallo: sin esto
     // el input no dispara `change` la segunda vez y parece que no responde.
     event.target.value = "";
-    setGuardando("imagen");
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const response = await fetch("/api/admin/upload", { method: "POST", body: form });
-      const resultado = await response.json().catch(() => ({}));
-      if (!response.ok || !resultado.url) {
-        toast({
-          tone: "error",
-          title: "No se pudo subir la imagen",
-          detail: resultado.error ?? "Inténtalo de nuevo en un momento.",
-        });
+    if (mediaType === "VIDEO") {
+      const invalid = isSupportedSocialVideo(file);
+      if (invalid) {
+        toast({ tone: "warning", title: "No se puede usar este video", detail: invalid });
         return;
       }
-      setImagen(resultado.url);
-      toast({ tone: "success", title: "Imagen lista", detail: "Se usará en todas las redes seleccionadas." });
+      limpiarMedia();
+      const localUrl = URL.createObjectURL(file);
+      mediaPreviewRef.current = localUrl;
+      setMediaPreviewUrl(localUrl);
+      setMediaFile({ name: file.name, size: file.size, duration: null });
+      const metadataVideo = document.createElement("video");
+      metadataVideo.preload = "metadata";
+      metadataVideo.src = localUrl;
+      metadataVideo.onloadedmetadata = () => {
+        if (Number.isFinite(metadataVideo.duration)) {
+          setMediaFile((current) => current ? { ...current, duration: metadataVideo.duration } : current);
+        }
+      };
+    } else if (!file.type.startsWith("image/") || file.size <= 0) {
+      toast({ tone: "warning", title: "No se puede usar esta imagen", detail: "Elige un archivo de imagen válido." });
+      return;
+    }
+
+    setGuardando("media");
+    try {
+      if (mediaType === "VIDEO") {
+        const { upload } = await import("@vercel/blob/client");
+        const blob = await upload(`social/${Date.now()}-${file.name}`, file, {
+          access: "public",
+          handleUploadUrl: "/api/admin/upload/token",
+        });
+        setImagen(blob.url);
+        toast({ tone: "success", title: "Video listo", detail: "Ya puedes previsualizarlo y programarlo." });
+      } else {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch("/api/admin/upload", { method: "POST", body: form });
+        const resultado = await response.json().catch(() => ({}));
+        if (!response.ok || !resultado.url) {
+          toast({
+            tone: "error",
+            title: "No se pudo subir la imagen",
+            detail: resultado.error ?? "Inténtalo de nuevo en un momento.",
+          });
+          return;
+        }
+        setImagen(resultado.url);
+        setMediaFile({ name: file.name, size: file.size, duration: null });
+        toast({ tone: "success", title: "Imagen lista", detail: "Se usará en todas las redes seleccionadas." });
+      }
     } catch {
-      toast({ tone: "error", title: "No se pudo subir la imagen", detail: "Revisa tu conexión e inténtalo de nuevo." });
+      setImagen("");
+      toast({ tone: "error", title: `No se pudo subir el ${mediaType === "VIDEO" ? "video" : "archivo"}`, detail: "Revisa tu conexión e inténtalo de nuevo." });
     } finally {
       setGuardando(null);
     }
@@ -250,6 +301,14 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
       });
       return;
     }
+    if (guardando === "media") {
+      toast({ tone: "warning", title: "Espera a que termine la carga" });
+      return;
+    }
+    if (mediaType === "VIDEO" && !imagen) {
+      toast({ tone: "warning", title: "Primero sube el video", detail: "La publicación necesita una URL pública antes de programarse." });
+      return;
+    }
 
     setGuardando("publicar");
     const scheduledAt = programar ? ecuadorLocalDateTimeToIso(cuando) : null;
@@ -268,6 +327,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
           linkUrl: enlace || undefined,
           instagramCta: ctaInstagram || undefined,
           mediaUrl: imagen || undefined,
+          mediaType: imagen ? mediaType : undefined,
           scheduledAt: scheduledAt ?? undefined,
         }),
       });
@@ -303,6 +363,8 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
       setTexto("");
       setEnlace("");
       setImagen("");
+      limpiarMedia();
+      setMediaType("IMAGE");
       setCuando("");
       setRepetir(false);
     }
@@ -362,15 +424,28 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
           </label>
 
           <div className="composer-field composer-media-field">
-            <span className="composer-field-title"><span className="composer-step-number" aria-hidden="true">3</span> Imagen <span className="field-optional">opcional</span></span>
+            <span className="composer-field-title"><span className="composer-step-number" aria-hidden="true">3</span> Imagen / Video <span className="field-optional">opcional</span></span>
+            <fieldset className="composer-media-types">
+              <legend>Tipo de contenido multimedia</legend>
+              <button type="button" disabled={guardando !== null} className={mediaType === "IMAGE" ? "is-active" : ""} aria-pressed={mediaType === "IMAGE"} onClick={() => elegirTipo("IMAGE")}>Imagen</button>
+              <button type="button" disabled={guardando !== null} className={mediaType === "VIDEO" ? "is-active" : ""} aria-pressed={mediaType === "VIDEO"} onClick={() => elegirTipo("VIDEO")}>Video</button>
+            </fieldset>
             <div className="composer-media">
               <label className="btn-sm ghost">
-                {guardando === "imagen" ? "Subiendo…" : "Subir imagen"}
-                <input type="file" accept="image/*" hidden onChange={subir} />
+                {guardando === "media" ? "Subiendo…" : imagen || mediaPreviewUrl ? "Reemplazar" : `Subir ${mediaType === "VIDEO" ? "video" : "imagen"}`}
+                <input type="file" accept={mediaType === "VIDEO" ? "video/mp4,video/quicktime,video/webm" : "image/*"} hidden disabled={guardando !== null} onChange={subir} />
               </label>
-              <input aria-label="URL de la imagen" type="url" value={imagen} onChange={(event) => setImagen(event.target.value)} placeholder="o pega una URL" />
-              {imagen ? <button type="button" className="btn-sm ghost" onClick={() => setImagen("")}>Quitar</button> : null}
+              {mediaType === "IMAGE" ? <input aria-label="URL de la imagen" type="url" value={imagen} onChange={(event) => setImagen(event.target.value)} placeholder="o pega una URL" /> : null}
+              {imagen || mediaPreviewUrl ? <button type="button" className="btn-sm ghost" disabled={guardando === "media"} onClick={limpiarMedia}>Quitar</button> : null}
             </div>
+            {mediaType === "VIDEO" ? <small>Formatos: MP4, MOV o WebM · máximo {Math.round(MAX_SOCIAL_VIDEO_BYTES / 1024 / 1024)} MB.</small> : null}
+            {mediaFile ? (
+              <div className="composer-media-details" aria-live="polite">
+                <strong>{mediaFile.name}</strong>
+                <span>{formatBytes(mediaFile.size)}{mediaFile.duration ? ` · ${formatDuration(mediaFile.duration)}` : ""}</span>
+                <span>{guardando === "media" ? "Subiendo al almacenamiento…" : imagen ? "Carga completada" : "Pendiente de carga"}</span>
+              </div>
+            ) : null}
           </div>
 
           <fieldset className="composer-cta">
@@ -426,7 +501,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
           ) : null}
 
           <div className="composer-actions">
-            <button type="button" className="btn-sm composer-primary-action" disabled={guardando !== null} aria-busy={guardando === "publicar"} onClick={() => publicar(Boolean(cuando))}>
+            <button type="button" className="btn-sm composer-primary-action" disabled={guardando !== null || (mediaType === "VIDEO" && !imagen)} aria-busy={guardando === "publicar"} onClick={() => publicar(Boolean(cuando))}>
               {guardando === "publicar" ? "Guardando…" : cuando ? "Programar publicación" : "Crear publicación"}
             </button>
             <button type="button" className="btn-sm ghost" onClick={guardarPlantilla}>Guardar como plantilla</button>
@@ -441,7 +516,7 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
                     <strong>{plantilla.nombre}</strong>
                     <small>
                       {plantilla.plataformas.length > 0 ? plantilla.plataformas.map(nombreRed).join(" · ") : "Sin redes guardadas"}
-                      {plantilla.imagen ? " · con imagen" : ""}
+                      {plantilla.imagen ? ` · con ${plantilla.mediaType === "VIDEO" ? "video" : "imagen"}` : ""}
                       {plantilla.enlace ? " · con enlace" : ""}
                     </small>
                   </div>
@@ -466,12 +541,15 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
                 <small>{cuando ? `Programado · ${cuando.replace("T", " ")}` : "Ahora"}</small>
               </span>
             </header>
-            <p className="preview-text">{texto || <span className="muted">El texto aparecerá aquí…</span>}</p>
+            <p className="preview-text">{texto ? <SocialCopyPreview text={texto} /> : <span className="muted">El texto aparecerá aquí…</span>}</p>
             {imagen ? (
               <div className="preview-media">
-                {/* Imagen remota de Blob: se muestra tal cual para que la vista previa sea fiel. */}
-                <Image src={imagen} alt="" width={520} height={300} unoptimized />
+                {mediaType === "VIDEO"
+                  ? <video src={mediaPreviewUrl || imagen} controls muted preload="metadata" />
+                  : <Image src={imagen} alt="" width={520} height={300} unoptimized />}
               </div>
+            ) : mediaType === "VIDEO" && mediaPreviewUrl ? (
+              <div className="preview-media"><video src={mediaPreviewUrl} controls muted preload="metadata" /></div>
             ) : null}
           </article>
 
@@ -502,4 +580,16 @@ export function PublishComposer({ accounts }: { accounts: ComposerAccount[] }) {
 
 function nombreRed(platform: string): string {
   return platform === "INSTAGRAM" ? "Instagram" : platform === "FACEBOOK" ? "Facebook" : "TikTok";
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }

@@ -37,9 +37,8 @@ const rutaToken = readFileSync(join(raiz, "app/api/admin/upload/token/route.ts")
 const redesManager = readFileSync(join(raiz, "app/admin/redes/RedesManager.tsx"), "utf8");
 
 describe("subida de imagen del compositor", () => {
-  it("usa la ruta multipart de imagenes, no la de token de video", () => {
+  it("conserva la ruta multipart de imágenes", () => {
     expect(composer).toContain('fetch("/api/admin/upload"');
-    expect(composer).not.toContain("/api/admin/upload/token");
   });
 
   it("envia el archivo como FormData con el campo que la ruta lee", () => {
@@ -83,11 +82,26 @@ describe("ruta de imagenes", () => {
 });
 
 describe("ruta de token", () => {
-  it("sigue reservada a video, que es para lo que existe", () => {
-    // Ampliarla a imagenes habria sido el arreglo equivocado: duplicaria el
-    // camino de subida y dejaria las imagenes sin convertir a JPEG.
-    expect(rutaToken).toContain("video/mp4");
+  it("sigue reservada a video y ahora la utiliza el compositor", () => {
+    expect(rutaToken).toContain("SOCIAL_VIDEO_MIME_TYPES");
     expect(rutaToken).not.toContain("image/");
+    expect(composer).toContain('handleUploadUrl: "/api/admin/upload/token"');
+    expect(composer).toContain('await import("@vercel/blob/client")');
     expect(redesManager).toContain('handleUploadUrl: "/api/admin/upload/token"');
+  });
+
+  it("no permite programar mientras el video no tenga URL pública", () => {
+    expect(composer).toMatch(/mediaType === "VIDEO" && !imagen/);
+    expect(composer).toContain("Primero sube el video");
+  });
+});
+
+describe("persistencia del tipo de multimedia", () => {
+  const rutaPosts = readFileSync(join(raiz, "app/api/admin/social/posts/route.ts"), "utf8");
+
+  it("guarda VIDEO en metadatos compatibles y conserva scheduledAt", () => {
+    expect(rutaPosts).toContain('mediaType: z.enum(["IMAGE", "VIDEO"])');
+    expect(rutaPosts).toMatch(/providerResponse: mediaType \? \{ mediaType \}/);
+    expect(rutaPosts).toMatch(/scheduledAt,/);
   });
 });

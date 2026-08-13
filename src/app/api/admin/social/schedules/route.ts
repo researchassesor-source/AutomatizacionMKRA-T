@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { isSocialAccountUsable, nextGuayaquilOccurrence } from "@/lib/social/orchestrator";
 import { writeAudit } from "@/lib/audit";
 import { CONTENIDO } from "@/lib/auth/roles";
+import { isPublicSocialMediaUrl } from "@/lib/social/media";
 
 const schema = z.object({
   accountId: z.string().min(1),
@@ -24,6 +25,9 @@ export async function POST(request: Request) {
   const account = await prisma.socialAccount.findUnique({ where: { id: parsed.data.accountId } });
   if (!account?.isActive || !isSocialAccountUsable(account.platform)) {
     return NextResponse.json({ error: "La cuenta no está disponible para programar en este entorno." }, { status: 422 });
+  }
+  if (parsed.data.mediaUrl && !isPublicSocialMediaUrl(parsed.data.mediaUrl)) {
+    return NextResponse.json({ error: "El archivo debe estar disponible mediante una URL pública HTTPS." }, { status: 422 });
   }
   const schedule = await prisma.socialSchedule.create({
     data: {

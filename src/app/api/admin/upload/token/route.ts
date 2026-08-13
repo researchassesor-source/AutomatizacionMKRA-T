@@ -3,6 +3,7 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { requireRole } from "@/lib/auth/authorization";
 import { isPreviewDeployment } from "@/lib/runtime-environment";
 import { CONTENIDO } from "@/lib/auth/roles";
+import { MAX_SOCIAL_VIDEO_BYTES, SOCIAL_VIDEO_MIME_TYPES } from "@/lib/social/media";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +32,8 @@ export async function POST(request: Request) {
       body,
       request,
       onBeforeGenerateToken: async () => ({
-        allowedContentTypes: [
-          "video/mp4",
-          "video/quicktime",
-          "video/webm",
-        ],
-        maximumSizeInBytes: 100 * 1024 * 1024, // 100 MB
+        allowedContentTypes: [...SOCIAL_VIDEO_MIME_TYPES],
+        maximumSizeInBytes: MAX_SOCIAL_VIDEO_BYTES,
         addRandomSuffix: true,
       }),
       onUploadCompleted: async () => {

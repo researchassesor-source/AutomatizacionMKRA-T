@@ -7,6 +7,7 @@ import { isSocialAccountUsable } from "@/lib/social/orchestrator";
 import { componerCaption, esUrlDestinoValida } from "@/lib/social/cta";
 import { motivoNoPublicable } from "@/lib/social/cuentas";
 import { CONTENIDO } from "@/lib/auth/roles";
+import { inferSocialMediaType, isPublicSocialMediaUrl } from "@/lib/social/media";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ const schema = z.object({
   accountId: z.string().min(1),
   caption: z.string().trim().min(1, "El texto no puede estar vacío").max(10000),
   mediaUrl: z.string().url().max(1000).optional().or(z.literal("")),
+  mediaType: z.enum(["IMAGE", "VIDEO"]).optional(),
   // URL de destino. Se exige HTTPS: Facebook degrada el contenido mixto y un
   // enlace http en una publicacion de la empresa es una mala señal.
   linkUrl: z
@@ -65,6 +67,13 @@ export async function POST(request: Request) {
   }
 
   const scheduledAt = d.scheduledAt ? new Date(d.scheduledAt) : null;
+  if (d.mediaUrl && !isPublicSocialMediaUrl(d.mediaUrl)) {
+    return NextResponse.json({ error: "El archivo debe estar disponible mediante una URL pública HTTPS." }, { status: 422 });
+  }
+  if (d.mediaType && !d.mediaUrl) {
+    return NextResponse.json({ error: "Termina de subir el archivo antes de programar." }, { status: 422 });
+  }
+  const mediaType = d.mediaUrl ? (d.mediaType ?? inferSocialMediaType(d.mediaUrl)) : null;
   /**
    * El caption se compone aqui, no al publicar.
    *
@@ -84,6 +93,10 @@ export async function POST(request: Request) {
       accountId: d.accountId,
       caption: captionFinal,
       mediaUrl: d.mediaUrl || null,
+      // El proyecto ya dispone de metadatos JSON compatibles. Guardar aquí el
+      // tipo evita una migración obligatoria y mantiene legibles los registros
+      // históricos, cuyo tipo se sigue infiriendo desde la URL.
+      providerResponse: mediaType ? { mediaType } : undefined,
       linkUrl: d.linkUrl || null,
       scheduledAt,
       status: scheduledAt ? "PROGRAMADO" : "BORRADOR",

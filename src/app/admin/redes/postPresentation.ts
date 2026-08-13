@@ -4,7 +4,8 @@ export type PostStatusPresentation = {
 };
 
 export function postStatusPresentation(status: string): PostStatusPresentation {
-  if (["PUBLICADO", "ACEPTADO"].includes(status)) return { label: "Publicado", tone: "ok" };
+  if (status === "PUBLICADO") return { label: "Publicado", tone: "ok" };
+  if (["ACEPTADO", "PUBLICANDO"].includes(status)) return { label: "Procesando", tone: "info" };
   if (status === "SIMULADO") return { label: "En simulación", tone: "info" };
   if (status === "PROGRAMADO") return { label: "Programado", tone: "warn" };
   if (status === "BORRADOR") return { label: "Borrador", tone: "info" };

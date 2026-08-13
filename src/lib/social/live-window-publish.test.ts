@@ -69,7 +69,8 @@ describe("filtro por fecha de activación", () => {
   it("acota la consulta al intervalo permitido", async () => {
     liveEnv("2026-08-06T18:00:00Z");
     await processScheduledPosts(NOW);
-    const where = mocks.prisma.socialPost.findMany.mock.calls[0][0].where;
+    const where = mocks.prisma.socialPost.findMany.mock.calls.find(([query]) => query.where.scheduledAt)?.[0].where;
+    expect(where).toBeDefined();
     expect(where.scheduledAt).toEqual({ lte: NOW, gte: new Date("2026-08-06T18:00:00.000Z") });
   });
 

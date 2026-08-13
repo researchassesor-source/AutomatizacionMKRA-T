@@ -2,7 +2,13 @@ import { DEFAULT_GRAPH_API_VERSION, describeMetaError, type MetaConfig } from ".
 import type { PublishInput, PublishResult, SocialAdapter, Platform } from "../types";
 
 type GraphError = { code?: number; error_subcode?: number; message?: string; type?: string };
-type GraphResponse = { id?: string; post_id?: string; status_code?: string; status?: string; error?: GraphError };
+type GraphVideoStatus = {
+  video_status?: string;
+  uploading_phase?: { status?: string };
+  processing_phase?: { status?: string };
+  publishing_phase?: { status?: string };
+};
+type GraphResponse = { id?: string; post_id?: string; status_code?: string; status?: string | GraphVideoStatus; error?: GraphError };
 
 /**
  * Adaptador para Instagram y Facebook mediante la Graph API oficial de Meta.
@@ -107,7 +113,7 @@ export class MetaAdapter implements SocialAdapter {
       return { ok: false, errorCode: "NOT_CONFIGURED", error: `${this.platform}: faltan credenciales o identificadores de Meta.` };
     }
     if (input.mediaUrl && !isPublicHttpsUrl(input.mediaUrl)) {
-      return { ok: false, errorCode: "MEDIA_NOT_PUBLIC", error: "La imagen no está disponible mediante una URL pública HTTPS." };
+      return { ok: false, errorCode: "MEDIA_NOT_PUBLIC", error: "El archivo no está disponible mediante una URL pública HTTPS." };
     }
     try {
       return this.platform === "INSTAGRAM"
@@ -324,11 +330,15 @@ export class MetaAdapter implements SocialAdapter {
       return { ok: false, errorCode: "MEDIA_REQUIRED", error: "Instagram necesita una imagen o un video para publicar." };
     }
     const igUserId = this.igUserId;
-    const video = isVideo(input.mediaUrl);
+    const video = isVideoInput(input);
     // El caption llega ya compuesto: la llamada a la accion y la URL se
     // resuelven al crear la publicacion, en `lib/social/cta`, para que lo que
     // se ve en la vista previa y lo que se envia sean el mismo texto.
     const caption = input.caption;
+
+    if (video && input.externalPostId && input.providerStatus === "PROCESSING") {
+      return this.continueInstagramVideo(input.externalPostId);
+    }
 
     // Paso 1: crear el container (imagen o Reel de video).
     const container = await this.post(
@@ -341,9 +351,20 @@ export class MetaAdapter implements SocialAdapter {
       return { ok: false, ...describeMetaError(container.error), providerResponse: { step: "container", metaCode: container.error?.code ?? null } };
     }
 
-    // Paso 2: esperar a que Instagram procese el media. Las imagenes quedan
-    // listas casi al instante; los videos tardan mas.
-    const ready = await this.waitForContainer(container.id, video ? 20 : 8);
+    // Los Reels se procesan de forma asíncrona. Se conserva el identificador
+    // real del container y el siguiente ciclo consulta ese mismo objeto.
+    if (video) {
+      return {
+        ok: true,
+        accepted: true,
+        externalPostId: container.id,
+        providerStatus: "PROCESSING",
+        providerResponse: { platform: "INSTAGRAM", kind: "video", containerId: container.id, processing: true, mediaType: "VIDEO" },
+      };
+    }
+
+    // El camino histórico de imágenes permanece igual.
+    const ready = await this.waitForContainer(container.id, 8);
     if (!ready.ok) {
       return { ok: false, errorCode: ready.errorCode, error: ready.error, providerResponse: { step: "container_status", containerId: container.id } };
     }
@@ -359,6 +380,39 @@ export class MetaAdapter implements SocialAdapter {
       ok: true,
       externalPostId: published.id,
       providerResponse: { platform: "INSTAGRAM", containerId: container.id, mediaId: published.id },
+    };
+  }
+
+  private async continueInstagramVideo(containerId: string): Promise<PublishResult> {
+    const data = await this.get(`${containerId}?fields=status_code,status`);
+    if (data.status_code === "ERROR" || data.status_code === "EXPIRED") {
+      return {
+        ok: false,
+        errorCode: `IG_${data.status_code}`,
+        error: "Instagram rechazó el video. Revisa el formato y vuelve a intentarlo.",
+        providerStatus: data.status_code,
+        providerResponse: { platform: "INSTAGRAM", kind: "video", containerId, mediaType: "VIDEO" },
+      };
+    }
+    if (data.status_code !== "FINISHED") {
+      return {
+        ok: true,
+        accepted: true,
+        externalPostId: containerId,
+        providerStatus: "PROCESSING",
+        providerResponse: { platform: "INSTAGRAM", kind: "video", containerId, processing: true, mediaType: "VIDEO" },
+      };
+    }
+
+    const published = await this.post(`${this.igUserId}/media_publish`, { creation_id: containerId });
+    if (!published.id) {
+      return { ok: false, ...describeMetaError(published.error), providerStatus: "ERROR", providerResponse: { step: "publish", containerId, metaCode: published.error?.code ?? null, mediaType: "VIDEO" } };
+    }
+    return {
+      ok: true,
+      externalPostId: published.id,
+      providerStatus: "PUBLISHED",
+      providerResponse: { platform: "INSTAGRAM", kind: "video", containerId, mediaId: published.id, processing: false, mediaType: "VIDEO" },
     };
   }
 
@@ -415,6 +469,10 @@ export class MetaAdapter implements SocialAdapter {
     // y aqui no se le añade nada, para no duplicar la URL que ya lleva dentro.
     const caption = input.caption;
 
+    if (isVideoInput(input) && input.externalPostId && input.providerStatus === "PROCESSING") {
+      return this.continueFacebookVideo(input.externalPostId);
+    }
+
     const credencial = await this.fetchPageAccessToken();
     if (!credencial.ok) {
       return {
@@ -428,10 +486,16 @@ export class MetaAdapter implements SocialAdapter {
     const tokenDePagina = credencial.token;
 
     // Video -> /videos ; imagen -> /photos ; solo texto -> /feed
-    if (input.mediaUrl && isVideo(input.mediaUrl)) {
+    if (input.mediaUrl && isVideoInput(input)) {
       const res = await this.post(`${pageId}/videos`, { file_url: input.mediaUrl, description: caption }, tokenDePagina);
       if (!res.id) return { ok: false, ...describeMetaError(res.error), providerResponse: { step: "video", metaCode: res.error?.code ?? null } };
-      return { ok: true, externalPostId: res.id, providerResponse: { platform: "FACEBOOK", kind: "video" } };
+      return {
+        ok: true,
+        accepted: true,
+        externalPostId: res.id,
+        providerStatus: "PROCESSING",
+        providerResponse: { platform: "FACEBOOK", kind: "video", videoId: res.id, processing: true, mediaType: "VIDEO" },
+      };
     }
 
     if (input.mediaUrl) {
@@ -448,6 +512,27 @@ export class MetaAdapter implements SocialAdapter {
     const res = await this.post(`${pageId}/feed`, params, tokenDePagina);
     if (!res.id) return { ok: false, ...describeMetaError(res.error), providerResponse: { step: "feed", metaCode: res.error?.code ?? null } };
     return { ok: true, externalPostId: res.id, providerPostUrl: `https://www.facebook.com/${res.id}`, providerResponse: { platform: "FACEBOOK", kind: "feed" } };
+  }
+
+  private async continueFacebookVideo(videoId: string): Promise<PublishResult> {
+    const data = await this.get(`${videoId}?fields=status`);
+    if (data.error) {
+      return { ok: false, ...describeMetaError(data.error), providerStatus: "ERROR", providerResponse: { step: "video_status", videoId, metaCode: data.error.code ?? null, mediaType: "VIDEO" } };
+    }
+    const status = facebookVideoStatus(data.status);
+    if (status === "ERROR") {
+      return { ok: false, errorCode: "FB_VIDEO_ERROR", error: "Facebook rechazó el video. Revisa el formato y vuelve a intentarlo.", providerStatus: "ERROR", providerResponse: { platform: "FACEBOOK", kind: "video", videoId, mediaType: "VIDEO" } };
+    }
+    if (status !== "READY") {
+      return { ok: true, accepted: true, externalPostId: videoId, providerStatus: "PROCESSING", providerResponse: { platform: "FACEBOOK", kind: "video", videoId, processing: true, mediaType: "VIDEO" } };
+    }
+    return {
+      ok: true,
+      externalPostId: videoId,
+      providerPostUrl: `https://www.facebook.com/${videoId}`,
+      providerStatus: "PUBLISHED",
+      providerResponse: { platform: "FACEBOOK", kind: "video", videoId, processing: false, mediaType: "VIDEO" },
+    };
   }
 
   private async get(path: string): Promise<GraphResponse> {
@@ -489,6 +574,25 @@ export function normalizeAccountId(raw: string | null | undefined): string | nul
 
 function isVideo(url: string): boolean {
   return /\.(mp4|mov|m4v|webm)(\?|$)/i.test(url);
+}
+
+function isVideoInput(input: PublishInput): boolean {
+  return input.mediaType === "VIDEO"
+    || (input.mediaType !== "IMAGE" && Boolean(input.mediaUrl && isVideo(input.mediaUrl)));
+}
+
+function facebookVideoStatus(status: GraphResponse["status"]): "READY" | "PROCESSING" | "ERROR" {
+  const raw = typeof status === "string"
+    ? status
+    : status?.video_status
+      ?? status?.publishing_phase?.status
+      ?? status?.processing_phase?.status
+      ?? status?.uploading_phase?.status
+      ?? "processing";
+  const normalized = raw.toLowerCase();
+  if (["ready", "published", "complete", "completed", "finished"].includes(normalized)) return "READY";
+  if (["error", "failed", "expired"].includes(normalized)) return "ERROR";
+  return "PROCESSING";
 }
 
 /** Meta descarga el archivo por su cuenta: debe ser HTTPS y alcanzable. */

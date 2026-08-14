@@ -27,7 +27,7 @@ function validRedirect(raw: string | null): boolean {
   if (!raw) return false;
   try {
     const url = new URL(raw);
-    return url.protocol === "https:" && !url.search && !url.hash;
+    return url.protocol === "https:" && !url.search && !url.hash && url.pathname.endsWith("/");
   } catch {
     return false;
   }
@@ -55,7 +55,7 @@ export function resolveTikTokBusinessConfig(env: EnvSource = process.env): TikTo
     return { ...base, connectionReason, reason: connectionReason };
   }
   if (!validRedirect(accountRedirectUri) || !validRedirect(advertiserRedirectUri)) {
-    const connectionReason = "Los callbacks de TikTok Business deben ser URL HTTPS absolutas y sin parámetros.";
+    const connectionReason = "Los callbacks de TikTok Business deben ser URL HTTPS absolutas, sin parámetros y terminar en /.";
     return { ...base, connectionReason, reason: connectionReason };
   }
   if (!stateSecret || stateSecret.length < 32) {

@@ -24,8 +24,8 @@ beforeEach(() => {
   vi.stubEnv("TIKTOK_BUSINESS_MODE", "live");
   vi.stubEnv("TIKTOK_BUSINESS_APP_ID", "app");
   vi.stubEnv("TIKTOK_BUSINESS_SECRET", "secret");
-  vi.stubEnv("TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI", "https://example.com/account/callback");
-  vi.stubEnv("TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI", "https://example.com/advertiser/callback");
+  vi.stubEnv("TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI", "https://example.com/account/callback/");
+  vi.stubEnv("TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI", "https://example.com/advertiser/callback/");
   vi.stubEnv("TIKTOK_BUSINESS_OAUTH_STATE_SECRET", "s".repeat(32));
   vi.stubEnv("TIKTOK_BUSINESS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 1).toString("hex"));
   vi.stubEnv("TIKTOK_BUSINESS_LIVE_FROM", "2026-01-01T00:00:00Z");

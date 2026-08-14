@@ -25,8 +25,8 @@ describe("configuración fail-closed", () => {
       TIKTOK_BUSINESS_MODE: "live",
       TIKTOK_BUSINESS_APP_ID: "app",
       TIKTOK_BUSINESS_SECRET: "secret",
-      TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI: "https://example.com/account/callback",
-      TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI: "https://example.com/advertiser/callback",
+      TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI: "https://example.com/account/callback/",
+      TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI: "https://example.com/advertiser/callback/",
       TIKTOK_BUSINESS_OAUTH_STATE_SECRET: "x".repeat(32),
       TIKTOK_BUSINESS_TOKEN_ENCRYPTION_KEY: KEY.toString("hex"),
     });
@@ -55,8 +55,8 @@ describe("OAuth Business", () => {
   it("intercambia y refresca con JSON Business en nivel superior", async () => {
     const config = resolveTikTokBusinessConfig({
       TIKTOK_BUSINESS_MODE: "live", TIKTOK_BUSINESS_APP_ID: "app-id", TIKTOK_BUSINESS_SECRET: "app-secret",
-      TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI: "https://example.com/account/callback",
-      TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI: "https://example.com/advertiser/callback",
+      TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI: "https://example.com/account/callback/",
+      TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI: "https://example.com/advertiser/callback/",
       TIKTOK_BUSINESS_OAUTH_STATE_SECRET: "s".repeat(32), TIKTOK_BUSINESS_TOKEN_ENCRYPTION_KEY: KEY.toString("hex"),
       TIKTOK_BUSINESS_LIVE_FROM: "2026-01-01T00:00:00Z",
     });

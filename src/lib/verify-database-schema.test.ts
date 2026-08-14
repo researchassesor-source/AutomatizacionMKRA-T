@@ -70,7 +70,7 @@ describe("verificacion final del esquema", () => {
   });
 
   it("rechaza una columna de captacion o agenda ausente", async () => {
-    for (const missing of ["courses.startsAt", "leads.utmContent", "enrollments.referrer", "courses.streamUrl", "outbound_messages.courseSessionId"]) {
+    for (const missing of ["courses.startsAt", "leads.utmContent", "enrollments.referrer", "courses.streamUrl", "courses.courseCompleteUrl", "courses.whatsappGroupUrl", "courses.surveyUrl", "outbound_messages.courseSessionId"]) {
       const columns = requiredColumns.filter((column) => column !== missing);
       await expect(verifyDatabaseSchema(prismaSnapshot({ columns }) as never)).rejects.toThrow(missing);
     }

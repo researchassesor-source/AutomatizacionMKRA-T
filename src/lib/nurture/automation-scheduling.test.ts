@@ -144,7 +144,7 @@ describe("programación de recordatorios por sesión", () => {
       ],
     }));
     await scheduleEnrollmentAutomations("enrollment-1", new Date("2026-08-11T17:47:00.000Z"));
-    expect(messages.map((message) => message.sequenceKey)).toEqual(["automation:rule-2h", "automation:rule-15m"]);
+    expect(messages.map((message) => message.sequenceKey)).toEqual(["automation:EMAIL:rule-2h", "automation:EMAIL:rule-15m"]);
   });
 
   it("correo y WhatsApp comparten trigger, offset y audiencia temporal", () => {

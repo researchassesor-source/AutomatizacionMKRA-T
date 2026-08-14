@@ -138,9 +138,21 @@ describe("Fase 2 · cursos y sesiones", () => {
     expect(sessions).toContain("confirm({");
   });
 
-  it("mantiene los cinco momentos oficiales de comunicaciones", () => {
-    expect(TIMELINE_STEPS).toHaveLength(5);
-    expect(TIMELINE_STEPS.map((step) => step.when)).toEqual(["Al inscribirse", "1 día antes", "2 horas antes", "15 minutos antes", "Al terminar"]);
+  it("mantiene los once momentos oficiales de comunicaciones multi-curso", () => {
+    expect(TIMELINE_STEPS).toHaveLength(11);
+    expect(TIMELINE_STEPS.map((step) => step.when)).toEqual([
+      "Al inscribirse",
+      "2 minutos despues",
+      "1 dia antes",
+      "2 horas antes",
+      "15 minutos antes",
+      "Al iniciar",
+      "20 minutos despues",
+      "5 minutos despues de terminar",
+      "1 hora despues",
+      "24 horas despues",
+      "48 horas despues",
+    ]);
   });
 
   it("ofrece una sola llamada a Sesiones cuando la línea requiere configuración", () => {

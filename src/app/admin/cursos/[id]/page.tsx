@@ -13,6 +13,7 @@ import { AdminPageHeader } from "../../AdminPageHeader";
 import { TechnicalOnly } from "../../TechnicalDetail";
 import { CourseTimeline } from "../CourseTimeline";
 import { ScheduleSessionButton } from "../ScheduleSessionButton";
+import { CourseConfigurationPanel } from "./CourseConfigurationPanel";
 import { CourseSessionsPanel } from "./CourseSessionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ const TABS = [
   { key: "calendario", label: "Sesiones" },
   { key: "inscritos", label: "Inscritos" },
   { key: "comunicaciones", label: "Comunicaciones" },
+  { key: "configuracion", label: "Configuración" },
 ] as const;
 
 export default async function CoursePage({
@@ -53,7 +55,15 @@ export default async function CoursePage({
 
   const sessions = resolveCourseSessions(course, course.sessions);
   const proxima = sessions.find((item) => item.startAt.getTime() >= Date.now()) ?? sessions[0] ?? null;
-  const steps = buildCourseTimeline({ rules: course.automationRules, sessions });
+  const steps = buildCourseTimeline({
+    rules: course.automationRules,
+    sessions,
+    config: {
+      whatsappGroupUrl: course.whatsappGroupUrl,
+      courseCompleteUrl: course.courseCompleteUrl,
+      surveyUrl: course.surveyUrl,
+    },
+  });
   const sinFecha = sessions.length === 0;
 
   const [inscritos, enviados, programados, bloqueados] = await Promise.all([
@@ -135,6 +145,9 @@ export default async function CoursePage({
             <p className="course-links">
               <a href={course.officialCourseUrl} target="_blank" rel="noopener noreferrer">Página pública del curso</a>
               {course.moodleCourseUrl ? <> · <a href={course.moodleCourseUrl} target="_blank" rel="noopener noreferrer">Aula virtual</a></> : null}
+              {course.courseCompleteUrl ? <> · <a href={course.courseCompleteUrl} target="_blank" rel="noopener noreferrer">Curso completo</a></> : null}
+              {course.whatsappGroupUrl ? <> · <a href={course.whatsappGroupUrl} target="_blank" rel="noopener noreferrer">Grupo WhatsApp</a></> : null}
+              {course.surveyUrl ? <> · <a href={course.surveyUrl} target="_blank" rel="noopener noreferrer">Encuesta final</a></> : null}
             </p>
             <TechnicalOnly>{course.id}</TechnicalOnly>
             <TechnicalOnly>{course.slug}</TechnicalOnly>
@@ -193,6 +206,37 @@ export default async function CoursePage({
           </p>
           <CourseTimeline hasSchedule={sessions.length > 0} steps={steps} sessionsHref={tabHref("calendario")} />
         </section>
+      ) : null}
+
+      {tab === "configuracion" ? (
+        <CourseConfigurationPanel
+          course={{
+            id: course.id,
+            slug: course.slug,
+            title: course.title,
+            subtitle: course.subtitle,
+            description: course.description,
+            category: course.category,
+            officialCourseUrl: course.officialCourseUrl,
+            courseCompleteUrl: course.courseCompleteUrl,
+            whatsappGroupUrl: course.whatsappGroupUrl,
+            surveyUrl: course.surveyUrl,
+            moodleCourseUrl: course.moodleCourseUrl,
+            imageUrl: course.imageUrl,
+            price: course.price === null ? null : Number(course.price),
+            duration: course.duration,
+            modality: course.modality,
+            startsAt: course.startsAt?.toISOString() ?? null,
+            endsAt: course.endsAt?.toISOString() ?? null,
+            isFree: course.isFree,
+            isPublished: course.isPublished,
+            acceptsRegistrations: course.acceptsRegistrations,
+            isLeadMagnet: course.isLeadMagnet,
+            hasCertificate: course.hasCertificate,
+            displayOrder: course.displayOrder,
+          }}
+          canEdit={canEdit}
+        />
       ) : null}
     </main>
   );

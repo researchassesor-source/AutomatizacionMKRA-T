@@ -30,6 +30,7 @@ type StoredEvent = Record<string, any>;
 const courses = [
   { id: "course-one", slug: "curso-uno", isPublished: true, acceptsRegistrations: true },
   { id: "course-two", slug: "curso-dos", isPublished: true, acceptsRegistrations: true },
+  { id: "course-three", slug: "curso-tres", isPublished: true, acceptsRegistrations: true },
   { id: "course-closed", slug: "curso-cerrado", isPublished: true, acceptsRegistrations: false },
 ];
 let leads: StoredLead[];
@@ -202,11 +203,11 @@ describe("captura transaccional de contactos", () => {
     enrollments[0].status = "COMPLETADO";
     const result = await captureLead(input({ idempotencyKey: "capture_test_0002" }), { requestId: "request-again" });
     expect(result).toMatchObject({ created: false, enrollmentCreated: false, duplicate: true });
-    expect(result.message).toContain("Ya ten\u00edamos registrado tu inter\u00e9s");
+    expect(result.message).toContain("ya están registrados en este curso");
     expect(leads).toHaveLength(1);
     expect(enrollments).toHaveLength(1);
     expect(enrollments[0].status).toBe("COMPLETADO");
-    expect(events.map((event) => event.type)).toContain("CONTACT_DEDUPLICATED");
+    expect(events.filter((event) => event.type === "FORM_SUBMIT_SUCCESS")).toHaveLength(1);
   });
 
   it("mantiene un contacto con dos inscripciones para dos cursos", async () => {
@@ -220,9 +221,10 @@ describe("captura transaccional de contactos", () => {
     expect(enrollments.map((item) => item.courseId)).toEqual(["course-one", "course-two"]);
   });
 
-  it("deduplica por telefono o correo y actualiza la identidad", async () => {
+  it("deduplica por telefono o correo en otro curso y actualiza la identidad", async () => {
     await captureLead(input(), { requestId: "request-original" });
     await captureLead(input({
+      courseSlug: "curso-dos",
       email: "nuevo@example.test",
       idempotencyKey: "capture_test_0004",
     }), { requestId: "request-same-phone" });
@@ -230,6 +232,7 @@ describe("captura transaccional de contactos", () => {
     expect(leads[0].email).toBe("nuevo@example.test");
 
     await captureLead(input({
+      courseSlug: "curso-tres",
       email: "nuevo@example.test",
       phone: "0991111111",
       idempotencyKey: "capture_test_0005",

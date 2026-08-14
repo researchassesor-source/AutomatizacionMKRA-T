@@ -1,5 +1,5 @@
 /**
- * Alinea las reglas heredadas de un canal con su plan estandar de cinco pasos.
+ * Alinea las reglas heredadas de un canal con su plan estandar.
  *
  * Las reglas de esta base se crearon a mano antes de que existiera el plan, asi
  * que no tienen `planKey`. Eso tiene dos consecuencias malas: aplicar el plan
@@ -75,7 +75,7 @@ function datosDe(entry) {
 }
 
 const PLAN = CANAL === "EMAIL" ? DEFAULT_AUTOMATION_PLAN : WHATSAPP_AUTOMATION_PLAN;
-const HUECO = new Map(PLAN.map((entry) => [`${entry.trigger}@${entry.offsetMinutes}`, entry]));
+const HUECO = new Map(PLAN.map((entry) => [entry.planKey, entry]));
 
 const cursos = await prisma.course.findMany({
   select: {
@@ -84,7 +84,7 @@ const cursos = await prisma.course.findMany({
     isPublished: true,
     automationRules: {
       where: { channel: CANAL, status: { not: "ARCHIVED" } },
-      select: { id: true, trigger: true, offsetMinutes: true, status: true, _count: { select: { messages: true } } },
+      select: { id: true, planKey: true, trigger: true, offsetMinutes: true, status: true, _count: { select: { messages: true } } },
       orderBy: { createdAt: "asc" },
     },
   },
@@ -97,13 +97,14 @@ const plan = [];
 for (const curso of cursos) {
   const porHueco = new Map();
   for (const regla of curso.automationRules) {
-    const clave = `${regla.trigger}@${regla.offsetMinutes}`;
+    const clave = regla.planKey ?? `${regla.trigger}@${regla.offsetMinutes}`;
     if (!porHueco.has(clave)) porHueco.set(clave, []);
     porHueco.get(clave).push(regla);
   }
 
   for (const [clave, entrada] of HUECO) {
-    const existentes = porHueco.get(clave) ?? [];
+    const claveHeredada = `${entrada.trigger}@${entrada.offsetMinutes}`;
+    const existentes = [...(porHueco.get(clave) ?? []), ...(porHueco.get(claveHeredada) ?? [])];
     // Se conserva la que ya tenga historial de mensajes; si ninguna lo tiene,
     // la mas antigua. El resto se archiva para no duplicar envios.
     const conservada = existentes.find((r) => r._count.messages > 0) ?? existentes[0] ?? null;
@@ -176,7 +177,7 @@ await prisma.auditLog.create({
     result: "SUCCESS",
     metadata: {
       canal: CANAL,
-      motivo: "Alineacion de las reglas heredadas con el plan estandar de cinco pasos",
+      motivo: "Alineacion de las reglas heredadas con el plan estandar",
       estadoAplicado: ESTADO ?? "conservado",
       ...acciones,
       nota: "Se conservaron los IDs de las reglas existentes para no reenviar mensajes ya entregados",

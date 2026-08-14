@@ -13,6 +13,9 @@ export type CourseRow = {
   description: string | null;
   category: string | null;
   officialCourseUrl: string;
+  courseCompleteUrl: string | null;
+  whatsappGroupUrl: string | null;
+  surveyUrl: string | null;
   moodleCourseUrl: string | null;
   imageUrl: string | null;
   price: number | null;
@@ -35,6 +38,9 @@ const emptyCourse: Omit<CourseRow, "id"> = {
   description: "",
   category: "",
   officialCourseUrl: "https://ra-training.com/courses-1/",
+  courseCompleteUrl: "",
+  whatsappGroupUrl: "",
+  surveyUrl: "",
   moodleCourseUrl: "",
   imageUrl: "",
   price: null,
@@ -93,6 +99,9 @@ export function CourseManager({
       description: data.get("description"),
       category: data.get("category"),
       officialCourseUrl: data.get("officialCourseUrl"),
+      courseCompleteUrl: data.get("courseCompleteUrl"),
+      whatsappGroupUrl: data.get("whatsappGroupUrl"),
+      surveyUrl: data.get("surveyUrl"),
       moodleCourseUrl: data.get("moodleCourseUrl"),
       imageUrl: data.get("imageUrl"),
       price: data.get("price"),
@@ -139,6 +148,9 @@ export function CourseManager({
           description: course.description ?? "",
           category: course.category ?? "",
           officialCourseUrl: course.officialCourseUrl,
+          courseCompleteUrl: course.courseCompleteUrl ?? "",
+          whatsappGroupUrl: course.whatsappGroupUrl ?? "",
+          surveyUrl: course.surveyUrl ?? "",
           moodleCourseUrl: course.moodleCourseUrl ?? "",
           imageUrl: course.imageUrl ?? "",
           price: course.price ?? "",
@@ -187,6 +199,9 @@ export function CourseManager({
           <div className="form-row">
             <input name="subtitle" aria-label="Subtítulo" defaultValue={current.subtitle ?? ""} placeholder="Subtítulo" />
             <input name="officialCourseUrl" aria-label="URL oficial" type="url" defaultValue={current.officialCourseUrl} placeholder="URL oficial" required />
+            <input name="courseCompleteUrl" aria-label="URL curso completo" type="url" defaultValue={current.courseCompleteUrl ?? ""} placeholder="URL curso completo (opcional)" />
+            <input name="whatsappGroupUrl" aria-label="URL grupo WhatsApp" type="url" defaultValue={current.whatsappGroupUrl ?? ""} placeholder="URL grupo WhatsApp (opcional)" />
+            <input name="surveyUrl" aria-label="URL de encuesta" type="url" defaultValue={current.surveyUrl ?? ""} placeholder="URL de encuesta final (opcional)" />
             <input name="moodleCourseUrl" aria-label="URL del campus" type="url" defaultValue={current.moodleCourseUrl ?? ""} placeholder="URL del campus (opcional)" />
             <input name="imageUrl" aria-label="URL de imagen" type="url" defaultValue={current.imageUrl ?? ""} placeholder="URL de imagen (opcional)" />
           </div>

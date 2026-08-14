@@ -125,6 +125,10 @@ export function LeadForm({
         setError(result.error ?? "No pudimos completar el registro. Inténtalo nuevamente.");
         return;
       }
+      if (result.duplicate) {
+        setError(result.message ?? "Ya estás registrado en este curso.");
+        return;
+      }
       const fallback = `/gracias?curso=${encodeURIComponent(courseSlug)}${result.duplicate ? "&actualizado=1" : ""}`;
       const destination = typeof result.redirectUrl === "string" && result.redirectUrl.startsWith("/gracias?")
         ? result.redirectUrl

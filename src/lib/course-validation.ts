@@ -30,6 +30,24 @@ export const courseInputSchema = z.object({
     .trim()
     .default(COURSE_CATALOG_URL)
     .refine(isTrustedOfficialCourseUrl, "La URL oficial debe pertenecer a ra-training.com."),
+  courseCompleteUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || (value.startsWith("https://") && z.string().url().safeParse(value).success), "La URL del curso completo debe ser HTTPS."),
+  whatsappGroupUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || (value.startsWith("https://") && z.string().url().safeParse(value).success), "La URL del grupo de WhatsApp debe ser HTTPS."),
+  surveyUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || (value.startsWith("https://") && z.string().url().safeParse(value).success), "La URL de encuesta debe ser HTTPS."),
   moodleCourseUrl: z
     .string()
     .trim()
@@ -68,6 +86,9 @@ export function courseData(input: z.infer<typeof courseInputSchema>) {
     subtitle: input.subtitle || null,
     description: input.description || null,
     category: input.category || null,
+    courseCompleteUrl: input.courseCompleteUrl || null,
+    whatsappGroupUrl: input.whatsappGroupUrl || null,
+    surveyUrl: input.surveyUrl || null,
     moodleCourseUrl: input.moodleCourseUrl || null,
     imageUrl: input.imageUrl || null,
     duration: input.duration || null,

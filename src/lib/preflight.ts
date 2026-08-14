@@ -119,6 +119,9 @@ async function environmentChecks(): Promise<PreflightCheck[]> {
 const CRITICAL_TABLES = ["course_sessions", "automation_rules", "outbound_messages", "social_posts", "enrollments", "leads", "courses"];
 const CRITICAL_COLUMNS = [
   "courses.streamUrl",
+  "courses.courseCompleteUrl",
+  "courses.whatsappGroupUrl",
+  "courses.surveyUrl",
   "course_sessions.startAt",
   "outbound_messages.courseSessionId",
   "automation_rules.requiresStreamUrl",

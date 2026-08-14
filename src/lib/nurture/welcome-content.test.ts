@@ -42,6 +42,7 @@ function planRule(planKey: string) {
   if (!entry) throw new Error(`Regla inexistente: ${planKey}`);
   return {
     id: `rule-${entry.planKey}`,
+    planKey: entry.planKey,
     courseId: "course-1",
     campaignId: null,
     trigger: entry.trigger,
@@ -72,6 +73,9 @@ function enrollment(overrides: { sessions?: any[]; startsAt?: Date | null; strea
       id: "course-1",
       title: "Desarrollo Profesional en Marketing",
       officialCourseUrl: "https://ra-training.com/courses-1/",
+      courseCompleteUrl: "https://ra-training.com/curso-completo",
+      whatsappGroupUrl: "https://chat.whatsapp.com/qa",
+      surveyUrl: "https://forms.example.com/encuesta",
       moodleCourseUrl: null,
       modality: "Virtual",
       isPublished: true,
@@ -85,7 +89,7 @@ function enrollment(overrides: { sessions?: any[]; startsAt?: Date | null; strea
   };
 }
 
-const welcome = () => messages.find((message) => message.sequenceKey === "automation:rule-welcome");
+const welcome = () => messages.find((message) => message.sequenceKey === "automation:EMAIL:welcome");
 
 beforeEach(() => {
   messages = [];
@@ -224,7 +228,7 @@ describe("recordatorio de 24 horas ya vencido", () => {
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(result.enqueued).toBe(1);
     expect(result.skipped).toBe(1);
-    expect(messages[0].sequenceKey).toBe("automation:rule-reminder_2h");
+    expect(messages[0].sequenceKey).toBe("automation:EMAIL:reminder_2h");
   });
 });
 
@@ -234,12 +238,12 @@ describe("recordatorio de 24 horas ya vencido", () => {
  * repartido en cinco correos obliga a buscar cuál era el bueno.
  */
 describe("dónde viaja el enlace de la reunión", () => {
-  const CON_ENLACE = new Set(["reminder_2h", "reminder_15m"]);
+  const CON_ENLACE = new Set(["reminder_2h", "reminder_15m", "session_live", "late_access"]);
 
   for (const entrada of DEFAULT_AUTOMATION_PLAN) {
     const deberia = CON_ENLACE.has(entrada.planKey);
     it(`${entrada.planKey} ${deberia ? "lleva" : "no lleva"} el enlace`, () => {
-      const lleva = entrada.body.includes("{{bloqueEnlace}}") || entrada.body.includes("{{streamUrl}}");
+      const lleva = entrada.body.includes("{{bloqueEnlace}}") || entrada.body.includes("{{streamUrl}}") || entrada.body.includes("{{link_reunion}}");
       expect(lleva).toBe(deberia);
     });
   }
@@ -248,7 +252,7 @@ describe("dónde viaja el enlace de la reunión", () => {
     const exigen = DEFAULT_AUTOMATION_PLAN.filter((entrada) => entrada.requiresStreamUrl).map((entrada) => entrada.planKey);
     // El de 2 horas sigue siendo un recordatorio útil sin enlace (por ejemplo
     // en un curso presencial); el de 15 minutos sin enlace no dice nada.
-    expect(exigen).toEqual(["reminder_15m"]);
+    expect(exigen).toEqual(["reminder_2h", "reminder_15m", "session_live", "late_access"]);
   });
 });
 

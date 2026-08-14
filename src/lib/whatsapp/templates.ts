@@ -32,7 +32,7 @@ export type WhatsAppTemplateSpec = {
    * dice una cosa y Meta envia otra, el CRM esta enseñando un mensaje que
    * nadie recibio. Cualquier cambio se somete a revision en Meta antes de
    * activar el canal; la prueba de contrato fija literalmente el texto final.
-   */
+  */
   sample: string;
 };
 
@@ -48,7 +48,17 @@ export type WhatsAppTemplateSpec = {
  * futuras que si tengan un prefijo propio; simplemente estas cinco no lo usan.
  */
 export const WHATSAPP_TEMPLATES: Record<
-  "welcome" | "reminder_24h" | "reminder_2h" | "reminder_15m" | "thank_you",
+  | "welcome"
+  | "whatsapp_group"
+  | "reminder_24h"
+  | "reminder_2h"
+  | "reminder_15m"
+  | "session_live"
+  | "late_access"
+  | "thank_you"
+  | "course_complete"
+  | "course_follow_up"
+  | "survey",
   WhatsAppTemplateSpec
 > = {
   welcome: {
@@ -56,6 +66,12 @@ export const WHATSAPP_TEMPLATES: Record<
     language: "es",
     bodyVars: ["nombre", "curso", "fecha", "hora"],
     sample: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
+  },
+  whatsapp_group: {
+    name: "ra_training_grupo_whatsapp",
+    language: "es",
+    bodyVars: ["nombre", "curso", "link_grupo_whatsapp"],
+    sample: "Hola {{1}}, tu registro a {{2}} esta confirmado.\n\nGrupo oficial de WhatsApp:\n{{3}}\n\nR.A. Training",
   },
   reminder_24h: {
     name: "ra_training_recordatorio_24h",
@@ -83,6 +99,36 @@ export const WHATSAPP_TEMPLATES: Record<
     language: "es",
     bodyVars: ["nombre", "curso"],
     sample: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
+  },
+  session_live: {
+    name: "ra_training_sesion_en_vivo",
+    language: "es",
+    bodyVars: ["nombre", "curso", "sesion_actual", "link_reunion"],
+    sample: "Hola {{1}}, {{3}} de {{2}} ya esta comenzando.\n\nIngresa aqui: {{4}}\n\nR.A. Training",
+  },
+  late_access: {
+    name: "ra_training_acceso_rezagados",
+    language: "es",
+    bodyVars: ["nombre", "curso", "sesion_actual", "link_reunion"],
+    sample: "Hola {{1}}, si aun no ingresaste a {{3}} de {{2}}, puedes usar este enlace:\n\n{{4}}\n\nR.A. Training",
+  },
+  course_complete: {
+    name: "ra_training_curso_completo",
+    language: "es",
+    bodyVars: ["nombre", "curso", "link_curso_completo"],
+    sample: "Hola {{1}}, puedes revisar la informacion completa de {{2}} aqui:\n\n{{3}}\n\nR.A. Training",
+  },
+  course_follow_up: {
+    name: "ra_training_seguimiento_curso",
+    language: "es",
+    bodyVars: ["nombre", "curso"],
+    sample: "Hola {{1}}, gracias nuevamente por participar en {{2}}.\n\nSi necesitas apoyo adicional, responde a este chat y te orientaremos.\n\nR.A. Training",
+  },
+  survey: {
+    name: "ra_training_encuesta",
+    language: "es",
+    bodyVars: ["nombre", "curso", "link_encuesta"],
+    sample: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
   },
 };
 

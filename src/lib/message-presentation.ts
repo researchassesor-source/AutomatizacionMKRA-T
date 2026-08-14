@@ -98,6 +98,9 @@ export function statusDotClass(status: MessageStatus, scheduledAt?: Date | strin
  */
 const REASONS: Record<string, string> = {
   MISSING_STREAM_URL: "Falta el enlace de la reunión. Se agrega en la ficha del curso, pestaña Sesiones.",
+  MISSING_WHATSAPP_GROUP_URL: "Falta el grupo oficial de WhatsApp. Se agrega en la ficha del curso, pestaña Configuración.",
+  MISSING_COURSE_COMPLETE_URL: "Falta la página informativa del curso completo. Se agrega en la ficha del curso, pestaña Configuración.",
+  MISSING_SURVEY_URL: "Falta la encuesta final. Se agrega en la ficha del curso, pestaña Configuración.",
   WHATSAPP_TEMPLATE_MISSING: "Falta asignar la plantilla aprobada de WhatsApp a esta automatización.",
   CONTACT_EXCLUDED: "El contacto no tiene consentimiento registrado o está marcado como prueba.",
   SESSION_REMOVED: "La sesión a la que correspondía este aviso se eliminó del calendario.",

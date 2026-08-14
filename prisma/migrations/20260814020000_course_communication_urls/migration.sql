@@ -1,0 +1,3 @@
+ALTER TABLE "courses"
+ADD COLUMN IF NOT EXISTS "courseCompleteUrl" TEXT,
+ADD COLUMN IF NOT EXISTS "whatsappGroupUrl" TEXT;

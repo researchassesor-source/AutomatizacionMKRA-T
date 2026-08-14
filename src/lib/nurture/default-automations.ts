@@ -1,17 +1,22 @@
 import type { AutomationTrigger, EnrollmentStatus } from "@prisma/client";
 
 /**
- * Plan estandar de correos solicitado por el negocio.
+ * Plan estandar de comunicaciones por curso.
  *
- * Son valores iniciales: una vez aplicados a un curso quedan como reglas
- * normales y se editan desde /admin/automatizaciones. `planKey` evita que
- * reaplicar el plan duplique reglas.
+ * Cada entrada queda guardada como AutomationRule normal. `planKey` es la
+ * identidad estable que evita duplicar mensajes al reaplicar el plan.
  */
 export type AutomationPlanKey =
   | "welcome"
+  | "whatsapp_group"
   | "reminder_24h"
   | "reminder_2h"
   | "reminder_15m"
+  | "session_live"
+  | "late_access"
+  | "course_complete"
+  | "course_follow_up"
+  | "survey"
   | "thank_you";
 
 export type AutomationPlanEntry = {
@@ -23,39 +28,27 @@ export type AutomationPlanEntry = {
   subject: string;
   body: string;
   requiresStreamUrl: boolean;
+  requiresSurveyUrl?: boolean;
   enrollmentStatuses: EnrollmentStatus[];
 };
 
 const AUDIENCE: EnrollmentStatus[] = ["INTERESADO", "INSCRITO", "EN_CURSO"];
 
-/**
- * Donde va el enlace de la reunion.
- *
- * Solo en los dos ultimos correos: el de 2 horas es el que entrega el acceso y
- * el de 15 minutos el que lo repite cuando la sesion esta por empezar. La
- * bienvenida y el recordatorio de 24 horas no lo llevan a proposito, para que
- * el enlace no quede enterrado en un correo viejo del buzon justo cuando hace
- * falta. El agradecimiento final tampoco: la sesion ya termino.
- */
-
 export const DEFAULT_AUTOMATION_PLAN: readonly AutomationPlanEntry[] = [
   {
     planKey: "welcome",
     name: "Bienvenida inmediata",
-    description: "Se envía apenas se registra la inscripción.",
+    description: "Se envia apenas se registra la inscripcion.",
     trigger: "ON_REGISTRATION",
     offsetMinutes: 0,
-    subject: "Tu inscripción a {{curso}} está confirmada",
+    subject: "Tu inscripcion a {{curso}} esta confirmada",
     body: `Hola {{nombre}},
 
-Tu inscripción a {{curso}} quedó registrada correctamente.
+Tu inscripción a {{curso}} quedo registrada correctamente.
 
 {{bloqueFecha}}
 
-Te enviaremos un recordatorio el día antes, y el enlace de acceso llegará dos horas antes de la sesión.
-
-Puedes consultar los detalles del curso aquí:
-{{courseUrl}}
+Te enviaremos recordatorios y enlaces de acceso antes de cada sesion.
 
 Gracias por ser parte de R.A. Training.
 
@@ -64,22 +57,38 @@ R.A. Training`,
     enrollmentStatuses: AUDIENCE,
   },
   {
-    planKey: "reminder_24h",
-    name: "Recordatorio 24 horas antes",
-    description: "Un recordatorio por cada sesión, 24 horas antes de su inicio.",
-    trigger: "BEFORE_COURSE",
-    offsetMinutes: 24 * 60,
-    subject: "Mañana nos vemos en {{curso}}",
+    planKey: "whatsapp_group",
+    name: "Grupo de WhatsApp",
+    description: "Comparte la informacion inicial del curso despues del registro.",
+    trigger: "ON_REGISTRATION",
+    offsetMinutes: 2,
+    subject: "Informacion inicial de {{curso}}",
     body: `Hola {{nombre}},
 
-Te recordamos que mañana tienes una sesión de {{curso}}.
+Tu cupo para {{curso}} ya esta registrado.
+
+Grupo oficial de WhatsApp:
+{{link_grupo_whatsapp}}
+
+R.A. Training`,
+    requiresStreamUrl: false,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "reminder_24h",
+    name: "Recordatorio 24 horas antes",
+    description: "Un recordatorio por cada sesion, 24 horas antes de su inicio.",
+    trigger: "BEFORE_COURSE",
+    offsetMinutes: 24 * 60,
+    subject: "Manana nos vemos en {{curso}}",
+    body: `Hola {{nombre}},
+
+Te recordamos que manana tienes {{sesion_actual}} de {{curso}}.
 
 Fecha: {{fechaSesion}}
 Hora: {{horaSesion}}
 
-El enlace de acceso te llegará dos horas antes de que empiece, en un correo aparte.
-
-Te recomendamos reservar el horario y revisar tu conexión con anticipación.
+Te recomendamos reservar el horario y revisar tu conexion con anticipacion.
 
 R.A. Training`,
     requiresStreamUrl: false,
@@ -88,39 +97,72 @@ R.A. Training`,
   {
     planKey: "reminder_2h",
     name: "Recordatorio 2 horas antes",
-    description: "Entrega el enlace de la reunión, 2 horas antes de cada sesión.",
+    description: "Entrega el enlace de la reunion, 2 horas antes de cada sesion.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 120,
-    subject: "Tu sesión de {{curso}} comienza en 2 horas · enlace de acceso",
+    subject: "Tu sesion de {{curso}} comienza en 2 horas",
     body: `Hola {{nombre}},
 
-Faltan 2 horas para iniciar la sesión de {{curso}}.
+Faltan 2 horas para iniciar {{sesion_actual}} de {{curso}}.
 
 Hora: {{horaSesion}}
 
 {{bloqueEnlace}}
 
-Ten listo tu dispositivo y una conexión estable. Te reenviaremos este enlace 15 minutos antes de empezar.
-
 R.A. Training`,
-    requiresStreamUrl: false,
+    requiresStreamUrl: true,
     enrollmentStatuses: AUDIENCE,
   },
   {
     planKey: "reminder_15m",
     name: "Recordatorio 15 minutos antes",
-    description: "Incluye el enlace directo. Necesita enlace de transmisión configurado.",
+    description: "Incluye el enlace directo justo antes de empezar.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 15,
-    subject: "Empezamos en 15 minutos · {{curso}}",
+    subject: "Empezamos en 15 minutos - {{curso}}",
     body: `Hola {{nombre}},
 
-La sesión de {{curso}} comienza en 15 minutos.
+{{sesion_actual}} de {{curso}} comienza en 15 minutos.
 
 Enlace de acceso:
-{{streamUrl}}
+{{link_reunion}}
 
-Te recomendamos entrar ahora para verificar tu audio y tu conexión.
+Te recomendamos entrar ahora para verificar tu audio y conexion.
+
+R.A. Training`,
+    requiresStreamUrl: true,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "session_live",
+    name: "Sesion en vivo",
+    description: "Aviso al comenzar cada sesion.",
+    trigger: "BEFORE_COURSE",
+    offsetMinutes: 0,
+    subject: "{{curso}} ya esta en vivo",
+    body: `Hola {{nombre}},
+
+{{sesion_actual}} de {{curso}} ya esta comenzando.
+
+Ingresa aqui:
+{{link_reunion}}
+
+R.A. Training`,
+    requiresStreamUrl: true,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "late_access",
+    name: "Acceso para rezagados",
+    description: "Reenvia el enlace unos minutos despues del inicio.",
+    trigger: "AFTER_COURSE",
+    offsetMinutes: 20,
+    subject: "Aun puedes ingresar a {{curso}}",
+    body: `Hola {{nombre}},
+
+Si aun no ingresaste a {{sesion_actual}} de {{curso}}, puedes usar este enlace:
+
+{{link_reunion}}
 
 R.A. Training`,
     requiresStreamUrl: true,
@@ -128,29 +170,85 @@ R.A. Training`,
   },
   {
     planKey: "thank_you",
-    name: "Agradecimiento final",
-    description: "Se envía una hora después de terminar la última sesión.",
+    name: "Fin de sesion",
+    description: "Cierra la ultima sesion y confirma el fin del curso.",
     trigger: "AFTER_COURSE",
-    offsetMinutes: 60,
-    subject: "¡Felicitaciones por completar {{curso}}!",
+    offsetMinutes: 5,
+    subject: "Finalizamos {{curso}}",
     body: `Hola {{nombre}},
 
-¡Felicitaciones! Completaste {{curso}}.
+Finalizamos {{curso}}.
 
-Gracias por acompañarnos y por el tiempo que dedicaste. Esperamos que los contenidos te resulten útiles en tu trabajo del día a día.
-
-La información sobre el certificado, cuando aplique, te llegará por separado.
+Gracias por participar en esta capacitacion. Conservaremos tu registro en el CRM y no enviaremos mas mensajes automaticos de este curso cuando quede cerrado.
 
 R.A. Training`,
     requiresStreamUrl: false,
-    enrollmentStatuses: [...AUDIENCE, "COMPLETADO"],
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "course_complete",
+    name: "Curso completo",
+    description: "Entrega el enlace informativo del curso completo.",
+    trigger: "AFTER_COURSE",
+    offsetMinutes: 60,
+    subject: "Material de {{curso}}",
+    body: `Hola {{nombre}},
+
+Puedes revisar la informacion del curso completo aqui:
+{{link_curso_completo}}
+
+R.A. Training`,
+    requiresStreamUrl: false,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "course_follow_up",
+    name: "Seguimiento del curso",
+    description: "Seguimiento breve posterior al cierre.",
+    trigger: "AFTER_COURSE",
+    offsetMinutes: 25 * 60,
+    subject: "Seguimiento de {{curso}}",
+    body: `Hola {{nombre}},
+
+Gracias nuevamente por participar en {{curso}}.
+
+Si necesitas apoyo adicional, responde a este correo y nuestro equipo te orientara.
+
+R.A. Training`,
+    requiresStreamUrl: false,
+    enrollmentStatuses: AUDIENCE,
+  },
+  {
+    planKey: "survey",
+    name: "Encuesta final",
+    description: "Solicita la encuesta final configurada en el curso.",
+    trigger: "AFTER_COURSE",
+    offsetMinutes: 48 * 60,
+    subject: "Encuesta final de {{curso}}",
+    body: `Hola {{nombre}},
+
+Tu opinion nos ayuda a mejorar.
+
+Completa la encuesta final de {{curso}} aqui:
+{{link_encuesta}}
+
+Gracias por confiar en R.A. Training.`,
+    requiresStreamUrl: false,
+    requiresSurveyUrl: true,
+    enrollmentStatuses: AUDIENCE,
   },
 ];
 
 export const AUTOMATION_PLAN_LABELS: Record<AutomationPlanKey, string> = {
   welcome: "Bienvenida inmediata",
+  whatsapp_group: "Grupo de WhatsApp",
   reminder_24h: "Recordatorio 24 horas antes",
   reminder_2h: "Recordatorio 2 horas antes",
   reminder_15m: "Recordatorio 15 minutos antes",
-  thank_you: "Agradecimiento final",
+  session_live: "Sesion en vivo",
+  late_access: "Acceso para rezagados",
+  course_complete: "Curso completo",
+  course_follow_up: "Seguimiento del curso",
+  survey: "Encuesta final",
+  thank_you: "Fin de sesion",
 };

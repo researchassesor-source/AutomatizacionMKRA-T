@@ -16,18 +16,24 @@ function sesion(streamUrl: string | null): ResolvedCourseSession {
 function reglas() {
   return [
     { id: "r1", name: "Bienvenida", planKey: "welcome", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "ON_REGISTRATION" as const, offsetMinutes: 0, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r2", name: "24h", planKey: "reminder_24h", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 1440, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r3", name: "2h", planKey: "reminder_2h", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 120, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r4", name: "15m", planKey: "reminder_15m", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r5", name: "Gracias", planKey: "thank_you", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 60, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r2", name: "Grupo", planKey: "whatsapp_group", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "ON_REGISTRATION" as const, offsetMinutes: 5, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r3", name: "24h", planKey: "reminder_24h", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 1440, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r4", name: "2h", planKey: "reminder_2h", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 120, requiresStreamUrl: true, waTemplateName: null },
+    { id: "r5", name: "15m", planKey: "reminder_15m", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
+    { id: "r6", name: "En vivo", planKey: "session_live", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: true, waTemplateName: null },
+    { id: "r7", name: "Rezagados", planKey: "late_access", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
+    { id: "r8", name: "Gracias", planKey: "thank_you", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r9", name: "Curso completo", planKey: "course_complete", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 5, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r10", name: "Seguimiento", planKey: "course_follow_up", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 10, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r11", name: "Encuesta", planKey: "survey", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: false, waTemplateName: null },
   ];
 }
 
 describe("propagación del enlace de la sesión", () => {
-  it("sin enlace, solo los dos avisos de acceso quedan bloqueados", () => {
+  it("sin enlace, solo los avisos que usan acceso quedan bloqueados", () => {
     const pasos = buildCourseTimeline({ rules: reglas(), sessions: [sesion(null)], now: AHORA });
     const bloqueados = pasos.filter((paso) => paso.blockedReason).map((paso) => paso.planKey);
-    expect(bloqueados).toEqual(["reminder_2h", "reminder_15m"]);
+    expect(bloqueados).toEqual(["reminder_2h", "reminder_15m", "session_live", "late_access"]);
     // La bienvenida y el recordatorio de 24 h no dependen del enlace.
     expect(pasos.find((p) => p.planKey === "welcome")?.blockedReason).toBeNull();
     expect(pasos.find((p) => p.planKey === "reminder_24h")?.blockedReason).toBeNull();

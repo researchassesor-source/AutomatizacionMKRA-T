@@ -12,6 +12,12 @@ const VARS = {
   fechaSesion: "20 de agosto de 2026",
   horaSesion: "7:30 p. m.",
   streamUrl: "https://meet.google.com/abc-defg-hij",
+  link_reunion: "https://meet.google.com/abc-defg-hij",
+  link_grupo_whatsapp: "https://chat.whatsapp.com/qa",
+  link_curso_completo: "https://ra-training.com/cursos/ia/",
+  link_encuesta: "https://forms.example.com/encuesta",
+  sesion_actual: "Sesion 1 de 3",
+  total_sesiones: "3",
 };
 
 describe("construcción de components", () => {
@@ -114,14 +120,20 @@ describe("plan estándar de WhatsApp", () => {
     expect(new Set(nombres).size).toBe(nombres.length);
   });
 
-  it("conserva exactamente los cinco mappings aprobados", () => {
+  it("conserva exactamente los mappings aprobados", () => {
     expect(Object.fromEntries(
       Object.entries(WHATSAPP_TEMPLATES).map(([key, spec]) => [key, spec.bodyVars]),
     )).toEqual({
       welcome: ["nombre", "curso", "fecha", "hora"],
+      whatsapp_group: ["nombre", "curso", "link_grupo_whatsapp"],
       reminder_24h: ["nombre", "curso", "fechaSesion", "horaSesion"],
       reminder_2h: ["nombre", "curso", "horaSesion", "streamUrl"],
       reminder_15m: ["nombre", "curso", "horaSesion", "streamUrl"],
+      session_live: ["nombre", "curso", "sesion_actual", "link_reunion"],
+      late_access: ["nombre", "curso", "sesion_actual", "link_reunion"],
+      course_complete: ["nombre", "curso", "link_curso_completo"],
+      course_follow_up: ["nombre", "curso"],
+      survey: ["nombre", "curso", "link_encuesta"],
       thank_you: ["nombre", "curso"],
     });
   });
@@ -136,19 +148,20 @@ describe("plan estándar de WhatsApp", () => {
     }
   });
 
-  it("solo los dos avisos previos usan el enlace, y ambos lo exigen", () => {
+  it("solo los avisos de acceso usan el enlace, y todos lo exigen", () => {
     for (const entry of WHATSAPP_AUTOMATION_PLAN) {
-      const usaEnlace = templateFieldsFor(entry).waTemplateBodyVars.includes("streamUrl");
-      expect(usaEnlace).toBe(entry.planKey === "reminder_2h" || entry.planKey === "reminder_15m");
+      const vars = templateFieldsFor(entry).waTemplateBodyVars;
+      const usaEnlace = vars.includes("streamUrl") || vars.includes("link_reunion");
+      expect(usaEnlace).toBe(["reminder_2h", "reminder_15m", "session_live", "late_access"].includes(entry.planKey));
       // Meta rechaza un parámetro vacío: si la plantilla lleva el enlace, la
       // regla tiene que exigirlo o el mensaje fallaría en el envío.
       if (usaEnlace) expect(entry.requiresStreamUrl).toBe(true);
     }
   });
 
-  it("el agradecimiento incluye a quien ya figura como COMPLETADO", () => {
+  it("el agradecimiento no se reprograma para quien ya figura como COMPLETADO", () => {
     const gracias = WHATSAPP_AUTOMATION_PLAN.find((entry) => entry.planKey === "thank_you");
-    expect(gracias?.enrollmentStatuses).toContain("COMPLETADO");
+    expect(gracias?.enrollmentStatuses).not.toContain("COMPLETADO");
   });
 
   it("todo registro del formulario recibe las automatizaciones de WhatsApp", () => {
@@ -163,6 +176,11 @@ describe("plan estándar de WhatsApp", () => {
       idioma: "es",
       variables: 4,
       texto: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
+    },
+    ra_training_grupo_whatsapp: {
+      idioma: "es",
+      variables: 3,
+      texto: "Hola {{1}}, tu registro a {{2}} esta confirmado.\n\nGrupo oficial de WhatsApp:\n{{3}}\n\nR.A. Training",
     },
     ra_training_recordatorio_24h: {
       idioma: "es",
@@ -183,6 +201,31 @@ describe("plan estándar de WhatsApp", () => {
       idioma: "es",
       variables: 2,
       texto: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
+    },
+    ra_training_sesion_en_vivo: {
+      idioma: "es",
+      variables: 4,
+      texto: "Hola {{1}}, {{3}} de {{2}} ya esta comenzando.\n\nIngresa aqui: {{4}}\n\nR.A. Training",
+    },
+    ra_training_acceso_rezagados: {
+      idioma: "es",
+      variables: 4,
+      texto: "Hola {{1}}, si aun no ingresaste a {{3}} de {{2}}, puedes usar este enlace:\n\n{{4}}\n\nR.A. Training",
+    },
+    ra_training_curso_completo: {
+      idioma: "es",
+      variables: 3,
+      texto: "Hola {{1}}, puedes revisar la informacion completa de {{2}} aqui:\n\n{{3}}\n\nR.A. Training",
+    },
+    ra_training_seguimiento_curso: {
+      idioma: "es",
+      variables: 2,
+      texto: "Hola {{1}}, gracias nuevamente por participar en {{2}}.\n\nSi necesitas apoyo adicional, responde a este chat y te orientaremos.\n\nR.A. Training",
+    },
+    ra_training_encuesta: {
+      idioma: "es",
+      variables: 3,
+      texto: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
     },
   } as const;
 

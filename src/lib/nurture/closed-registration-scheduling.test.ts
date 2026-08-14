@@ -33,6 +33,7 @@ function identityOf(message: StoredMessage) {
 function planRules() {
   return DEFAULT_AUTOMATION_PLAN.map((entry) => ({
     id: `rule-${entry.planKey}`,
+    planKey: entry.planKey,
     courseId: "course-marketing",
     campaignId: null,
     trigger: entry.trigger,
@@ -69,6 +70,9 @@ function enrollment(overrides: {
       id: "course-marketing",
       title: "Desarrollo Profesional en Marketing",
       officialCourseUrl: "https://ra-training.com/courses-1/",
+      courseCompleteUrl: "https://ra-training.com/curso-completo",
+      whatsappGroupUrl: "https://chat.whatsapp.com/qa",
+      surveyUrl: "https://forms.example.com/encuesta",
       moodleCourseUrl: null,
       modality: "Virtual",
       isPublished: overrides.isPublished ?? true,
@@ -111,8 +115,8 @@ describe("regresión: curso con registro cerrado", () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     const result = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
     expect(result.reason).toBeUndefined();
-    expect(result.enqueued).toBe(5);
-    expect(messages).toHaveLength(5);
+    expect(result.enqueued).toBe(11);
+    expect(messages).toHaveLength(11);
   });
 
   it("incluye bienvenida, los tres recordatorios y el agradecimiento", async () => {
@@ -120,18 +124,24 @@ describe("regresión: curso con registro cerrado", () => {
     await scheduleEnrollmentAutomations("enrollment-qa", NOW);
     const byRule = messages.map((message) => message.sequenceKey).sort();
     expect(byRule).toEqual([
-      "automation:rule-reminder_15m",
-      "automation:rule-reminder_24h",
-      "automation:rule-reminder_2h",
-      "automation:rule-thank_you",
-      "automation:rule-welcome",
+      "automation:EMAIL:course_complete",
+      "automation:EMAIL:course_follow_up",
+      "automation:EMAIL:late_access",
+      "automation:EMAIL:reminder_15m",
+      "automation:EMAIL:reminder_24h",
+      "automation:EMAIL:reminder_2h",
+      "automation:EMAIL:session_live",
+      "automation:EMAIL:survey",
+      "automation:EMAIL:thank_you",
+      "automation:EMAIL:welcome",
+      "automation:EMAIL:whatsapp_group",
     ]);
   });
 
   it("el recordatorio de 15 minutos hereda el enlace del curso", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     await scheduleEnrollmentAutomations("enrollment-qa", NOW);
-    const reminder = messages.find((message) => message.sequenceKey === "automation:rule-reminder_15m");
+    const reminder = messages.find((message) => message.sequenceKey === "automation:EMAIL:reminder_15m");
     expect(reminder).toBeDefined();
     expect(reminder?.status).toBe("PROGRAMADO");
     expect(reminder?.body).toContain("https://meet.example.com/marketing");
@@ -141,7 +151,7 @@ describe("regresión: curso con registro cerrado", () => {
   it("también funciona con el registro abierto", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ acceptsRegistrations: true }));
     const result = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
-    expect(result.enqueued).toBe(5);
+    expect(result.enqueued).toBe(11);
   });
 
   it("un curso despublicado sí detiene la programación", async () => {
@@ -159,14 +169,14 @@ describe("regresión: curso con registro cerrado", () => {
     // Solo sobreviven bienvenida (al inscribirse) y agradecimiento; los tres
     // recordatorios previos a la sesión ya no tienen sentido.
     const keys = messages.map((message) => message.sequenceKey).sort();
-    expect(keys).toEqual(["automation:rule-welcome"]);
+    expect(keys).toEqual(["automation:EMAIL:welcome", "automation:EMAIL:whatsapp_group"]);
   });
 
   it("guardar la sesión dos veces no duplica mensajes", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     await scheduleEnrollmentAutomations("enrollment-qa", NOW);
     const second = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
-    expect(messages).toHaveLength(5);
+    expect(messages).toHaveLength(11);
     expect(second.enqueued).toBe(0);
   });
 });
@@ -185,12 +195,8 @@ describe("motivo visible cuando no se genera nada", () => {
       rules: planRules().map((rule) => ({ ...rule, enrollmentStatuses: ["INSCRITO"] })),
     }));
     const result = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
-    expect(result.reason).toBe("NO_APPLICABLE_RULES");
-    expect(result.activeRules).toBe(5);
-    expect(describeScheduleResult(result)).toContain("ninguna aplica");
-    expect(mocks.writeAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "AUTOMATION_NO_MESSAGES_SCHEDULED", result: "FAILURE" }),
-    );
+    expect(result.reason).toBe("ENROLLMENT_COMPLETED");
+    expect(describeScheduleResult(result)).toContain("finalizo");
   });
 
   it("informa que el contacto está excluido", async () => {
@@ -222,8 +228,8 @@ describe("plan estándar sobre inscripciones anteriores", () => {
     const result = await rescheduleCourseAutomations("course-marketing", NOW);
 
     expect(result.enrollments).toBe(1);
-    expect(result.enqueued).toBe(5);
-    expect(messages).toHaveLength(5);
+    expect(result.enqueued).toBe(11);
+    expect(messages).toHaveLength(11);
   });
 
   it("reaplicar el plan no duplica los mensajes existentes", async () => {
@@ -233,7 +239,7 @@ describe("plan estándar sobre inscripciones anteriores", () => {
     mocks.prisma.enrollment.findMany.mockResolvedValueOnce([{ id: "enrollment-qa" }]).mockResolvedValue([]);
     const second = await rescheduleCourseAutomations("course-marketing", NOW);
 
-    expect(messages).toHaveLength(5);
+    expect(messages).toHaveLength(11);
     expect(second.enqueued).toBe(0);
   });
 });

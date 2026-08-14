@@ -47,6 +47,9 @@ model Course {
   description          String?
   category             String?
   officialCourseUrl    String            @default("https://ra-training.com/courses-1/")
+  courseCompleteUrl    String?
+  whatsappGroupUrl     String?
+  surveyUrl            String?
   moodleCourseUrl      String?
   imageUrl             String?
   price                Decimal?          @db.Decimal(10, 2)

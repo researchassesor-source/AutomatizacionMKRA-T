@@ -68,8 +68,8 @@ describe("futuro bloqueado frente a fallo real", () => {
   });
 
   it("el punto de color distingue bloqueado de fallido", () => {
-    expect(statusDotClass("OMITIDO", FUTURO)).toContain("is-blocked");
-    expect(statusDotClass("OMITIDO", PASADO)).toContain("is-problem");
+    expect(statusDotClass("OMITIDO", FUTURO, AHORA)).toContain("is-blocked");
+    expect(statusDotClass("OMITIDO", PASADO, AHORA)).toContain("is-problem");
   });
 });
 

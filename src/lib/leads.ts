@@ -61,6 +61,8 @@ type CaptureResult = {
   leadCreated: boolean;
   enrollmentCreated: boolean;
   idempotent: boolean;
+  blockedDuplicate?: boolean;
+  duplicateMessage?: string;
 };
 
 function redirectUrl(courseSlug: string, duplicate: boolean) {
@@ -181,6 +183,30 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
         });
         if (identityMatches.length > 1) throw new Error("CONTACT_IDENTITY_CONFLICT");
         const existing = identityMatches[0];
+        if (existing) {
+          const sameCourseEnrollment = await tx.enrollment.findUnique({
+            where: { leadId_courseId: { leadId: existing.id, courseId: course.id } },
+            include: { course: true },
+          });
+          if (sameCourseEnrollment) {
+            const sameEmail = existing.email === input.email;
+            const samePhone = existing.phone === input.phone;
+            const duplicateMessage = sameEmail && samePhone
+              ? "Este correo y este número de WhatsApp ya están registrados en este curso."
+              : samePhone
+                ? "Este número de WhatsApp ya está registrado en este curso."
+                : "Este correo ya está registrado en este curso.";
+            return {
+              lead: existing,
+              enrollment: sameCourseEnrollment,
+              leadCreated: false,
+              enrollmentCreated: false,
+              idempotent: false,
+              blockedDuplicate: true,
+              duplicateMessage,
+            };
+          }
+        }
         const captureSource = input.source ?? input.utmSource ?? existing?.source ?? "landing";
         const lead = existing
           ? await tx.lead.update({
@@ -381,6 +407,19 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
   }
   if (!result) throw new Error("LEAD_CAPTURE_FAILED");
 
+  if (result.blockedDuplicate) {
+    return {
+      lead: result.lead,
+      enrollment: result.enrollment,
+      redirectUrl: redirectUrl(course.slug, true),
+      created: false,
+      enrollmentCreated: false,
+      duplicate: true,
+      idempotent: result.idempotent,
+      message: result.duplicateMessage ?? "Ya estás registrado en este curso.",
+    };
+  }
+
   try {
     await rescoreLead(result.lead.id);
   } catch {
@@ -388,11 +427,13 @@ export async function captureLead(input: LeadInput, context: LeadCaptureContext)
   }
   await writeCaptureAudits(result, input, context);
   try {
-    await scheduleEnrollmentAutomations(result.enrollment.id);
-    // La bienvenida debe salir en el momento de inscribirse, no en el siguiente
-    // ciclo del reloj. Si el proveedor falla, la inscripción se conserva y el
-    // mensaje queda como fallido y reintentable.
-    await sendDueMessagesForEnrollment(result.enrollment.id);
+    if (result.enrollmentCreated) {
+      await scheduleEnrollmentAutomations(result.enrollment.id);
+      // La bienvenida debe salir en el momento de inscribirse, no en el siguiente
+      // ciclo del reloj. Si el proveedor falla, la inscripción se conserva y el
+      // mensaje queda como fallido y reintentable.
+      await sendDueMessagesForEnrollment(result.enrollment.id);
+    }
   } catch {
     console.error("[leads] No se pudo programar la automatización del curso.");
     await writeAudit({

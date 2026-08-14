@@ -82,7 +82,8 @@ export function isAutomationEligibleContact(classification: string, consent: boo
 export const TEMPLATE_VARIABLES = [
   "nombre", "apellido", "curso", "courseUrl", "moodleUrl", "asesor", "fecha",
   "hora", "modalidad", "enlace", "appUrl", "streamUrl", "bloqueEnlace",
-  "fechaSesion", "horaSesion", "sesion", "bloqueFecha",
+  "fechaSesion", "horaSesion", "sesion", "sesion_actual", "total_sesiones",
+  "link_reunion", "link_grupo_whatsapp", "link_curso_completo", "link_encuesta", "bloqueFecha",
 ] as const;
 
 export function renderMessageTemplate(template: string, vars: Record<string, string>): string {
@@ -105,7 +106,16 @@ function formatTime(value: Date | null | undefined) {
 }
 
 type LeadVariables = { firstName: string | null; lastName: string | null; fullName: string; assignedToId: string | null };
-type CourseVariables = { title: string; officialCourseUrl: string; moodleCourseUrl: string | null; startsAt: Date | null; modality: string | null };
+type CourseVariables = {
+  title: string;
+  officialCourseUrl: string;
+  courseCompleteUrl: string | null;
+  whatsappGroupUrl: string | null;
+  surveyUrl: string | null;
+  moodleCourseUrl: string | null;
+  startsAt: Date | null;
+  modality: string | null;
+};
 
 function templateVariables(
   lead: LeadVariables,
@@ -114,6 +124,7 @@ function templateVariables(
 ) {
   const reference = session?.startAt ?? course.startsAt;
   const streamUrl = session?.streamUrl ?? "";
+  const sessionName = session ? sessionLabel(session) : "";
   return {
     nombre: lead.firstName ?? lead.fullName.split(" ")[0] ?? lead.fullName,
     apellido: lead.lastName ?? "",
@@ -125,10 +136,16 @@ function templateVariables(
     hora: formatTime(reference),
     fechaSesion: formatDate(session?.startAt ?? reference),
     horaSesion: formatTime(session?.startAt ?? reference),
-    sesion: session ? sessionLabel(session) : "",
+    sesion: sessionName,
+    sesion_actual: sessionName,
+    total_sesiones: session ? String(session.totalSessions) : "",
     modalidad: course.modality ?? "por confirmar",
     enlace: course.moodleCourseUrl ?? course.officialCourseUrl,
     streamUrl,
+    link_reunion: streamUrl,
+    link_grupo_whatsapp: course.whatsappGroupUrl ?? "",
+    link_curso_completo: course.courseCompleteUrl ?? "",
+    link_encuesta: course.surveyUrl ?? "",
     bloqueEnlace: streamUrl ? `Enlace de acceso:\n${streamUrl}` : "",
     // Un curso sin calendario no debe mostrar «Fecha: por confirmar» seguido de
     // «Hora: por confirmar»: es ruido que no aporta nada. Mejor omitir el bloque.
@@ -228,6 +245,7 @@ async function upsertAutomationMessage(input: {
   body: string;
   scheduledAt: Date;
   sequenceKey: string;
+  legacySequenceKey?: string;
   stepKey: string;
   courseSessionId: string | null;
   waTemplate: Prisma.InputJsonValue | null;
@@ -241,7 +259,20 @@ async function upsertAutomationMessage(input: {
       stepKey: input.stepKey,
     },
   };
-  const existing = await prisma.outboundMessage.findUnique({ where: identity, select: { id: true, status: true } });
+  const existing = await prisma.outboundMessage.findUnique({ where: identity, select: { id: true, status: true } })
+    ?? (input.legacySequenceKey
+      ? await prisma.outboundMessage.findUnique({
+          where: {
+            leadId_enrollmentId_sequenceKey_stepKey: {
+              leadId: input.leadId,
+              enrollmentId: input.enrollmentId,
+              sequenceKey: input.legacySequenceKey,
+              stepKey: input.stepKey,
+            },
+          },
+          select: { id: true, status: true },
+        })
+      : null);
   const status = input.omitted ? ("OMITIDO" as const) : ("PROGRAMADO" as const);
   const payload = {
     automationRuleId: input.ruleId,
@@ -272,12 +303,12 @@ async function upsertAutomationMessage(input: {
     }
   }
   if (!REPROGRAMMABLE_STATUSES.includes(existing.status as (typeof REPROGRAMMABLE_STATUSES)[number])) return "unchanged";
-  await prisma.outboundMessage.update({ where: { id: existing.id }, data: payload });
+  await prisma.outboundMessage.update({ where: { id: existing.id }, data: { sequenceKey: input.sequenceKey, stepKey: input.stepKey, ...payload } });
   return "updated";
 }
 
 function scheduleTargets(
-  rule: { trigger: string; offsetMinutes: number },
+  rule: { trigger: string; offsetMinutes: number; planKey?: string | null },
   sessions: readonly ResolvedCourseSession[],
   enrollmentId: string,
   registeredAt: Date,
@@ -309,6 +340,14 @@ function scheduleTargets(
       if (!scheduledAt) return [];
       return [{ session, contentSession: session, scheduledAt, stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey }];
     });
+  }
+  if (rule.trigger === "AFTER_COURSE" && rule.planKey === "late_access") {
+    return sessions.map((session) => ({
+      session,
+      contentSession: session,
+      scheduledAt: new Date(session.startAt.getTime() + Math.abs(rule.offsetMinutes) * 60_000),
+      stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey,
+    }));
   }
   const final = lastSession(sessions);
   const completion = courseCompletionMoment(sessions);
@@ -379,6 +418,7 @@ export type ScheduleAutomationsResult = {
 export type ScheduleSkipReason =
   | "ENROLLMENT_NOT_FOUND"
   | "ENROLLMENT_CANCELLED"
+  | "ENROLLMENT_COMPLETED"
   | "CONTACT_EXCLUDED"
   | "COURSE_NOT_PUBLISHED"
   | "NO_ACTIVE_RULES"
@@ -388,6 +428,7 @@ export type ScheduleSkipReason =
 export const SCHEDULE_SKIP_MESSAGES: Record<ScheduleSkipReason, string> = {
   ENROLLMENT_NOT_FOUND: "No se encontró la inscripción al programar los mensajes.",
   ENROLLMENT_CANCELLED: "La inscripción está cancelada, así que no recibe nuevos mensajes.",
+  ENROLLMENT_COMPLETED: "La inscripcion ya finalizo, asi que no recibe nuevos mensajes automaticos de este curso.",
   CONTACT_EXCLUDED: "El contacto no recibe automatizaciones: debe estar clasificado como real y tener consentimiento registrado.",
   COURSE_NOT_PUBLISHED: "El curso no está publicado, así que no se programaron mensajes.",
   NO_ACTIVE_RULES: "El curso todavía no tiene automatizaciones activas. Aplica el plan estándar de correos y actívalo.",
@@ -418,6 +459,7 @@ export async function scheduleEnrollmentAutomations(
   const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: enrollmentWithSchedule });
   if (!enrollment) return { ...empty, reason: "ENROLLMENT_NOT_FOUND" };
   if (enrollment.status === "CANCELADO") return { ...empty, reason: "ENROLLMENT_CANCELLED" };
+  if (enrollment.status === "COMPLETADO") return { ...empty, reason: "ENROLLMENT_COMPLETED" };
   if (!isAutomationEligibleContact(enrollment.lead.classification, enrollment.lead.consent)) {
     return { ...empty, reason: "CONTACT_EXCLUDED" };
   }
@@ -467,13 +509,22 @@ export async function scheduleEnrollmentAutomations(
       if (rule.trigger !== "ON_REGISTRATION" && target.scheduledAt < oldestAllowed) { skipped++; continue; }
       const missingStreamUrl = rule.requiresStreamUrl && !target.contentSession?.streamUrl;
       const vars = templateVariables(enrollment.lead, enrollment.course, target.contentSession);
+      const missingWhatsappGroupUrl = (rule.planKey === "whatsapp_group" || rule.body.includes("{{link_grupo_whatsapp}}")) && !vars.link_grupo_whatsapp;
+      const missingCourseCompleteUrl = (rule.planKey === "course_complete" || rule.body.includes("{{link_curso_completo}}")) && !vars.link_curso_completo;
+      const missingSurveyUrl = (rule.planKey === "survey" || rule.body.includes("{{link_encuesta}}")) && !vars.link_encuesta;
       // WhatsApp resuelve aqui su plantilla, no al enviar: asi el mensaje
       // guarda exactamente lo que saldra, y un problema de plantilla se ve al
       // programar en lugar de descubrirse cuando ya no hay margen.
       const template = resolveWhatsAppTemplate(rule, vars);
       const blocked = missingStreamUrl
         ? { code: "MISSING_STREAM_URL", message: "La sesión no tiene un enlace de transmisión configurado." }
-        : template.problem;
+        : missingWhatsappGroupUrl
+          ? { code: "MISSING_WHATSAPP_GROUP_URL", message: "El curso no tiene una URL de grupo de WhatsApp configurada." }
+          : missingCourseCompleteUrl
+            ? { code: "MISSING_COURSE_COMPLETE_URL", message: "El curso no tiene una URL informativa de curso completo configurada." }
+            : missingSurveyUrl
+              ? { code: "MISSING_SURVEY_URL", message: "El curso no tiene una URL de encuesta final configurada." }
+              : template.problem;
       const outcome = await upsertAutomationMessage({
         leadId: enrollment.leadId,
         enrollmentId: enrollment.id,
@@ -483,7 +534,8 @@ export async function scheduleEnrollmentAutomations(
         subject: rule.subject ? renderMessageTemplate(rule.subject, vars) : null,
         body: renderMessageTemplate(rule.body, vars),
         scheduledAt: target.scheduledAt,
-        sequenceKey: `automation:${rule.id}`,
+        sequenceKey: `automation:${rule.channel}:${rule.planKey ?? rule.id}`,
+        legacySequenceKey: `automation:${rule.id}`,
         stepKey: target.stepKey,
         courseSessionId: target.session?.id ?? null,
         waTemplate: template.payload,
@@ -563,7 +615,7 @@ export async function rescheduleCourseAutomations(courseId: string, now = new Da
 
   while (totals.enrollments < RESCHEDULE_MAX_ENROLLMENTS) {
     const batch = await prisma.enrollment.findMany({
-      where: { courseId, status: { not: "CANCELADO" }, lead: { classification: "REAL", consent: true } },
+      where: { courseId, status: { notIn: ["CANCELADO", "COMPLETADO"] }, lead: { classification: "REAL", consent: true } },
       select: { id: true },
       take: RESCHEDULE_BATCH_SIZE,
       // El cursor va sobre `id` (unico y estable): dos inscripciones creadas en
@@ -588,7 +640,7 @@ export async function rescheduleCourseAutomations(courseId: string, now = new Da
     const remaining = await prisma.enrollment.count({
       where: {
         courseId,
-        status: { not: "CANCELADO" },
+        status: { notIn: ["CANCELADO", "COMPLETADO"] },
         lead: { classification: "REAL", consent: true },
         ...(cursor ? { id: { gt: cursor } } : {}),
       },
@@ -626,6 +678,54 @@ export async function cancelPendingMessages(
   return { cancelled: result.count };
 }
 
+export async function finalizeCompletedCourseEnrollments(now = new Date()) {
+  const candidates = await prisma.enrollment.findMany({
+    where: {
+      status: { in: ["INTERESADO", "INSCRITO", "EN_CURSO"] },
+      course: { isPublished: true },
+    },
+    take: 200,
+    include: { course: { include: { sessions: { orderBy: { startAt: "asc" } } } } },
+  });
+  let completed = 0;
+  let cancelled = 0;
+  for (const enrollment of candidates ?? []) {
+    const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
+    const completedAt = courseCompletionMoment(sessions);
+    if (!completedAt || completedAt > now) continue;
+    const outboundMessageDelegate = prisma.outboundMessage as typeof prisma.outboundMessage & {
+      count?: typeof prisma.outboundMessage.count;
+    };
+    const futureValid = outboundMessageDelegate.count
+      ? await outboundMessageDelegate.count({
+          where: { enrollmentId: enrollment.id, status: "PROGRAMADO", scheduledAt: { gt: now } },
+        })
+      : 0;
+    if (futureValid > 0) continue;
+    await prisma.enrollment.update({ where: { id: enrollment.id }, data: { status: "COMPLETADO" } });
+    const pending = await prisma.outboundMessage.updateMany({
+      where: { enrollmentId: enrollment.id, status: { in: ["PROGRAMADO", "OMITIDO"] }, scheduledAt: { gt: now } },
+      data: {
+        status: "CANCELADO",
+        cancelledAt: now,
+        errorCode: "COURSE_COMPLETED",
+        errorMessage: "El curso ya finalizo; se cancelaron las comunicaciones futuras de esta inscripcion.",
+      },
+    });
+    completed++;
+    cancelled += pending.count;
+  }
+  if (completed > 0) {
+    await writeAudit({
+      actorEmail: "automation",
+      action: "COURSE_ENROLLMENTS_FINALIZED",
+      entityType: "Enrollment",
+      metadata: { completed, cancelled, preservedContacts: true, preservedHistory: true },
+    });
+  }
+  return { completed, cancelled };
+}
+
 export async function processDueAutomationRules(now = new Date()) {
   const rules = await prisma.automationRule.findMany({
     where: {
@@ -643,7 +743,7 @@ export async function processDueAutomationRules(now = new Date()) {
   let enqueued = 0;
   for (const rule of rules) {
     const candidates = await prisma.enrollment.findMany({
-      where: { courseId: rule.courseId, lead: { classification: "REAL", consent: true } },
+      where: { courseId: rule.courseId, status: { notIn: ["CANCELADO", "COMPLETADO"] }, lead: { classification: "REAL", consent: true } },
       select: { id: true },
       take: 500,
     });
@@ -875,5 +975,6 @@ export async function processScheduledMessages(now = new Date()) {
       results.push(result.status === "fulfilled" ? { id, ...result.value } : { id, ok: false, error: "Fallo interno aislado durante el procesamiento." });
     });
   }
-  return { blocked: false, blockedChannels, errorCode: null, error: null, automations, processed: results.length, succeeded: results.filter((result) => result.ok).length, failed: results.filter((result) => !result.ok).length, results };
+  const finalized = await finalizeCompletedCourseEnrollments(now);
+  return { blocked: false, blockedChannels, errorCode: null, error: null, automations, finalized, processed: results.length, succeeded: results.filter((result) => result.ok).length, failed: results.filter((result) => !result.ok).length, results };
 }

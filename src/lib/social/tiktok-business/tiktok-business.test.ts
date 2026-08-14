@@ -106,4 +106,20 @@ describe("superficie desplegable", () => {
     expect(orchestrator).toContain("publishId: post.publishId");
     expect(orchestrator).toContain("new TikTokBusinessAdapter");
   });
+
+  it("responde ambos callbacks manuales sin redirigir al login", async () => {
+    const { GET: accountCallback } = await import("@/app/api/integrations/tiktok-business/account/callback/route");
+    const { GET: advertiserCallback } = await import("@/app/api/integrations/tiktok-business/advertiser/callback/route");
+    const accountResponse = await accountCallback(new Request(
+      "https://automatizacion-mkra-t2.vercel.app/api/integrations/tiktok-business/account/callback/",
+    ));
+    const advertiserResponse = await advertiserCallback();
+
+    expect(accountResponse.status).toBe(400);
+    expect(accountResponse.headers.get("location")).toBeNull();
+    expect(await accountResponse.json()).toMatchObject({ ok: false });
+    expect(advertiserResponse.status).toBe(200);
+    expect(advertiserResponse.headers.get("location")).toBeNull();
+    expect(await advertiserResponse.json()).toMatchObject({ ok: true, status: "ready" });
+  });
 });

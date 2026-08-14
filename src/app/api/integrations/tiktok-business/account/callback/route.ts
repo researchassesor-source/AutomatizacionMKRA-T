@@ -27,6 +27,13 @@ function cookieValue(request: Request): string | null {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const hasOAuthParameters = ["auth_code", "state", "error"].some((parameter) => url.searchParams.has(parameter));
+  if (!hasOAuthParameters) {
+    return clearState(NextResponse.json(
+      { ok: false, error: "Faltan los parámetros de autorización de TikTok Business." },
+      { status: 400 },
+    ));
+  }
   const config = resolveTikTokBusinessConfig();
   if (config.connectionReason) return clearState(back("no_configurado"));
 

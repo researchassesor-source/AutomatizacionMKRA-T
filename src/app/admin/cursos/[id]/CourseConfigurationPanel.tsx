@@ -29,10 +29,6 @@ type CourseConfiguration = {
   displayOrder: number;
 };
 
-function stateLabel(value: string | null) {
-  return value?.trim() ? "Configurado" : "Pendiente";
-}
-
 function statusPill(value: string | null) {
   const configured = Boolean(value?.trim());
   return <span className={`pill ${configured ? "ok" : ""}`}>{configured ? "Configurado" : "Pendiente"}</span>;
@@ -94,28 +90,31 @@ export function CourseConfigurationPanel({ course, canEdit }: { course: CourseCo
       <p className="muted" style={{ marginTop: -8, marginBottom: 18 }}>
         Enlaces propios de este curso para comunicaciones automáticas.
       </p>
+      {/* Una fila por enlace. En rejilla de tres columnas los campos quedaban
+          tan estrechos que no se veia ni el dominio de la URL escrita. */}
       <form className="course-config-form" onSubmit={submit}>
-        <div className="data-grid">
-          <label>
-            <span>Grupo oficial de WhatsApp</span>
-            <input name="whatsappGroupUrl" type="url" defaultValue={course.whatsappGroupUrl ?? ""} placeholder="https://chat.whatsapp.com/..." disabled={!canEdit || busy} aria-label="Grupo oficial de WhatsApp" />
-            <small>{stateLabel(course.whatsappGroupUrl)}</small>
-          </label>
-          <label>
-            <span>Página informativa del curso completo</span>
-            <input name="courseCompleteUrl" type="url" defaultValue={course.courseCompleteUrl ?? ""} placeholder="https://ra-training.com/..." disabled={!canEdit || busy} aria-label="Página informativa del curso completo" />
-            <small>{stateLabel(course.courseCompleteUrl)}</small>
-          </label>
-          <label>
-            <span>Encuesta final</span>
-            <input name="surveyUrl" type="url" defaultValue={course.surveyUrl ?? ""} placeholder="https://..." disabled={!canEdit || busy} aria-label="Encuesta final" />
-            <small>{stateLabel(course.surveyUrl)}</small>
-          </label>
-        </div>
-        <div className="summary-line">
-          <span>Grupo: {statusPill(course.whatsappGroupUrl)}</span>
-          <span>Curso completo: {statusPill(course.courseCompleteUrl)}</span>
-          <span>Encuesta: {statusPill(course.surveyUrl)}</span>
+        <div className="config-rows">
+          {([
+            { campo: "whatsappGroupUrl", etiqueta: "Grupo oficial de WhatsApp", ayuda: "Enlace de invitación al grupo. Se envía 2 minutos después de la inscripción.", marcador: "https://chat.whatsapp.com/…", valor: course.whatsappGroupUrl },
+            { campo: "courseCompleteUrl", etiqueta: "Página informativa del curso completo", ayuda: "Página donde se ve contenido, horas, certificado y precio de la versión completa. No es un checkout.", marcador: "https://ra-training.com/cursos/…", valor: course.courseCompleteUrl },
+            { campo: "surveyUrl", etiqueta: "Encuesta final", ayuda: "Se envía 48 horas después de terminar la última sesión.", marcador: "https://forms.gle/…", valor: course.surveyUrl },
+          ] as const).map((fila) => (
+            <label className="config-row" key={fila.campo}>
+              <span className="config-row-head">
+                <strong>{fila.etiqueta}</strong>
+                {statusPill(fila.valor)}
+              </span>
+              <input
+                name={fila.campo}
+                type="url"
+                defaultValue={fila.valor ?? ""}
+                placeholder={fila.marcador}
+                disabled={!canEdit || busy}
+                aria-label={fila.etiqueta}
+              />
+              <small>{fila.ayuda}</small>
+            </label>
+          ))}
         </div>
         {canEdit ? <button className="btn-sm" type="submit" disabled={busy}>{busy ? "Guardando..." : "Guardar configuración"}</button> : null}
         {message ? <p className="muted" role="status">{message}</p> : null}

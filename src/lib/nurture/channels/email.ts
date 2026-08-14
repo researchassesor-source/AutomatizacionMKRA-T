@@ -45,7 +45,18 @@ export class EmailChannel implements MessageChannelAdapter {
         providerName: "smtp",
         errorCode: result.errorCode,
         error: result.error,
-        providerResponse: { transport: "smtp", host: smtpConfig.smtp.host, port: smtpConfig.smtp.port },
+        // Se guarda la respuesta literal del servidor. Sin ella, 572 fallos
+        // decian "rechazo al destinatario" sin ninguna prueba de que el
+        // problema fuera el destinatario, y no habia forma de averiguarlo
+        // despues porque el dato se tiraba en el momento.
+        providerResponse: {
+          transport: "smtp",
+          host: smtpConfig.smtp.host,
+          port: smtpConfig.smtp.port,
+          respuesta: result.detalle?.respuesta ?? null,
+          codigoSmtp: result.detalle?.codigoSmtp ?? null,
+          etapa: result.detalle?.etapa ?? null,
+        },
       };
     }
     return {

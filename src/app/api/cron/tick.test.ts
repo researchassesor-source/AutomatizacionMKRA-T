@@ -15,6 +15,7 @@ const CLAVE_FIRMA = "clave-de-firma-de-prueba";
 
 const procesarPublicaciones = vi.fn();
 const procesarComunicaciones = vi.fn();
+const cerrarInscripciones = vi.fn();
 
 vi.mock("@/lib/social/orchestrator", () => ({
   processScheduledPosts: (...args: unknown[]) => procesarPublicaciones(...args),
@@ -22,6 +23,7 @@ vi.mock("@/lib/social/orchestrator", () => ({
 }));
 vi.mock("@/lib/nurture/engine", () => ({
   processScheduledMessages: (...args: unknown[]) => procesarComunicaciones(...args),
+  finalizeCompletedCourseEnrollments: (...args: unknown[]) => cerrarInscripciones(...args),
 }));
 
 const SOCIAL_VACIO = { blocked: false, errorCode: null, error: null, expanded: 0, processed: 0, results: [] };
@@ -48,6 +50,7 @@ beforeEach(() => {
   delete process.env.QSTASH_NEXT_SIGNING_KEY;
   procesarPublicaciones.mockReset().mockResolvedValue(SOCIAL_VACIO);
   procesarComunicaciones.mockReset().mockResolvedValue(NURTURE_VACIO);
+  cerrarInscripciones.mockReset().mockResolvedValue({ completed: 0, cancelled: 0 });
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -136,6 +139,43 @@ describe("ejecución de los dos subsistemas", () => {
     expect(cuerpo.comunicaciones).toMatchObject({ estado: "bloqueado", errorCode: "WHATSAPP_DISABLED" });
     // El reloj hizo su trabajo: el canal decidió no enviar, que es lo correcto.
     expect(cuerpo.ok).toBe(true);
+  });
+});
+
+describe("cierre de cursos terminados", () => {
+  it("se ejecuta en cada tick", async () => {
+    // `finalizeCompletedCourseEnrollments` existia y NO la llamaba nadie. Por
+    // eso ningun curso se cerraba y 37 bienvenidas de agosto seguian en cola
+    // ofreciendose como "listo para enviar" despues de terminar el curso.
+    const { GET } = await import("./tick/route");
+    await GET(conBearer());
+    expect(cerrarInscripciones).toHaveBeenCalledTimes(1);
+  });
+
+  it("informa de lo cerrado y lo cancelado", async () => {
+    cerrarInscripciones.mockResolvedValue({ completed: 2, cancelled: 37 });
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.cierres).toMatchObject({ estado: "ok", resumen: { inscripcionesCerradas: 2, avisosCancelados: 37 } });
+  });
+
+  it("se ejecuta ANTES de despachar, para que lo cancelado no salga en el mismo tick", async () => {
+    const orden: string[] = [];
+    cerrarInscripciones.mockImplementation(async () => { orden.push("cierres"); return { completed: 0, cancelled: 0 }; });
+    procesarComunicaciones.mockImplementation(async () => { orden.push("comunicaciones"); return NURTURE_VACIO; });
+    const { GET } = await import("./tick/route");
+    await GET(conBearer());
+    expect(orden[0]).toBe("cierres");
+  });
+
+  it("si el cierre falla, el despacho sigue ejecutandose", async () => {
+    cerrarInscripciones.mockRejectedValue(new Error("base caída"));
+    const errores = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.cierres).toMatchObject({ estado: "error" });
+    expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
+    errores.mockRestore();
   });
 });
 

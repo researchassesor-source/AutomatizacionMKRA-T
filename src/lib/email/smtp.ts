@@ -45,13 +45,51 @@ export function resetSmtpTransporter() {
 
 export type SmtpSendResult =
   | { ok: true; messageId: string | null; accepted: number; response: string }
-  | { ok: false; errorCode: string; error: string };
+  | { ok: false; errorCode: string; error: string; detalle?: SmtpDetalle };
+
+/**
+ * Lo que el servidor respondio de verdad, ya recortado.
+ *
+ * Nunca contiene credenciales: son la respuesta SMTP, el codigo numerico y las
+ * direcciones que el servidor rechazo, que es exactamente lo que hace falta
+ * para saber a quien reclamar.
+ */
+export type SmtpDetalle = {
+  /** Respuesta literal del servidor, p. ej. "550 5.7.1 Relay denied". */
+  respuesta: string | null;
+  /** Codigo numerico SMTP, cuando el servidor lo devuelve. */
+  codigoSmtp: number | null;
+  /** Etapa en la que fallo: saludo, autenticacion, remitente, destinatario… */
+  etapa: string | null;
+  rechazados: string[];
+};
+
+/**
+ * Detalle sanitizado del fallo.
+ *
+ * Se separa del mensaje humano a proposito. `EENVELOPE` de nodemailer NO
+ * significa "el destinatario es invalido": cubre cualquier rechazo del sobre,
+ * incluido el remitente y el relay. Traducirlo directamente como problema del
+ * destinatario fue lo que hizo que 572 fallos apuntaran al sitio equivocado
+ * mientras la respuesta real del servidor se tiraba a la basura.
+ */
+export function detalleSmtp(error: unknown): SmtpDetalle {
+  const raw = error as
+    | { response?: string; responseCode?: number; command?: string; rejected?: string[]; message?: string }
+    | null;
+  return {
+    respuesta: raw?.response ? String(raw.response).slice(0, 300) : (raw?.message ? String(raw.message).slice(0, 300) : null),
+    codigoSmtp: typeof raw?.responseCode === "number" ? raw.responseCode : null,
+    etapa: raw?.command ? String(raw.command).slice(0, 40) : null,
+    rechazados: Array.isArray(raw?.rejected) ? raw.rejected.map(String).slice(0, 10) : [],
+  };
+}
 
 /**
  * Traduce los codigos de nodemailer/SMTP a un texto que el administrador pueda
- * accionar. El detalle tecnico completo queda en `providerResponse`.
+ * accionar. El detalle tecnico completo va aparte, en `detalle`.
  */
-export function describeSmtpError(error: unknown): { errorCode: string; error: string } {
+export function describeSmtpError(error: unknown): { errorCode: string; error: string; detalle: SmtpDetalle } {
   const raw = error as { code?: string; responseCode?: number; message?: string } | null;
   const code = raw?.code ?? (raw?.responseCode ? `SMTP_${raw.responseCode}` : "SMTP_ERROR");
   const map: Record<string, string> = {
@@ -60,10 +98,17 @@ export function describeSmtpError(error: unknown): { errorCode: string; error: s
     ECONNREFUSED: "El servidor de correo rechazó la conexión.",
     ETIMEDOUT: "El servidor de correo no respondió a tiempo.",
     ESOCKET: "La conexión segura con el servidor de correo falló.",
-    EENVELOPE: "El servidor de correo rechazó la dirección del destinatario.",
+    // Deliberadamente NO dice "el destinatario es invalido": EENVELOPE tambien
+    // se produce cuando el servidor rechaza al remitente o deniega el relay, y
+    // afirmar de mas manda a revisar la direccion equivocada.
+    EENVELOPE: "El servidor de correo rechazó el envío (remitente o destinatario). Revisa el detalle técnico para saber cuál.",
     EDNS: "No se pudo resolver el nombre del servidor de correo.",
   };
-  return { errorCode: code.slice(0, 120), error: map[code] ?? "El servidor de correo rechazó el envío." };
+  return {
+    errorCode: code.slice(0, 120),
+    error: map[code] ?? "El servidor de correo rechazó el envío.",
+    detalle: detalleSmtp(error),
+  };
 }
 
 export async function sendSmtpEmail(

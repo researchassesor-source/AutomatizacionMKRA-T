@@ -307,7 +307,8 @@ async function upsertAutomationMessage(input: {
   return "updated";
 }
 
-function scheduleTargets(
+/** Exportada para poder fijar en pruebas el calendario de los 11 momentos. */
+export function scheduleTargets(
   rule: { trigger: string; offsetMinutes: number; planKey?: string | null },
   sessions: readonly ResolvedCourseSession[],
   enrollmentId: string,
@@ -341,13 +342,28 @@ function scheduleTargets(
       return [{ session, contentSession: session, scheduledAt, stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey }];
     });
   }
-  if (rule.trigger === "AFTER_COURSE" && rule.planKey === "late_access") {
-    return sessions.map((session) => ({
-      session,
-      contentSession: session,
-      scheduledAt: new Date(session.startAt.getTime() + Math.abs(rule.offsetMinutes) * 60_000),
-      stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey,
-    }));
+  /**
+   * Avisos que ocurren UNA VEZ POR SESION, no una vez por curso.
+   *
+   *   late_access -> se cuenta desde que la sesion EMPIEZA (quien llega tarde).
+   *   thank_you   -> se cuenta desde que la sesion TERMINA (cierre de sesion).
+   *
+   * `thank_you` caia antes en el bloque final, que solo produce un objetivo
+   * medido desde el fin del curso. En un curso de tres sesiones eso significaba
+   * un unico "fin de sesion" al terminar la tercera, y ningun cierre en la
+   * primera ni en la segunda, que son justo las que deben anunciar cual es la
+   * siguiente.
+   */
+  if (rule.trigger === "AFTER_COURSE" && (rule.planKey === "late_access" || rule.planKey === "thank_you")) {
+    return sessions.map((session) => {
+      const referencia = rule.planKey === "thank_you" ? (session.endAt ?? session.startAt) : session.startAt;
+      return {
+        session,
+        contentSession: session,
+        scheduledAt: new Date(referencia.getTime() + Math.abs(rule.offsetMinutes) * 60_000),
+        stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey,
+      };
+    });
   }
   const final = lastSession(sessions);
   const completion = courseCompletionMoment(sessions);
@@ -510,7 +526,17 @@ export async function scheduleEnrollmentAutomations(
       const missingStreamUrl = rule.requiresStreamUrl && !target.contentSession?.streamUrl;
       const vars = templateVariables(enrollment.lead, enrollment.course, target.contentSession);
       const missingWhatsappGroupUrl = (rule.planKey === "whatsapp_group" || rule.body.includes("{{link_grupo_whatsapp}}")) && !vars.link_grupo_whatsapp;
-      const missingCourseCompleteUrl = (rule.planKey === "course_complete" || rule.body.includes("{{link_curso_completo}}")) && !vars.link_curso_completo;
+      /**
+       * El seguimiento tambien depende del enlace, aunque no lo incluya.
+       *
+       * `course_follow_up` es el seguimiento DE la oferta del curso completo.
+       * Si el mensaje que presenta esa oferta quedo bloqueado por falta de
+       * enlace, el seguimiento llegaria hablando de algo que la persona nunca
+       * recibio. Se bloquean los dos juntos y se desbloquean juntos.
+       */
+      const missingCourseCompleteUrl =
+        (rule.planKey === "course_complete" || rule.planKey === "course_follow_up" || rule.body.includes("{{link_curso_completo}}"))
+        && !vars.link_curso_completo;
       const missingSurveyUrl = (rule.planKey === "survey" || rule.body.includes("{{link_encuesta}}")) && !vars.link_encuesta;
       // WhatsApp resuelve aqui su plantilla, no al enviar: asi el mensaje
       // guarda exactamente lo que saldra, y un problema de plantilla se ve al
@@ -703,13 +729,28 @@ export async function finalizeCompletedCourseEnrollments(now = new Date()) {
       : 0;
     if (futureValid > 0) continue;
     await prisma.enrollment.update({ where: { id: enrollment.id }, data: { status: "COMPLETADO" } });
+    /**
+     * Se cancela TODO lo pendiente, no solo lo futuro.
+     *
+     * Este filtro llevaba `scheduledAt: { gt: now }`, de modo que un mensaje
+     * cuya hora ya habia pasado sin llegar a salir sobrevivia a la
+     * finalizacion del curso y quedaba en la cola como "listo para enviar"
+     * indefinidamente. Ocurrio de verdad: 37 bienvenidas del 7 al 10 de agosto
+     * seguian en cola despues de que el curso terminara el 13, y el panel
+     * ofrecia enviarlas. La bienvenida esta exenta del filtro de fechas
+     * pasadas —debe salir aunque se programe con retraso— pero esa excencion
+     * deja de tener sentido cuando el curso al que da la bienvenida ya acabo.
+     *
+     * Un aviso que no salio a tiempo no se envia tarde: se cancela.
+     */
     const pending = await prisma.outboundMessage.updateMany({
-      where: { enrollmentId: enrollment.id, status: { in: ["PROGRAMADO", "OMITIDO"] }, scheduledAt: { gt: now } },
+      where: { enrollmentId: enrollment.id, status: { in: ["PROGRAMADO", "OMITIDO"] } },
       data: {
         status: "CANCELADO",
         cancelledAt: now,
+        nextAttemptAt: null,
         errorCode: "COURSE_COMPLETED",
-        errorMessage: "El curso ya finalizo; se cancelaron las comunicaciones futuras de esta inscripcion.",
+        errorMessage: "El curso terminó antes de que este aviso pudiera salir, así que se canceló para no escribir fuera de tiempo.",
       },
     });
     completed++;

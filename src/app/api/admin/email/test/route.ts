@@ -83,7 +83,13 @@ R.A. Training`,
     metadata: { provider: "smtp", host: config.smtp.host, accepted: result.ok, errorCode: result.ok ? null : result.errorCode },
   });
   if (!result.ok) {
-    return NextResponse.json({ ok: false, verified: true, sent: false, configuration: summary, errorCode: result.errorCode, error: result.error }, { status: 502 });
+    // El detalle del servidor se devuelve tal cual lo dio: sin el, un rechazo
+    // del relay y una direccion invalida se leen igual, y solo uno de los dos
+    // se arregla cambiando la direccion.
+    return NextResponse.json(
+      { ok: false, verified: true, sent: false, configuration: summary, errorCode: result.errorCode, error: result.error, detalle: result.detalle ?? null },
+      { status: 502 },
+    );
   }
   return NextResponse.json({ ok: true, verified: true, sent: true, configuration: summary, message: "Correo de prueba enviado correctamente." });
 }

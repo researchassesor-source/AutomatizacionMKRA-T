@@ -1,4 +1,4 @@
-import { processScheduledMessages } from "@/lib/nurture/engine";
+import { finalizeCompletedCourseEnrollments, processScheduledMessages } from "@/lib/nurture/engine";
 import { processScheduledPosts } from "@/lib/social/orchestrator";
 
 /**
@@ -33,6 +33,7 @@ export type ResultadoTick = {
   duracionMs: number;
   social: ResultadoSubsistema;
   comunicaciones: ResultadoSubsistema;
+  cierres: ResultadoSubsistema;
 };
 
 /** Un fallo inesperado no puede tumbar el reloj entero ni el otro subsistema. */
@@ -84,7 +85,30 @@ async function ejecutarComunicaciones(ahora: Date): Promise<ResultadoSubsistema>
 }
 
 /**
- * Ejecuta los dos subsistemas y devuelve que paso en cada uno.
+ * Cierre de inscripciones cuyo curso ya termino.
+ *
+ * `finalizeCompletedCourseEnrollments` existia, estaba exportada y NO la
+ * llamaba nadie. Por eso ningun curso se cerraba nunca y sus avisos pendientes
+ * se quedaban en la cola para siempre: 37 bienvenidas de agosto seguian
+ * ofreciendose como "listo para enviar" despues de que el curso acabara.
+ *
+ * Marca COMPLETADO solo cuando ya no queda ninguna comunicacion futura valida,
+ * de modo que los avisos posteriores al curso —curso completo, seguimiento y
+ * encuesta— salen antes de cerrar.
+ */
+async function ejecutarCierres(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await finalizeCompletedCourseEnrollments(ahora);
+  return {
+    estado: "ok",
+    resumen: {
+      inscripcionesCerradas: resumen.completed,
+      avisosCancelados: resumen.cancelled,
+    },
+  };
+}
+
+/**
+ * Ejecuta los subsistemas y devuelve que paso en cada uno.
  *
  * `ok` es cierto solo si ninguno lanzo una excepcion. Un subsistema bloqueado
  * por configuracion NO es un fallo del reloj: el reloj hizo su trabajo y el
@@ -93,16 +117,20 @@ async function ejecutarComunicaciones(ahora: Date): Promise<ResultadoSubsistema>
 export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
   const inicio = Date.now();
   // En paralelo y aislados: ninguno espera al otro ni puede tumbarlo.
+  // Los cierres van ANTES de despachar: si el curso ya termino, sus avisos
+  // pendientes se cancelan y el despacho de este mismo tick ya no los ve.
+  const cierres = await aislar("cierres", () => ejecutarCierres(ahora));
   const [social, comunicaciones] = await Promise.all([
     aislar("social", () => ejecutarSocial(ahora)),
     aislar("comunicaciones", () => ejecutarComunicaciones(ahora)),
   ]);
 
   return {
-    ok: social.estado !== "error" && comunicaciones.estado !== "error",
+    ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error",
     ejecutadoEn: ahora.toISOString(),
     duracionMs: Date.now() - inicio,
     social,
     comunicaciones,
+    cierres,
   };
 }

@@ -2317,3 +2317,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .attention-item .attention-copy { grid-template-columns: 1fr; }
   .attention-item .attention-copy > .pill, .attention-item .attention-copy > strong, .attention-item .attention-copy > small { grid-column: 1; grid-row: auto; }
 }
+
+/* ── Configuracion de enlaces del curso ─────────────────────────────────── */
+/* Una fila por enlace: en rejilla de tres columnas los campos quedaban tan
+   estrechos que no se veia ni el dominio de la URL escrita. */
+.config-rows { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+.config-row { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.config-row-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.config-row-head strong { font-size: .86rem; color: var(--ink); }
+.config-row input { width: 100%; }
+.config-row small { color: var(--muted); font-size: .76rem; line-height: 1.45; }

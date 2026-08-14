@@ -112,7 +112,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   const post = await prisma.socialPost.findUnique({ where: { id } });
   if (!post) return NextResponse.json({ error: "No se encontró la publicación." }, { status: 404 });
-  if (!canDeleteLocalSocialPost(post.status, post.externalPostId)) {
+  if (!canDeleteLocalSocialPost(post.status, post.externalPostId, post.publishId)) {
     return NextResponse.json({ error: "Este registro tiene evidencia o estado de proveedor. Archívalo localmente; no se eliminará contenido externo." }, { status: 409 });
   }
   await prisma.$transaction([

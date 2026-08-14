@@ -10,8 +10,10 @@ import { cuentasCanonicasPorRed } from "@/lib/social/cuentas";
 import { RedesManager } from "./RedesManager";
 import { PublishComposer } from "./PublishComposer";
 import { PostsBoard } from "./PostsBoard";
-import { TikTokPanel } from "./TikTokPanel";
-import { socialConnectionState } from "@/lib/social/orchestrator";
+import { TikTokBusinessPanel } from "./TikTokBusinessPanel";
+import { isSocialSimulation, socialConnectionState } from "@/lib/social/orchestrator";
+import { scopesFromJson } from "@/lib/social/tiktok-business/account";
+import { hasRequiredTikTokBusinessScopes, resolveTikTokBusinessConfig } from "@/lib/social/tiktok-business/config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,17 +23,26 @@ export default async function SocialPage() {
   if (!session || !CONTENIDO.includes(session.role)) {
     return <main className="container admin-shell"><AdminNav view={view} /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para administrar redes sociales." /></main>;
   }
-  const [accounts, posts, schedules] = await Promise.all([
+  const businessConfigured = resolveTikTokBusinessConfig().connectionReason === null;
+  const [rawAccounts, businessConnections, posts, schedules] = await Promise.all([
     prisma.socialAccount.findMany({ orderBy: { createdAt: "desc" } }),
+    businessConfigured ? prisma.tikTokBusinessConnection.findMany() : Promise.resolve([]),
     prisma.socialPost.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { account: true } }),
     prisma.socialSchedule.findMany({ orderBy: { nextRunAt: "asc" }, include: { account: true } }),
   ]);
+  const connectionByAccount = new Map(businessConnections.map((connection) => [connection.socialAccountId, connection]));
+  const accounts = rawAccounts.map((account) => ({ ...account, tiktokBusiness: connectionByAccount.get(account.id) ?? null }));
   // Solo las cuentas que de verdad pueden publicar. Mostrar las inactivas o de
   // prueba en la pantalla de publicar invita a elegir una que no envia nada.
   // Un mismo destino puede tener varias conexiones historicas. Gana la que
   // lleva el identificador real del proveedor (numerico o token de la API);
   // las que guardan una URL son registros antiguos hechos a mano.
-  const activas = accounts.filter((account) => account.isActive && ["SIMULATION", "READY"].includes(socialConnectionState(account.platform)));
+  const activas = accounts.filter((account) => {
+    if (!account.isActive || !["SIMULATION", "READY"].includes(socialConnectionState(account.platform))) return false;
+    if (account.platform !== "TIKTOK" || isSocialSimulation()) return true;
+    const connection = account.tiktokBusiness;
+    return Boolean(connection?.status === "READY" && connection.accessTokenCipher && hasRequiredTikTokBusinessScopes(scopesFromJson(connection.grantedScopes)));
+  });
   // La seleccion vive en `lib/social/cuentas`, con pruebas: aqui estaba
   // escrita a mano y nadie podia comprobar que elegia la cuenta correcta.
   const publicables = cuentasCanonicasPorRed(activas).map((account) => ({
@@ -85,8 +96,8 @@ export default async function SocialPage() {
           <div className="social-advanced-content">
             <IntegrationStatusPanel technical only={["facebook", "instagram", "tiktok", "whatsapp", "meta_ads"]} />
             <details className="technical-subtools">
-              <summary>Administrar conexión de TikTok</summary>
-              <TikTokPanel />
+              <summary>Administrar conexión de TikTok Business</summary>
+              <TikTokBusinessPanel />
             </details>
             <RedesManager
               technicalOnly

@@ -9,6 +9,7 @@ import { isMessagingSimulation } from "@/lib/nurture/engine";
 import { describeMetaConfig, resolveMetaConfig } from "@/lib/social/meta-config";
 import { isSocialSimulation } from "@/lib/social/orchestrator";
 import { describeWhatsAppConfig } from "@/lib/whatsapp/config";
+import { describeTikTokBusinessConfig } from "@/lib/social/tiktok-business/config";
 
 const guayaquil = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Guayaquil" });
 
@@ -159,18 +160,22 @@ function metaStatus(platform: "FACEBOOK" | "INSTAGRAM", verificadas: Publicacion
 }
 
 function tiktokStatus(): IntegrationStatus {
-  const configured = Boolean(process.env.TIKTOK_CLIENT_KEY?.trim() && process.env.TIKTOK_CLIENT_SECRET?.trim());
-  // El CRM no tiene ruta de publicación productiva a TikTok: no hay Login Kit,
-  // ni callback, ni almacenamiento de tokens. Declararla "operativa" porque
-  // existan credenciales sería engañoso.
+  const config = describeTikTokBusinessConfig();
+  if (config.reason) {
+    return {
+      key: "tiktok",
+      name: "TikTok Business",
+      state: "PENDING_PROVIDER_APPROVAL",
+      detail: config.reason,
+      nextStep: "Cuando TikTok apruebe la aplicación, configura App ID, Secret y las variables Business; después conecta la cuenta.",
+    };
+  }
   return {
     key: "tiktok",
-    name: "TikTok",
-    state: configured ? "PENDING_PROVIDER_APPROVAL" : "NOT_READY",
-    detail: configured
-      ? "Aplicación y Sandbox configurados en el portal de TikTok, pero el CRM aún no implementa Login Kit, callback ni publicación."
-      : "Configuración externa lista en el portal de TikTok (Sandbox). El CRM no tiene integración implementada.",
-    nextStep: "Falta: Login Kit con state firmado, callback /api/integrations/tiktok/callback, almacenamiento y refresco de tokens, y prueba en Sandbox. No se pueden crear publicaciones de TikTok hasta entonces.",
+    name: "TikTok Business",
+    state: "CONNECTED_UNVERIFIED",
+    detail: "La integración Business está configurada; el estado de la cuenta autorizada se muestra en el panel técnico.",
+    nextStep: "Conecta la cuenta y completa una publicación controlada para verificar el canal de extremo a extremo.",
   };
 }
 

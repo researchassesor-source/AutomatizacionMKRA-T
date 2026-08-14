@@ -15,6 +15,8 @@ import {
 import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
 import { writeAudit } from "@/lib/audit";
 import { inferSocialMediaType, type SocialMediaType } from "./media";
+import { TikTokBusinessAdapter } from "./tiktok-business/adapter";
+import { resolveTikTokBusinessConfig } from "./tiktok-business/config";
 
 /**
  * Los adaptadores se construyen en cada uso para leer la configuracion vigente
@@ -50,9 +52,10 @@ export function isSocialSimulation(): boolean {
 }
 
 export function socialConnectionState(platform: Platform): SocialConnectionState {
+  if (isSocialSimulation()) return "SIMULATION";
+  if (platform === "TIKTOK") return resolveTikTokBusinessConfig().reason ? "NOT_CONFIGURED" : "READY";
   const adapter = getAdapter(platform);
   if (!adapter) return "UNSUPPORTED";
-  if (isSocialSimulation()) return "SIMULATION";
   return adapter.isConfigured() ? "READY" : "NOT_CONFIGURED";
 }
 
@@ -60,8 +63,8 @@ export function isSocialAccountUsable(platform: Platform): boolean {
   return ["SIMULATION", "READY"].includes(socialConnectionState(platform));
 }
 
-export function canDeleteLocalSocialPost(status: PostStatus, externalPostId?: string | null) {
-  return !externalPostId && ["BORRADOR", "SIMULADO", "FALLIDO", "CANCELADO", "ARCHIVADO"].includes(status);
+export function canDeleteLocalSocialPost(status: PostStatus, externalPostId?: string | null, publishId?: string | null) {
+  return !externalPostId && !publishId && ["BORRADOR", "SIMULADO", "FALLIDO", "CANCELADO", "ARCHIVADO"].includes(status);
 }
 
 export async function verifyPlatformConnection(platform: Platform) {
@@ -199,7 +202,7 @@ export async function publishPost(postId: string) {
   }
   const scheduled = await prisma.socialPost.findUnique({
     where: { id: postId },
-    select: { scheduledAt: true, status: true, providerStatus: true, externalPostId: true },
+    select: { scheduledAt: true, status: true, providerStatus: true, externalPostId: true, publishId: true },
   });
   if (!scheduled) return { ok: false, error: "No se encontró la publicación." };
   // Un borrador sin fecha se publica a mano desde el panel: la fecha de corte
@@ -211,7 +214,7 @@ export async function publishPost(postId: string) {
 
   const continuingProviderProcessing = scheduled.status === "ACEPTADO"
     && scheduled.providerStatus === "PROCESSING"
-    && Boolean(scheduled.externalPostId);
+    && Boolean(scheduled.externalPostId || scheduled.publishId);
   const claimed = await prisma.socialPost.updateMany({
     where: {
       id: postId,
@@ -222,6 +225,7 @@ export async function publishPost(postId: string) {
       // publicarse nunca: es la garantia de que un cron repetido no duplica
       // contenido en Facebook o Instagram.
       externalPostId: continuingProviderProcessing ? scheduled.externalPostId : null,
+      publishId: continuingProviderProcessing ? scheduled.publishId : null,
       ...(continuingProviderProcessing ? { providerStatus: "PROCESSING" } : {}),
       account: { isActive: true },
     },
@@ -242,7 +246,18 @@ export async function publishPost(postId: string) {
     return { ok: true, simulated: true };
   }
 
-  const adapter = getAdapter(post.account.platform, post.account.externalId);
+  let adapter: SocialAdapter | undefined;
+  if (post.account.platform === "TIKTOK") {
+    const businessConfig = resolveTikTokBusinessConfig();
+    const businessConnection = businessConfig.reason
+      ? null
+      : await prisma.tikTokBusinessConnection.findUnique({ where: { socialAccountId: post.account.id } });
+    adapter = businessConnection && post.account.externalId
+      ? new TikTokBusinessAdapter(post.account.id, post.account.externalId, effectiveSchedule)
+      : undefined;
+  } else {
+    adapter = getAdapter(post.account.platform, post.account.externalId);
+  }
   if (!adapter) {
     const error = "Esta red todavía no tiene un conector habilitado.";
     await prisma.socialPost.update({
@@ -259,6 +274,7 @@ export async function publishPost(postId: string) {
     mediaUrl: post.mediaUrl ?? undefined,
     mediaType: mediaType ?? undefined,
     linkUrl: post.linkUrl ?? undefined,
+    publishId: post.publishId ?? undefined,
     externalPostId: post.externalPostId ?? undefined,
     providerStatus: post.providerStatus ?? undefined,
     providerState: previousProviderState,
@@ -266,7 +282,7 @@ export async function publishPost(postId: string) {
   // Un "ok" sin identificador del proveedor no es una publicación verificable.
   // Marcarla como publicada dejaría un registro que afirma algo que no podemos
   // demostrar, así que se trata como fallo reintentable.
-  const result = rawResult.ok && !rawResult.externalPostId
+  const result = rawResult.ok && !rawResult.externalPostId && !rawResult.publishId
     ? {
         ...rawResult,
         ok: false,
@@ -281,6 +297,7 @@ export async function publishPost(postId: string) {
           status: result.accepted ? "ACEPTADO" : "PUBLICADO",
           publishedAt: result.accepted ? null : new Date(),
           publishStartedAt: null,
+          publishId: result.publishId ?? post.publishId,
           externalPostId: result.externalPostId,
           providerStatus: result.providerStatus ?? (result.accepted ? "PROCESSING" : "PUBLISHED"),
           providerPostUrl: result.providerPostUrl,
@@ -297,6 +314,7 @@ export async function publishPost(postId: string) {
           errorCode: result.errorCode?.slice(0, 120) ?? "PROVIDER_ERROR",
           errorMessage: result.error?.slice(0, 500) ?? "No se pudo publicar.",
           providerStatus: result.providerStatus ?? "ERROR",
+          publishId: result.publishId ?? post.publishId,
           providerResponse: { ...(mediaType ? { mediaType } : {}), ...(result.providerResponse ?? {}) },
         },
   });
@@ -323,7 +341,7 @@ export async function processScheduledPosts(now = new Date()) {
     where: {
       status: "PUBLICANDO",
       providerStatus: "PROCESSING",
-      externalPostId: { not: null },
+      OR: [{ externalPostId: { not: null } }, { publishId: { not: null } }],
       publishStartedAt: { lt: new Date(now.getTime() - 15 * 60 * 1000) },
     },
     data: { status: "ACEPTADO", publishStartedAt: null, error: null },
@@ -339,8 +357,8 @@ export async function processScheduledPosts(now = new Date()) {
     where: {
       status: "ACEPTADO",
       providerStatus: "PROCESSING",
-      externalPostId: { not: null },
-      account: { isActive: true, platform: { in: ["FACEBOOK", "INSTAGRAM"] } },
+      OR: [{ externalPostId: { not: null } }, { publishId: { not: null } }],
+      account: { isActive: true, platform: { in: ["FACEBOOK", "INSTAGRAM", "TIKTOK"] } },
     },
     orderBy: { publishStartedAt: "asc" },
     take: 25,

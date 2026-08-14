@@ -14,6 +14,8 @@ export interface PublishInput {
   mediaUrl?: string;
   mediaType?: "IMAGE" | "VIDEO";
   linkUrl?: string;
+  /** Identificador de la operación asíncrona; no es el ID público final. */
+  publishId?: string;
   externalPostId?: string;
   providerStatus?: string;
   providerState?: Record<string, string | number | boolean | null>;
@@ -21,6 +23,8 @@ export interface PublishInput {
 
 export interface PublishResult {
   ok: boolean;
+  /** Identificador de la operación asíncrona; no es el ID público final. */
+  publishId?: string;
   externalPostId?: string;
   providerPostUrl?: string;
   accepted?: boolean;

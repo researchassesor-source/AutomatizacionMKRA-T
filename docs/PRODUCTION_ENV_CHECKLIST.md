@@ -18,6 +18,11 @@ No se guardan valores en el repositorio. Esta lista documenta nombres, finalidad
 | `SOCIAL_MODE` | Obligatoria | Debe iniciar en `simulation`; `live` requiere aprobación. |
 | `META_APP_ID`, `META_APP_SECRET`, `META_PAGE_ID`, `META_IG_USER_ID`, `META_ACCESS_TOKEN` | Opcionales | Conector Meta; todos los valores requeridos dependen de la red. |
 | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REFRESH_TOKEN`, `TIKTOK_PRIVACY` | Opcionales | Conector TikTok. |
+| `TIKTOK_BUSINESS_MODE` | Obligatoria para Business | `disabled` hasta aprobación; `live` habilita OAuth/publicación fail-closed. |
+| `TIKTOK_BUSINESS_APP_ID`, `TIKTOK_BUSINESS_SECRET` | Pendientes de TikTok | Credenciales de la aplicación Accounts API. |
+| `TIKTOK_BUSINESS_ACCOUNT_REDIRECT_URI`, `TIKTOK_BUSINESS_ADVERTISER_REDIRECT_URI` | Obligatorias para Business | Callbacks HTTPS registrados en TikTok Business. |
+| `TIKTOK_BUSINESS_OAUTH_STATE_SECRET`, `TIKTOK_BUSINESS_TOKEN_ENCRYPTION_KEY` | Obligatorias para Business | Firma OAuth y cifrado AES-256-GCM; valores distintos y secretos. |
+| `TIKTOK_BUSINESS_LIVE_FROM` | Obligatoria en `live` | Fecha ISO 8601 desde la cual TikTok Business puede publicar. |
 | `MESSAGING_MODE` | Obligatoria | Debe iniciar en `simulation`; `live` requiere aprobación. |
 | `EMAIL_API_KEY`, `EMAIL_FROM` | Opcionales | Canal de correo. |
 | `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN` | Opcionales | Canal WhatsApp Cloud API. |
@@ -30,3 +35,7 @@ No se guardan valores en el repositorio. Esta lista documenta nombres, finalidad
 `POSTGRES_PRISMA_URL` es la conexión pooled de runtime. `POSTGRES_URL_NON_POOLING` es la conexión directa declarada como `directUrl` en Prisma. En Preview ambas deben pertenecer a la rama Neon aislada; nunca se copian desde Producción. El build de Producción valida y genera Prisma Client, pero no ejecuta `migrate deploy`.
 
 Verificar por nombre y presencia, nunca imprimir valores. Preview y Producción deben usar bases, secretos, cuentas y cron diferentes.
+
+Antes de configurar credenciales Business o cambiar `TIKTOK_BUSINESS_MODE` a `live`, aplicar la migración oficial
+`20260813010000_tiktok_business_accounts` mediante el flujo controlado de Prisma Migrate.
+Con `disabled`, el despliegue no consulta la tabla Business ni llama a TikTok.

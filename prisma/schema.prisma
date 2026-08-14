@@ -588,11 +588,44 @@ model SocialAccount {
 
   posts     SocialPost[]
   schedules SocialSchedule[]
+  tiktokBusiness TikTokBusinessConnection?
 
   @@unique([platform, externalId])
   @@index([isActive])
   @@index([platform, openId])
   @@map("social_accounts")
+}
+
+/// Conexión independiente de TikTok for Business / Accounts API.
+/// Los tokens legacy de Login Kit permanecen en SocialAccount y nunca se
+/// mezclan con estas credenciales.
+model TikTokBusinessConnection {
+  id                    String                 @id @default(cuid())
+  socialAccountId       String                 @unique
+  businessId            String                 @unique
+  username              String?
+  displayName           String?
+  avatarUrl             String?
+  grantedScopes         Json?
+  accessTokenCipher     String?
+  refreshTokenCipher    String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  tokenVersion          Int                    @default(1)
+  status                SocialConnectionStatus @default(UNKNOWN)
+  connectedAt           DateTime?
+  refreshedAt           DateTime?
+  disconnectedAt        DateTime?
+  connectionCheckedAt   DateTime?
+  lastErrorCode         String?
+  lastErrorMessage      String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@map("tiktok_business_connections")
 }
 
 enum SocialConnectionStatus {

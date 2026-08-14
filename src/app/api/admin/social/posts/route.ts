@@ -8,6 +8,8 @@ import { componerCaption, esUrlDestinoValida } from "@/lib/social/cta";
 import { motivoNoPublicable } from "@/lib/social/cuentas";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { inferSocialMediaType, isPublicSocialMediaUrl } from "@/lib/social/media";
+import { scopesFromJson } from "@/lib/social/tiktok-business/account";
+import { hasRequiredTikTokBusinessScopes, isApprovedTikTokBusinessMediaUrl, resolveTikTokBusinessConfig } from "@/lib/social/tiktok-business/config";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +76,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Termina de subir el archivo antes de programar." }, { status: 422 });
   }
   const mediaType = d.mediaUrl ? (d.mediaType ?? inferSocialMediaType(d.mediaUrl)) : null;
+  if (account.platform === "TIKTOK") {
+    const config = resolveTikTokBusinessConfig();
+    if (config.reason) return NextResponse.json({ error: config.reason }, { status: 422 });
+    const connection = await prisma.tikTokBusinessConnection.findUnique({ where: { socialAccountId: account.id } });
+    if (connection?.status !== "READY" || !connection.accessTokenCipher || !hasRequiredTikTokBusinessScopes(scopesFromJson(connection.grantedScopes))) {
+      return NextResponse.json({ error: "La cuenta TikTok Business no está conectada o no tiene todos los permisos." }, { status: 422 });
+    }
+    if (mediaType !== "VIDEO" || !d.mediaUrl || !isApprovedTikTokBusinessMediaUrl(d.mediaUrl)) {
+      return NextResponse.json({ error: "TikTok Business solo admite videos subidos al almacenamiento público autorizado del CRM." }, { status: 422 });
+    }
+  }
   /**
    * El caption se compone aqui, no al publicar.
    *

@@ -4,7 +4,7 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { describeEmailConfig, formatSender, resolveEmailConfig } from "@/lib/email/config";
 import { buildEmailDocument } from "@/lib/email/render";
-import { sendSmtpEmail, verifySmtpConnection } from "@/lib/email/smtp";
+import { sendSmtpEmail, verifySmtpConnection, type SmtpDetalle } from "@/lib/email/smtp";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
 import { TECNICO } from "@/lib/auth/roles";
 
@@ -23,6 +23,26 @@ const schema = z.object({
  * Sin `to` solo verifica credenciales; con `to` envia un unico mensaje a una
  * direccion controlada por quien administra.
  */
+/**
+ * Detalle del fallo SMTP con la forma que se guarda en la auditoria.
+ *
+ * Se aplana a proposito: los campos quedan buscables en `metadata` sin tener
+ * que abrir un objeto anidado. Todo viene ya recortado de `detalleSmtp`, y
+ * ninguno de estos campos puede contener credenciales: son la respuesta del
+ * servidor, su codigo, la etapa del dialogo y las direcciones rechazadas.
+ */
+function auditoriaSmtp(detalle: SmtpDetalle | undefined) {
+  if (!detalle) return {};
+  return {
+    smtpResponse: detalle.respuesta,
+    smtpResponseCode: detalle.codigoSmtp,
+    smtpCommand: detalle.etapa,
+    smtpMessage: detalle.mensaje,
+    smtpRejected: detalle.rechazados,
+    smtpRejectedErrors: detalle.erroresPorDestinatario,
+  };
+}
+
 export async function POST(request: Request) {
   const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
@@ -49,7 +69,7 @@ export async function POST(request: Request) {
 
   const verification = await verifySmtpConnection(config.smtp);
   if (!verification.ok) {
-    await writeAudit({ session: auth.session, action: "EMAIL_CONNECTION_TESTED", entityType: "EmailProvider", result: "FAILURE", metadata: { provider: "smtp", host: config.smtp.host, errorCode: verification.errorCode } });
+    await writeAudit({ session: auth.session, action: "EMAIL_CONNECTION_TESTED", entityType: "EmailProvider", result: "FAILURE", metadata: { provider: "smtp", host: config.smtp.host, errorCode: verification.errorCode, ...auditoriaSmtp(verification.detalle) } });
     return NextResponse.json({ ok: false, configuration: summary, errorCode: verification.errorCode, error: verification.error }, { status: 502 });
   }
 
@@ -80,7 +100,16 @@ R.A. Training`,
     action: "EMAIL_TEST_SENT",
     entityType: "EmailProvider",
     result: result.ok ? "SUCCESS" : "FAILURE",
-    metadata: { provider: "smtp", host: config.smtp.host, accepted: result.ok, errorCode: result.ok ? null : result.errorCode },
+    metadata: {
+      provider: "smtp",
+      host: config.smtp.host,
+      accepted: result.ok,
+      errorCode: result.ok ? null : result.errorCode,
+      // Sin esto la auditoria guardaba "EENVELOPE" y nada mas, y ese codigo no
+      // distingue un buzon inexistente de un relay denegado para todos. La
+      // respuesta del servidor es la unica prueba de cual de los dos fue.
+      ...(result.ok ? {} : auditoriaSmtp(result.detalle)),
+    },
   });
   if (!result.ok) {
     // El detalle del servidor se devuelve tal cual lo dio: sin el, un rechazo

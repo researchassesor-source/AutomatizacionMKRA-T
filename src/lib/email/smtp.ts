@@ -55,13 +55,25 @@ export type SmtpSendResult =
  * para saber a quien reclamar.
  */
 export type SmtpDetalle = {
-  /** Respuesta literal del servidor, p. ej. "550 5.7.1 Relay denied". */
+  /** `error.response`: respuesta literal del servidor, p. ej. "550 5.7.1 Relay denied". */
   respuesta: string | null;
-  /** Codigo numerico SMTP, cuando el servidor lo devuelve. */
+  /** `error.responseCode`: codigo numerico SMTP, cuando el servidor lo devuelve. */
   codigoSmtp: number | null;
-  /** Etapa en la que fallo: saludo, autenticacion, remitente, destinatario… */
+  /** `error.command`: etapa en la que fallo (EHLO, AUTH, MAIL FROM, RCPT TO, DATA). */
   etapa: string | null;
+  /** `error.message`: descripcion de nodemailer. Se guarda aparte de `respuesta`
+   *  porque no siempre coinciden y la del servidor es la que manda. */
+  mensaje: string | null;
+  /** `error.rejected`: direcciones que el servidor rechazo. */
   rechazados: string[];
+  /**
+   * `error.rejectedErrors`: el motivo POR DESTINATARIO.
+   *
+   * Es lo que distingue "este buzon no existe" de "el relay esta denegado para
+   * todos": si cada direccion trae su propio codigo, el problema es de esa
+   * direccion; si todas traen el mismo, el problema es de la cuenta emisora.
+   */
+  erroresPorDestinatario: Array<{ destinatario: string | null; codigoSmtp: number | null; respuesta: string | null }>;
 };
 
 /**
@@ -73,15 +85,39 @@ export type SmtpDetalle = {
  * destinatario fue lo que hizo que 572 fallos apuntaran al sitio equivocado
  * mientras la respuesta real del servidor se tiraba a la basura.
  */
+type ErrorSmtpCrudo = {
+  response?: unknown;
+  responseCode?: unknown;
+  command?: unknown;
+  rejected?: unknown;
+  rejectedErrors?: unknown;
+  message?: unknown;
+};
+
+/** Texto recortado, o null. Evita volcar respuestas enormes en la auditoria. */
+function texto(valor: unknown, maximo: number): string | null {
+  if (valor === undefined || valor === null) return null;
+  const limpio = String(valor).trim();
+  return limpio ? limpio.slice(0, maximo) : null;
+}
+
 export function detalleSmtp(error: unknown): SmtpDetalle {
-  const raw = error as
-    | { response?: string; responseCode?: number; command?: string; rejected?: string[]; message?: string }
-    | null;
+  const raw = (error ?? null) as ErrorSmtpCrudo | null;
+  const porDestinatario = Array.isArray(raw?.rejectedErrors) ? raw.rejectedErrors.slice(0, 10) : [];
   return {
-    respuesta: raw?.response ? String(raw.response).slice(0, 300) : (raw?.message ? String(raw.message).slice(0, 300) : null),
+    respuesta: texto(raw?.response, 300),
     codigoSmtp: typeof raw?.responseCode === "number" ? raw.responseCode : null,
-    etapa: raw?.command ? String(raw.command).slice(0, 40) : null,
-    rechazados: Array.isArray(raw?.rejected) ? raw.rejected.map(String).slice(0, 10) : [],
+    etapa: texto(raw?.command, 40),
+    mensaje: texto(raw?.message, 300),
+    rechazados: Array.isArray(raw?.rejected) ? raw.rejected.map((item) => String(item)).slice(0, 10) : [],
+    erroresPorDestinatario: porDestinatario.map((item) => {
+      const detalle = (item ?? {}) as { recipient?: unknown; responseCode?: unknown; response?: unknown };
+      return {
+        destinatario: texto(detalle.recipient, 254),
+        codigoSmtp: typeof detalle.responseCode === "number" ? detalle.responseCode : null,
+        respuesta: texto(detalle.response, 300),
+      };
+    }),
   };
 }
 
@@ -135,7 +171,9 @@ export async function sendSmtpEmail(
 }
 
 /** Comprobacion de credenciales sin enviar ningun mensaje. */
-export async function verifySmtpConnection(settings: SmtpSettings): Promise<{ ok: boolean; errorCode?: string; error?: string }> {
+export async function verifySmtpConnection(
+  settings: SmtpSettings,
+): Promise<{ ok: boolean; errorCode?: string; error?: string; detalle?: SmtpDetalle }> {
   try {
     await getSmtpTransporter(settings).verify();
     return { ok: true };

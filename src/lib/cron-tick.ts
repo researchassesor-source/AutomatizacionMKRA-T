@@ -1,5 +1,6 @@
 import { finalizeCompletedCourseEnrollments, processScheduledMessages } from "@/lib/nurture/engine";
 import { processScheduledPosts } from "@/lib/social/orchestrator";
+import { procesarCampanasVencidas } from "@/lib/commerce/offer-campaign";
 
 /**
  * Reloj maestro: un solo despertar para los dos subsistemas.
@@ -34,6 +35,7 @@ export type ResultadoTick = {
   social: ResultadoSubsistema;
   comunicaciones: ResultadoSubsistema;
   cierres: ResultadoSubsistema;
+  ofertas: ResultadoSubsistema;
 };
 
 /** Un fallo inesperado no puede tumbar el reloj entero ni el otro subsistema. */
@@ -108,6 +110,21 @@ async function ejecutarCierres(ahora: Date): Promise<ResultadoSubsistema> {
 }
 
 /**
+ * Ofertas de certificacion institucional cuyo momento ya llego.
+ *
+ * Solo campañas AUTOMATIC_COMMERCE: el filtro esta en la propia consulta, de
+ * modo que una campaña historica no puede llegar aqui ni aunque alguien le
+ * pusiera fecha por error. En las historicas decide una persona.
+ */
+async function ejecutarOfertas(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await procesarCampanasVencidas(ahora);
+  return {
+    estado: "ok",
+    resumen: { campanasProcesadas: resumen.campanas, ofertasEncoladas: resumen.encolados },
+  };
+}
+
+/**
  * Ejecuta los subsistemas y devuelve que paso en cada uno.
  *
  * `ok` es cierto solo si ninguno lanzo una excepcion. Un subsistema bloqueado
@@ -120,17 +137,21 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
   // Los cierres van ANTES de despachar: si el curso ya termino, sus avisos
   // pendientes se cancelan y el despacho de este mismo tick ya no los ve.
   const cierres = await aislar("cierres", () => ejecutarCierres(ahora));
+  // Las ofertas se encolan ANTES de despachar, para que el mismo tick que las
+  // crea pueda ya enviarlas en lugar de esperar al siguiente.
+  const ofertas = await aislar("ofertas", () => ejecutarOfertas(ahora));
   const [social, comunicaciones] = await Promise.all([
     aislar("social", () => ejecutarSocial(ahora)),
     aislar("comunicaciones", () => ejecutarComunicaciones(ahora)),
   ]);
 
   return {
-    ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error",
+    ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error" && ofertas.estado !== "error",
     ejecutadoEn: ahora.toISOString(),
     duracionMs: Date.now() - inicio,
     social,
     comunicaciones,
     cierres,
+    ofertas,
   };
 }

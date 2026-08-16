@@ -16,11 +16,16 @@ const CLAVE_FIRMA = "clave-de-firma-de-prueba";
 const procesarPublicaciones = vi.fn();
 const procesarComunicaciones = vi.fn();
 const cerrarInscripciones = vi.fn();
+const procesarOfertas = vi.fn();
 
 vi.mock("@/lib/social/orchestrator", () => ({
   processScheduledPosts: (...args: unknown[]) => procesarPublicaciones(...args),
   publishPost: vi.fn(),
 }));
+vi.mock("@/lib/commerce/offer-campaign", () => ({
+  procesarCampanasVencidas: (...args: unknown[]) => procesarOfertas(...args),
+}));
+
 vi.mock("@/lib/nurture/engine", () => ({
   processScheduledMessages: (...args: unknown[]) => procesarComunicaciones(...args),
   finalizeCompletedCourseEnrollments: (...args: unknown[]) => cerrarInscripciones(...args),
@@ -51,6 +56,7 @@ beforeEach(() => {
   procesarPublicaciones.mockReset().mockResolvedValue(SOCIAL_VACIO);
   procesarComunicaciones.mockReset().mockResolvedValue(NURTURE_VACIO);
   cerrarInscripciones.mockReset().mockResolvedValue({ completed: 0, cancelled: 0 });
+  procesarOfertas.mockReset().mockResolvedValue({ campanas: 0, encolados: 0 });
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -174,6 +180,32 @@ describe("cierre de cursos terminados", () => {
     const { GET } = await import("./tick/route");
     const cuerpo = await (await GET(conBearer())).json();
     expect(cuerpo.cierres).toMatchObject({ estado: "error" });
+    expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
+    errores.mockRestore();
+  });
+});
+
+describe("ofertas de certificación institucional", () => {
+  it("se procesan en cada tick", async () => {
+    const { GET } = await import("./tick/route");
+    await GET(conBearer());
+    expect(procesarOfertas).toHaveBeenCalledTimes(1);
+  });
+
+  it("informa de lo encolado sin decir que ya se envió", async () => {
+    // Encolar no es enviar: del envio se encarga el dispatcher.
+    procesarOfertas.mockResolvedValue({ campanas: 1, encolados: 51 });
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.ofertas).toMatchObject({ estado: "ok", resumen: { campanasProcesadas: 1, ofertasEncoladas: 51 } });
+  });
+
+  it("si las ofertas fallan, el despacho sigue ejecutandose", async () => {
+    procesarOfertas.mockRejectedValue(new Error("Finance caído"));
+    const errores = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.ofertas).toMatchObject({ estado: "error" });
     expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
     errores.mockRestore();
   });

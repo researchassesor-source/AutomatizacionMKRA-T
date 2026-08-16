@@ -84,6 +84,8 @@ export const TEMPLATE_VARIABLES = [
   "hora", "modalidad", "enlace", "appUrl", "streamUrl", "bloqueEnlace",
   "fechaSesion", "horaSesion", "sesion", "sesion_actual", "total_sesiones",
   "link_reunion", "link_grupo_whatsapp", "link_curso_completo", "link_encuesta", "bloqueFecha",
+  // Oferta comercial: no pertenece al plan de once mensajes.
+  "link_oferta_institucional",
 ] as const;
 
 export function renderMessageTemplate(template: string, vars: Record<string, string>): string {

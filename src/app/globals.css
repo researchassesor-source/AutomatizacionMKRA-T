@@ -2327,3 +2327,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .config-row-head strong { font-size: .86rem; color: var(--ink); }
 .config-row input { width: 100%; }
 .config-row small { color: var(--muted); font-size: .76rem; line-height: 1.45; }
+
+/* ── Modalidades comerciales del curso ──────────────────────────────────── */
+.config-subtitulo { margin: 22px 0 10px; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.config-oferta { display: flex; flex-wrap: wrap; gap: 12px; }
+.config-oferta > label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 180px; min-width: 0; }
+.config-oferta > label > small { color: var(--muted); font-size: .74rem; }
+
+/* ── Contadores de la campaña de oferta institucional ───────────────────── */
+.offer-counters { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: #f8fafc; font-size: .8rem; color: var(--muted); }
+.offer-counters strong { color: var(--ink); font-weight: 700; }

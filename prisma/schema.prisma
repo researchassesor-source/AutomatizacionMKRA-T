@@ -40,42 +40,54 @@ enum AdminRole {
 }
 
 model Course {
-  id                   String            @id @default(cuid())
-  slug                 String            @unique
-  title                String
-  subtitle             String?
-  description          String?
-  category             String?
-  officialCourseUrl    String            @default("https://ra-training.com/courses-1/")
-  courseCompleteUrl    String?
-  whatsappGroupUrl     String?
-  surveyUrl            String?
-  moodleCourseUrl      String?
-  imageUrl             String?
-  price                Decimal?          @db.Decimal(10, 2)
-  duration             String?
-  modality             String?
-  startsAt             DateTime?
-  endsAt               DateTime?
-  streamUrl            String?
-  isFree               Boolean           @default(false)
-  isPublished          Boolean           @default(false)
-  acceptsRegistrations Boolean           @default(false)
-  isLeadMagnet         Boolean           @default(false)
-  hasCertificate       Boolean           @default(false)
-  displayOrder         Int               @default(0)
-  benefits             Json?
-  externalId           String?
-  externalSource       String?
-  officialSlug         String?
-  crmSlug              String?           @unique
-  officialUrl          String?
-  lastSyncedAt         DateTime?
-  sourceUpdatedAt      DateTime?
-  syncStatus           CatalogSyncStatus @default(NEVER_SYNCED)
-  syncError            String?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  id                           String            @id @default(cuid())
+  slug                         String            @unique
+  title                        String
+  subtitle                     String?
+  description                  String?
+  category                     String?
+  officialCourseUrl            String            @default("https://ra-training.com/courses-1/")
+  courseCompleteUrl            String?
+  whatsappGroupUrl             String?
+  surveyUrl                    String?
+  moodleCourseUrl              String?
+  imageUrl                     String?
+  price                        Decimal?          @db.Decimal(10, 2)
+  /// Precios y destinos de las tres modalidades comerciales del mismo curso de
+  /// 60 horas. Se guardan por curso porque el precio inicial es de lanzamiento
+  /// y va a cambiar; la logica NUNCA decide la modalidad por el importe.
+  fullOfferPrice               Decimal?          @db.Decimal(10, 2)
+  institutionalOfferPrice      Decimal?          @db.Decimal(10, 2)
+  upgradeOfferPrice            Decimal?          @db.Decimal(10, 2)
+  institutionalOfferUrl        String?
+  upgradeOfferUrl              String?
+  /// Horas de espera tras el ultimo de los once mensajes antes de la oferta
+  /// institucional automatica. Configurable: 24 h es el valor de partida, no
+  /// una constante del codigo.
+  institutionalOfferDelayHours Int               @default(24)
+  duration                     String?
+  modality                     String?
+  startsAt                     DateTime?
+  endsAt                       DateTime?
+  streamUrl                    String?
+  isFree                       Boolean           @default(false)
+  isPublished                  Boolean           @default(false)
+  acceptsRegistrations         Boolean           @default(false)
+  isLeadMagnet                 Boolean           @default(false)
+  hasCertificate               Boolean           @default(false)
+  displayOrder                 Int               @default(0)
+  benefits                     Json?
+  externalId                   String?
+  externalSource               String?
+  officialSlug                 String?
+  crmSlug                      String?           @unique
+  officialUrl                  String?
+  lastSyncedAt                 DateTime?
+  sourceUpdatedAt              DateTime?
+  syncStatus                   CatalogSyncStatus @default(NEVER_SYNCED)
+  syncError                    String?
+  createdAt                    DateTime          @default(now())
+  updatedAt                    DateTime          @updatedAt
 
   // Relacion historica. Se conserva temporalmente para compatibilidad.
   legacyLeads     Lead[]
@@ -83,6 +95,7 @@ model Course {
   campaigns       Campaign[]
   automationRules AutomationRule[]
   sessions        CourseSession[]
+  offerCampaigns  CertificationOfferCampaign[]
 
   @@unique([externalSource, externalId])
   @@index([isPublished, displayOrder])
@@ -196,35 +209,46 @@ enum LeadStage {
 }
 
 model Enrollment {
-  id                   String            @id @default(cuid())
-  leadId               String
-  courseId             String
-  campaignId           String?
-  status               EnrollmentStatus  @default(INTERESADO)
-  source               String?
-  utmSource            String?
-  utmMedium            String?
-  utmCampaign          String?
-  utmContent           String?
-  utmTerm              String?
-  landingUrl           String?
-  referrer             String?
-  moodleEnrollmentId   String?
-  moodleCompletionDate DateTime?
-  financeInscripcionId String?           @unique
-  financeStatus        FinanceStatus     @default(NO_ENVIADO)
-  certificateStatus    CertificateStatus @default(DESCONOCIDO)
-  handoffAttempts      Int               @default(0)
-  lastHandoffError     String?
-  lastHandoffAt        DateTime?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  id                         String            @id @default(cuid())
+  leadId                     String
+  courseId                   String
+  campaignId                 String?
+  status                     EnrollmentStatus  @default(INTERESADO)
+  source                     String?
+  utmSource                  String?
+  utmMedium                  String?
+  utmCampaign                String?
+  utmContent                 String?
+  utmTerm                    String?
+  landingUrl                 String?
+  referrer                   String?
+  moodleEnrollmentId         String?
+  moodleCompletionDate       DateTime?
+  financeInscripcionId       String?           @unique
+  financeStatus              FinanceStatus     @default(NO_ENVIADO)
+  certificateStatus          CertificateStatus @default(DESCONOCIDO)
+  handoffAttempts            Int               @default(0)
+  lastHandoffError           String?
+  lastHandoffAt              DateTime?
+  /// Derecho de acceso al curso completo de 60 horas.
+  ///
+  /// Se concede cuando Finance confirma PAYMENT_VERIFIED, que es la unica
+  /// fuente de verdad del pago en el sistema nuevo. NO implica matricula en
+  /// Moodle: hoy no existe una API de matriculacion y afirmarlo seria mentir.
+  fullCourseAccessEntitled   Boolean           @default(false)
+  fullCourseAccessEntitledAt DateTime?
+  /// Nivel de certificacion vigente segun las compras verificadas.
+  effectiveCertificationTier CertificationTier @default(NONE)
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
 
-  lead     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  course   Course            @relation(fields: [courseId], references: [id])
-  campaign Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  events   LeadEvent[]
-  messages OutboundMessage[]
+  lead            Lead                          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  course          Course                        @relation(fields: [courseId], references: [id])
+  campaign        Campaign?                     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  events          LeadEvent[]
+  messages        OutboundMessage[]
+  purchases       CoursePurchase[]
+  offerRecipients CertificationOfferRecipient[]
 
   @@unique([leadId, courseId])
   @@index([courseId, status])
@@ -589,8 +613,8 @@ model SocialAccount {
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
-  posts     SocialPost[]
-  schedules SocialSchedule[]
+  posts          SocialPost[]
+  schedules      SocialSchedule[]
   tiktokBusiness TikTokBusinessConnection?
 
   @@unique([platform, externalId])
@@ -757,4 +781,171 @@ model SocialSchedule {
 
   @@index([isActive, nextRunAt])
   @@map("social_schedules")
+}
+
+// ─── Arquitectura comercial: compras del curso de 60 horas ──────────────────
+//
+// La compra es una entidad SEPARADA de Enrollment. Enrollment es la inscripcion
+// academica y su unicidad (leadId + courseId) no cambia: una persona sigue
+// teniendo una sola inscripcion por curso. Lo que puede tener varias es
+// compras: la institucional y, mas tarde, la mejora con aval externo.
+
+enum CoursePurchaseType {
+  FULL
+  INSTITUTIONAL
+  AVAL_UPGRADE
+}
+
+enum CoursePurchaseStatus {
+  PENDING
+  SENT_TO_FINANCE
+  PAYMENT_PENDING
+  PAYMENT_VERIFIED
+  CANCELLED
+  ERROR
+}
+
+/// Nivel de certificacion al que da derecho lo que la persona pago.
+enum CertificationTier {
+  NONE
+  INSTITUTIONAL
+  FULL
+}
+
+/// Estado comercial que devuelve Finance. Se guarda tal cual lo informa, sin
+/// interpretarlo: es su fuente de verdad, no la nuestra.
+enum FinanceCommercialState {
+  NO_PURCHASE
+  FULL_PENDING
+  FULL_VERIFIED
+  INSTITUTIONAL_PENDING
+  INSTITUTIONAL_VERIFIED
+  UPGRADE_PENDING
+  FULL_UPGRADED
+  CANCELLED
+  LEGACY_UNCLASSIFIED
+}
+
+model CoursePurchase {
+  id           String               @id @default(cuid())
+  enrollmentId String
+  offerType    CoursePurchaseType
+  amount       Decimal              @db.Decimal(10, 2)
+  status       CoursePurchaseStatus @default(PENDING)
+
+  /// Obligatorio en AVAL_UPGRADE: la compra institucional que se mejora. Sin el,
+  /// una mejora quedaria huerfana y Finance no podria validar el encadenamiento.
+  parentPurchaseId String?
+
+  financeInscripcionId   String?
+  financePaymentStatus   String?
+  paymentVerifiedAt      DateTime?
+  financeCommercialState FinanceCommercialState?
+
+  lastFinanceSyncAt DateTime?
+  lastFinanceError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollment Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  parent     CoursePurchase?  @relation("UpgradeDeParent", fields: [parentPurchaseId], references: [id], onDelete: SetNull)
+  upgrades   CoursePurchase[] @relation("UpgradeDeParent")
+
+  @@index([enrollmentId, offerType])
+  @@index([status])
+  @@index([financeInscripcionId])
+  @@map("course_purchases")
+}
+
+// ─── Campaña de oferta de certificacion institucional ───────────────────────
+
+/// Como se decide a quien se envia.
+///
+/// La distincion es la razon de ser de este modelo. En los cursos historicos no
+/// existe CRMCompras, asi que deducir quien compro a partir del importe o del
+/// estado heredado seria inventar; ahi decide una persona. En los cursos nuevos
+/// Finance si es fuente de verdad y el envio puede automatizarse.
+enum CampaignAudienceMode {
+  HISTORICAL_MANUAL
+  AUTOMATIC_COMMERCE
+}
+
+enum CertificationOfferStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+/// Situacion de cada destinatario dentro de la campaña.
+enum OfferRecipientEligibility {
+  PENDING
+  ELIGIBLE
+  NOT_ELIGIBLE_PURCHASED
+  NOT_ELIGIBLE_PENDING_PAYMENT
+  REQUIRES_REVIEW
+  EXCLUDED
+  SENT
+  ERROR
+}
+
+model CertificationOfferCampaign {
+  id           String                   @id @default(cuid())
+  courseId     String
+  audienceMode CampaignAudienceMode
+  status       CertificationOfferStatus @default(DRAFT)
+
+  /// Momento calculado para el envio automatico: fin real de los once mensajes
+  /// mas `institutionalOfferDelayHours`. Nulo en las campañas historicas.
+  automaticScheduledAt DateTime?
+  automaticExecutedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course     Course                        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  recipients CertificationOfferRecipient[]
+
+  /// Una sola campaña de oferta institucional por curso: dos campañas sobre la
+  /// misma audiencia acabarian escribiendo dos veces a la misma persona.
+  @@unique([courseId])
+  @@index([status, automaticScheduledAt])
+  @@map("certification_offer_campaigns")
+}
+
+model CertificationOfferRecipient {
+  id           String @id @default(cuid())
+  campaignId   String
+  enrollmentId String
+
+  eligibilityStatus OfferRecipientEligibility @default(PENDING)
+
+  /// Fotografia de lo que Finance dijo en la ultima consulta. Es informativa:
+  /// en modo historico NO decide nada, solo se muestra.
+  commercialStateSnapshot      FinanceCommercialState?
+  effectiveEntitlementSnapshot CertificationTier?
+
+  manuallyApprovedAt DateTime?
+  manuallyApprovedBy String?
+  manualExcludedAt   DateTime?
+  manualExcludedBy   String?
+
+  manualSentAt    DateTime?
+  automaticSentAt DateTime?
+  messageId       String?
+
+  lastEligibilityCheckAt DateTime?
+  exclusionReason        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign   CertificationOfferCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  enrollment Enrollment                 @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, enrollmentId])
+  @@index([campaignId, eligibilityStatus])
+  @@map("certification_offer_recipients")
 }

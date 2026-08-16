@@ -48,6 +48,29 @@ export const courseInputSchema = z.object({
     .optional()
     .or(z.literal(""))
     .refine((value) => !value || (value.startsWith("https://") && z.string().url().safeParse(value).success), "La URL de encuesta debe ser HTTPS."),
+  /**
+   * Configuracion comercial de las tres modalidades del mismo curso de 60 h.
+   *
+   * Los precios se guardan por curso porque el importe inicial es de
+   * lanzamiento y va a cambiar. Ninguna decision del sistema los mira: la
+   * modalidad la determina `offerType`, nunca el importe.
+   */
+  institutionalOfferUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || (value.startsWith("https://") && z.string().url().safeParse(value).success), "La URL de la oferta institucional debe ser HTTPS."),
+  upgradeOfferUrl: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || (value.startsWith("https://") && z.string().url().safeParse(value).success), "La URL de la mejora con aval debe ser HTTPS."),
+  fullOfferPrice: z.coerce.number().min(0).max(100_000).optional().nullable(),
+  institutionalOfferPrice: z.coerce.number().min(0).max(100_000).optional().nullable(),
+  upgradeOfferPrice: z.coerce.number().min(0).max(100_000).optional().nullable(),
+  institutionalOfferDelayHours: z.coerce.number().int().min(0).max(720).optional(),
   moodleCourseUrl: z
     .string()
     .trim()
@@ -89,6 +112,8 @@ export function courseData(input: z.infer<typeof courseInputSchema>) {
     courseCompleteUrl: input.courseCompleteUrl || null,
     whatsappGroupUrl: input.whatsappGroupUrl || null,
     surveyUrl: input.surveyUrl || null,
+    institutionalOfferUrl: input.institutionalOfferUrl || null,
+    upgradeOfferUrl: input.upgradeOfferUrl || null,
     moodleCourseUrl: input.moodleCourseUrl || null,
     imageUrl: input.imageUrl || null,
     duration: input.duration || null,

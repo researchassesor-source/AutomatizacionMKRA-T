@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { markCrmCourseCompleted } from "./commerce";
 import type { Prisma } from "@prisma/client";
 import { resolveCourseSessions } from "@/lib/course-sessions";
 import { scheduleEnrollmentAutomations } from "@/lib/nurture/engine";
@@ -262,5 +263,38 @@ export async function completeEnrollment(
       metadata: { source },
     });
   }
+
+  /**
+   * Aviso de finalizacion a la capa comercial de Finance.
+   *
+   * Va DESPUES de completar en local y nunca lo revierte: el alumno termino el
+   * curso, y eso es cierto aunque una hoja de calculo no conteste. Un fallo
+   * aqui queda registrado como sincronizacion pendiente y puede reintentarse
+   * ejecutando esta misma funcion, que es idempotente porque el `claim` de
+   * arriba solo deja pasar la primera vez.
+   */
+  await markCrmCourseCompleted({ crmEnrollmentId: enrollment.id, completionStatus: "completado", source })
+    .then(async (resultado) => {
+      if (resultado.ok) return;
+      await writeAudit({
+        session,
+        action: "COURSE_COMPLETION_FINANCE_PENDING",
+        entityType: "Enrollment",
+        entityId: enrollment.id,
+        result: "FAILURE",
+        metadata: { source, motivo: resultado.error.slice(0, 200) },
+      });
+    })
+    .catch(async (error: unknown) => {
+      await writeAudit({
+        session,
+        action: "COURSE_COMPLETION_FINANCE_PENDING",
+        entityType: "Enrollment",
+        entityId: enrollment.id,
+        result: "FAILURE",
+        metadata: { source, motivo: error instanceof Error ? error.message.slice(0, 200) : "fallo desconocido" },
+      });
+    });
+
   return handoffEnrollment(enrollment.id, session);
 }

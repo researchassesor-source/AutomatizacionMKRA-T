@@ -135,6 +135,8 @@ describe("plan estándar de WhatsApp", () => {
       course_follow_up: ["nombre", "curso"],
       survey: ["nombre", "curso", "link_encuesta"],
       thank_you: ["nombre", "curso"],
+      // Campaña comercial: no pertenece al plan de once mensajes.
+      certification_offer: ["nombre", "curso", "link_oferta_institucional"],
     });
   });
 
@@ -226,6 +228,12 @@ describe("plan estándar de WhatsApp", () => {
       idioma: "es",
       variables: 3,
       texto: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
+    },
+    // Campaña comercial, aparte de los once mensajes. Ya activa en Meta.
+    ra_training_certificacion_institucional: {
+      idioma: "es",
+      variables: 3,
+      texto: "Hola {{1}}, ya puedes obtener tu certificado institucional de {{2}}.\n\nAccede al curso completo de 60 horas y a tu certificado R.A. Training aqui:\n\n{{3}}\n\nR.A. Training",
     },
   } as const;
 

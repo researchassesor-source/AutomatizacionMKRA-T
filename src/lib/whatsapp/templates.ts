@@ -58,7 +58,8 @@ export const WHATSAPP_TEMPLATES: Record<
   | "thank_you"
   | "course_complete"
   | "course_follow_up"
-  | "survey",
+  | "survey"
+  | "certification_offer",
   WhatsAppTemplateSpec
 > = {
   welcome: {
@@ -129,6 +130,20 @@ export const WHATSAPP_TEMPLATES: Record<
     language: "es",
     bodyVars: ["nombre", "curso", "link_encuesta"],
     sample: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
+  },
+  /**
+   * Oferta de certificacion institucional.
+   *
+   * NO forma parte del plan de once mensajes: es una campaña comercial aparte,
+   * con su propia audiencia y su propio calendario. Vive en este catalogo
+   * porque comparte el adaptador de WhatsApp, no porque comparta el flujo, y
+   * por eso no aparece en WHATSAPP_AUTOMATION_PLAN.
+   */
+  certification_offer: {
+    name: "ra_training_certificacion_institucional",
+    language: "es",
+    bodyVars: ["nombre", "curso", "link_oferta_institucional"],
+    sample: "Hola {{1}}, ya puedes obtener tu certificado institucional de {{2}}.\n\nAccede al curso completo de 60 horas y a tu certificado R.A. Training aqui:\n\n{{3}}\n\nR.A. Training",
   },
 };
 

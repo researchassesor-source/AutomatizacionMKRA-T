@@ -44,15 +44,32 @@ async function rawCall<T>(
   if (!apiUrl) throw new Error("Finance no está configurado.");
   const body: Record<string, unknown> = { action, ...params };
   if (token) body.token = token;
+  /**
+   * Token de servicio del contrato comercial.
+   *
+   * Las acciones de CRMCompras esperan `serviceToken` con el valor de
+   * `CRM_SERVICE_TOKEN`, mientras que el traspaso heredado se autentica con el
+   * `token` de sesion que devuelve `login`. Se envian AMBOS cuando existen:
+   * cada accion toma el que entiende y ninguna de las dos rutas se rompe. No
+   * se registra en ningun sitio.
+   */
+  const serviceToken = process.env.CRM_SERVICE_TOKEN?.trim();
+  if (serviceToken) body.serviceToken = serviceToken;
+  // Sin plazo, una hoja de calculo lenta deja colgada la funcion hasta que la
+  // plataforma la corta, y el cron pierde el resto del ciclo esperando.
   const response = await fetch(apiUrl, {
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FINANCE_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`Finance respondió ${response.status}.`);
   return (await response.json()) as FinanceResponse<T>;
 }
+
+/** Apps Script puede tardar; mas de esto es un fallo, no lentitud. */
+const FINANCE_TIMEOUT_MS = 25_000;
 
 let cachedToken: { value: string; obtainedAt: number } | null = null;
 const TOKEN_TTL_MS = 20 * 60 * 60 * 1000;
@@ -70,7 +87,14 @@ async function getServiceToken(forceRenew = false): Promise<string> {
   return response.token;
 }
 
-async function authedCall<T>(action: string, params: Record<string, unknown>) {
+/**
+ * Llamada autenticada con renovacion de token.
+ *
+ * Se exporta para que el modulo comercial reutilice exactamente el mismo
+ * transporte, token y reintento que el traspaso ya en produccion, en vez de
+ * abrir un segundo camino que habria que mantener en paralelo.
+ */
+export async function authedCall<T>(action: string, params: Record<string, unknown>) {
   let response = await rawCall<T>(action, params, await getServiceToken());
   if (!response.success && /token|sesi|denegado|auth/i.test(response.error ?? "")) {
     response = await rawCall<T>(action, params, await getServiceToken(true));

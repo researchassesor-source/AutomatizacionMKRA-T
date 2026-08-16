@@ -14,6 +14,7 @@ import { TechnicalOnly } from "../../TechnicalDetail";
 import { CourseTimeline } from "../CourseTimeline";
 import { ScheduleSessionButton } from "../ScheduleSessionButton";
 import { CourseConfigurationPanel } from "./CourseConfigurationPanel";
+import { InstitutionalOfferPanel } from "./InstitutionalOfferPanel";
 import { CourseSessionsPanel } from "./CourseSessionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -208,6 +209,10 @@ export default async function CoursePage({
         </section>
       ) : null}
 
+      {/* Sistema aparte de los once mensajes: otra audiencia, otro calendario
+          y otra decision. Se muestra debajo, no mezclado con el recorrido. */}
+      {tab === "comunicaciones" ? <InstitutionalOfferPanel courseId={course.id} canEdit={canEdit} /> : null}
+
       {tab === "configuracion" ? (
         <CourseConfigurationPanel
           course={{
@@ -221,6 +226,12 @@ export default async function CoursePage({
             courseCompleteUrl: course.courseCompleteUrl,
             whatsappGroupUrl: course.whatsappGroupUrl,
             surveyUrl: course.surveyUrl,
+            institutionalOfferUrl: course.institutionalOfferUrl,
+            upgradeOfferUrl: course.upgradeOfferUrl,
+            fullOfferPrice: course.fullOfferPrice === null ? null : Number(course.fullOfferPrice),
+            institutionalOfferPrice: course.institutionalOfferPrice === null ? null : Number(course.institutionalOfferPrice),
+            upgradeOfferPrice: course.upgradeOfferPrice === null ? null : Number(course.upgradeOfferPrice),
+            institutionalOfferDelayHours: course.institutionalOfferDelayHours,
             moodleCourseUrl: course.moodleCourseUrl,
             imageUrl: course.imageUrl,
             price: course.price === null ? null : Number(course.price),

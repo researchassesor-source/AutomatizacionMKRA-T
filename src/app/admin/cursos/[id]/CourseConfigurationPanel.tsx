@@ -14,6 +14,12 @@ type CourseConfiguration = {
   courseCompleteUrl: string | null;
   whatsappGroupUrl: string | null;
   surveyUrl: string | null;
+  institutionalOfferUrl: string | null;
+  upgradeOfferUrl: string | null;
+  fullOfferPrice: string | number | null;
+  institutionalOfferPrice: string | number | null;
+  upgradeOfferPrice: string | number | null;
+  institutionalOfferDelayHours: number;
   moodleCourseUrl: string | null;
   imageUrl: string | null;
   price: string | number | null;
@@ -59,6 +65,12 @@ export function CourseConfigurationPanel({ course, canEdit }: { course: CourseCo
         courseCompleteUrl: data.get("courseCompleteUrl"),
         whatsappGroupUrl: data.get("whatsappGroupUrl"),
         surveyUrl: data.get("surveyUrl"),
+        institutionalOfferUrl: data.get("institutionalOfferUrl"),
+        upgradeOfferUrl: data.get("upgradeOfferUrl"),
+        fullOfferPrice: data.get("fullOfferPrice") || null,
+        institutionalOfferPrice: data.get("institutionalOfferPrice") || null,
+        upgradeOfferPrice: data.get("upgradeOfferPrice") || null,
+        institutionalOfferDelayHours: data.get("institutionalOfferDelayHours") || 24,
         moodleCourseUrl: course.moodleCourseUrl ?? "",
         imageUrl: course.imageUrl ?? "",
         price: course.price === null ? "" : String(course.price),
@@ -116,6 +128,79 @@ export function CourseConfigurationPanel({ course, canEdit }: { course: CourseCo
             </label>
           ))}
         </div>
+        {/* Las tres modalidades del MISMO curso de 60 horas. El precio se
+            guarda por curso porque el de lanzamiento va a cambiar; ninguna
+            decisión del sistema mira el importe para saber qué se compró. */}
+        <h3 className="config-subtitulo">Modalidades comerciales</h3>
+        <div className="config-rows">
+          {([
+            {
+              clave: "full", etiqueta: "Oferta completa", precio: "fullOfferPrice", precioValor: course.fullOfferPrice,
+              urlCampo: null, urlValor: course.courseCompleteUrl,
+              ayuda: "Curso de 60 h + certificado institucional + aval externo. Usa la página informativa de arriba.",
+            },
+            {
+              clave: "institucional", etiqueta: "Oferta institucional", precio: "institutionalOfferPrice", precioValor: course.institutionalOfferPrice,
+              urlCampo: "institutionalOfferUrl", urlValor: course.institutionalOfferUrl,
+              ayuda: "Curso de 60 h + certificado institucional, sin aval externo. Es el destino de la campaña de oferta.",
+            },
+            {
+              clave: "upgrade", etiqueta: "Mejora con aval externo", precio: "upgradeOfferPrice", precioValor: course.upgradeOfferPrice,
+              urlCampo: "upgradeOfferUrl", urlValor: course.upgradeOfferUrl,
+              ayuda: "Solo para quien ya pagó la institucional. No da acceso nuevo: eleva la certificación.",
+            },
+          ] as const).map((oferta) => (
+            <div className="config-row" key={oferta.clave}>
+              <span className="config-row-head">
+                <strong>{oferta.etiqueta}</strong>
+                {oferta.urlCampo ? statusPill(oferta.urlValor) : null}
+              </span>
+              <div className="config-oferta">
+                <label>
+                  <small>Precio (USD)</small>
+                  <input
+                    name={oferta.precio}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    defaultValue={oferta.precioValor === null ? "" : String(oferta.precioValor)}
+                    disabled={!canEdit || busy}
+                    aria-label={`Precio de ${oferta.etiqueta}`}
+                  />
+                </label>
+                {oferta.urlCampo ? (
+                  <label>
+                    <small>URL de destino</small>
+                    <input
+                      name={oferta.urlCampo}
+                      type="url"
+                      defaultValue={oferta.urlValor ?? ""}
+                      placeholder="https://ra-training.com/…"
+                      disabled={!canEdit || busy}
+                      aria-label={`URL de ${oferta.etiqueta}`}
+                    />
+                  </label>
+                ) : null}
+                {oferta.clave === "institucional" ? (
+                  <label>
+                    <small>Espera tras el curso (horas)</small>
+                    <input
+                      name="institutionalOfferDelayHours"
+                      type="number"
+                      min={0}
+                      max={720}
+                      defaultValue={course.institutionalOfferDelayHours}
+                      disabled={!canEdit || busy}
+                      aria-label="Horas de espera antes de la oferta institucional"
+                    />
+                  </label>
+                ) : null}
+              </div>
+              <small>{oferta.ayuda}</small>
+            </div>
+          ))}
+        </div>
+
         {canEdit ? <button className="btn-sm" type="submit" disabled={busy}>{busy ? "Guardando..." : "Guardar configuración"}</button> : null}
         {message ? <p className="muted" role="status">{message}</p> : null}
       </form>

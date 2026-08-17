@@ -26,7 +26,7 @@ import { WhatsAppChannel } from "./channels/whatsapp";
 import type { MessageChannelAdapter, SendResult } from "./channels/types";
 import { welcomeSequence, type Sequence } from "./sequences";
 
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 const DISPATCH_BATCH_SIZE = 50;
 const DISPATCH_CONCURRENCY = 10;
 const RESCHEDULE_BATCH_SIZE = 100;

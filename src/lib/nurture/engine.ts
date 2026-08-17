@@ -18,6 +18,7 @@ import {
   resolveMessagingWindow,
 } from "@/lib/live-activation";
 import { mustSimulateExternalIntegration } from "@/lib/runtime-environment";
+import { TEMPLATE_VARIABLES } from "@/lib/template-variables";
 import { resolveWhatsAppConfig, resolveWhatsAppWindow, toWhatsAppRecipient, WHATSAPP_LIVE_FROM } from "@/lib/whatsapp/config";
 import { buildTemplateComponents, templateBindingOf } from "@/lib/whatsapp/templates";
 import { EmailChannel } from "./channels/email";
@@ -79,14 +80,10 @@ export function isAutomationEligibleContact(classification: string, consent: boo
   return classification === "REAL" && consent;
 }
 
-export const TEMPLATE_VARIABLES = [
-  "nombre", "apellido", "curso", "courseUrl", "moodleUrl", "asesor", "fecha",
-  "hora", "modalidad", "enlace", "appUrl", "streamUrl", "bloqueEnlace",
-  "fechaSesion", "horaSesion", "sesion", "sesion_actual", "total_sesiones",
-  "link_reunion", "link_grupo_whatsapp", "link_curso_completo", "link_encuesta", "bloqueFecha",
-  // Oferta comercial: no pertenece al plan de once mensajes.
-  "link_oferta_institucional",
-] as const;
+// La lista canonica vive en `lib/template-variables`, que no depende del
+// servidor y por tanto puede importarse tambien desde el panel. Se reexporta
+// para no romper a quien ya la importaba desde aqui.
+export { TEMPLATE_VARIABLES };
 
 export function renderMessageTemplate(template: string, vars: Record<string, string>): string {
   const replaced = template.replace(/\{\{(\w+)\}\}/g, (match, key) =>

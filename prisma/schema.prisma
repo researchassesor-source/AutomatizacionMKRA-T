@@ -65,6 +65,14 @@ model Course {
   /// institucional automatica. Configurable: 24 h es el valor de partida, no
   /// una constante del codigo.
   institutionalOfferDelayHours Int               @default(24)
+  /// Pausa de las automatizaciones de este curso.
+  ///
+  /// Hasta ahora la unica forma de callar un curso era despublicarlo, lo que
+  /// ademas lo retira de la web publica. Con esto se detienen sus envios sin
+  /// tocar los de los demas cursos y sin ocultarlo. No borra nada: al reanudar,
+  /// las reglas y el historial siguen donde estaban.
+  automationsPausedAt          DateTime?
+  automationsPausedBy          String?
   duration                     String?
   modality                     String?
   startsAt                     DateTime?

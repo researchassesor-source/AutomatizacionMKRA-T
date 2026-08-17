@@ -15,6 +15,7 @@ import { CourseTimeline } from "../CourseTimeline";
 import { ScheduleSessionButton } from "../ScheduleSessionButton";
 import { CourseConfigurationPanel } from "./CourseConfigurationPanel";
 import { InstitutionalOfferPanel } from "./InstitutionalOfferPanel";
+import { CourseAutomationsPause } from "./CourseAutomationsPause";
 import { CourseSessionsPanel } from "./CourseSessionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -196,6 +197,15 @@ export default async function CoursePage({
             endAt: item.endAt?.toISOString() ?? null,
             streamUrl: item.streamUrl,
           }))}
+        />
+      ) : null}
+
+      {tab === "comunicaciones" ? (
+        <CourseAutomationsPause
+          courseId={course.id}
+          pausedAt={course.automationsPausedAt?.toISOString() ?? null}
+          pausedBy={course.automationsPausedBy}
+          canEdit={canEdit}
         />
       ) : null}
 

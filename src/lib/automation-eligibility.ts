@@ -5,6 +5,18 @@ export type AutomationCourseState = {
   acceptsRegistrations: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
+  /**
+   * Pausa de las automatizaciones de ESTE curso.
+   *
+   * Existe porque hasta ahora la unica forma de callar un curso era
+   * despublicarlo, y eso ademas lo retira de la web publica: una decision
+   * operativa acababa teniendo consecuencias comerciales. Con la pausa se
+   * detienen los envios de un curso sin tocar los de los demas y sin ocultarlo.
+   *
+   * Opcional en el tipo para no romper a quien ya construye este objeto sin el
+   * campo; ausente significa "no pausado".
+   */
+  automationsPausedAt?: Date | null;
 };
 
 export type AutomationRuleState = {
@@ -37,7 +49,11 @@ export function courseAcceptsNewRegistrations(
  * Lo que sí importa es que el curso siga publicado: despublicarlo es la señal
  * de que la actividad no va, y ahí sí debe callarse.
  */
-export function courseAcceptsAutomations(course: Pick<AutomationCourseState, "isPublished">) {
+export function courseAcceptsAutomations(course: Pick<AutomationCourseState, "isPublished" | "automationsPausedAt">) {
+  // La pausa detiene la programacion y el envio, pero no borra nada: las reglas,
+  // los mensajes ya enviados y el historial siguen intactos, y al reanudar todo
+  // continua desde donde estaba.
+  if (course.automationsPausedAt) return false;
   return course.isPublished;
 }
 

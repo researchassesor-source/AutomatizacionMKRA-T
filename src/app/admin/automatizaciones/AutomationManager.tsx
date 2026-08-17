@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
 import { AdminActionMenu } from "../AdminActionMenu";
 import { presentAdminValue } from "../adminPresentation";
+import { VARIABLES_DISPONIBLES } from "@/lib/template-variables";
 
 type Course = { id: string; title: string; startsAt: string | null; endsAt: string | null };
 type Campaign = { id: string; name: string; code: string; status: string; courseId: string | null; course: string | null; utmCampaign: string | null; startsAt: string | null; endsAt: string | null; enrollments: number; rules: number };
@@ -14,6 +15,30 @@ function formatAnticipation(minutes: number): string {
   if (minutes % 1440 === 0) return `${minutes / 1440} ${minutes / 1440 === 1 ? "día" : "días"}`;
   if (minutes % 60 === 0) return `${minutes / 60} ${minutes / 60 === 1 ? "hora" : "horas"}`;
   return `${minutes} minutos`;
+}
+
+/**
+ * Variables que el renderer sabe resolver.
+ *
+ * Se listan junto al textarea porque el renderer deja intacto lo que no
+ * reconoce: una variable inventada no falla, llega escrita tal cual al
+ * contacto. Verlas aqui evita ese error; el servidor ademas lo rechaza.
+ */
+function VariablesDisponibles() {
+  return (
+    <details className="variables-disponibles">
+      <summary>Variables que puedes usar ({VARIABLES_DISPONIBLES.length})</summary>
+      <ul>
+        {VARIABLES_DISPONIBLES.map((variable) => (
+          <li key={variable.nombre}>
+            <code>{`{{${variable.nombre}}}`}</code>
+            {variable.descripcion ? <span> · {variable.descripcion}</span> : null}
+          </li>
+        ))}
+      </ul>
+      <small>Cualquier otra variable se rechaza al guardar: se enviaría tal cual al contacto.</small>
+    </details>
+  );
 }
 
 function describeMoment(trigger: string, offsetMinutes: number): string {
@@ -155,7 +180,7 @@ export function AutomationManager({ role, courses, campaigns, rules }: { role: s
       {filteredRules.length === 0 ? <p className="muted automation-empty">No hay automatizaciones con estos filtros.</p> : <div className="table-wrap automation-table-wrap"><table className="data automation-table"><thead><tr><th>Regla</th><th>Curso</th><th>Momento</th><th>Canal</th><th>Estado</th><th>Ejecuciones</th><th aria-label="Acciones" /></tr></thead><tbody>{filteredRules.map((rule) => {
         const status = ruleStatus(rule);
         return <tr className="automation-table-row" key={rule.id}>
-          <td data-label="Regla"><strong className="row-title">{rule.name}</strong><div className="muted">{rule.campaign ?? "Todas las campañas"}</div><details className="row-details automation-rule-details"><summary>Ver configuración</summary><form onSubmit={(event) => updateRule(event, rule)}><input name="name" defaultValue={rule.name} required /><input name="offsetMinutes" type="number" min="0" defaultValue={rule.offsetMinutes} required /><input name="subject" defaultValue={rule.subject ?? ""} placeholder="Asunto" /><textarea name="body" rows={4} defaultValue={rule.body} required /><div className="checkbox-grid">{enrollmentStatuses.map((item) => <label className="checkbox" key={item}><input type="checkbox" name="enrollmentStatuses" value={item} defaultChecked={rule.enrollmentStatuses.includes(item)} /><span>{presentAdminValue(item)}</span></label>)}</div><button type="submit" className="btn-sm" disabled={busy === rule.id}>Guardar cambios</button></form></details></td>
+          <td data-label="Regla"><strong className="row-title">{rule.name}</strong><div className="muted">{rule.campaign ?? "Todas las campañas"}</div><details className="row-details automation-rule-details"><summary>Ver configuración</summary><form onSubmit={(event) => updateRule(event, rule)}><input name="name" defaultValue={rule.name} required /><input name="offsetMinutes" type="number" min="0" defaultValue={rule.offsetMinutes} required /><input name="subject" defaultValue={rule.subject ?? ""} placeholder="Asunto" /><textarea name="body" rows={4} defaultValue={rule.body} required /><VariablesDisponibles /><div className="checkbox-grid">{enrollmentStatuses.map((item) => <label className="checkbox" key={item}><input type="checkbox" name="enrollmentStatuses" value={item} defaultChecked={rule.enrollmentStatuses.includes(item)} /><span>{presentAdminValue(item)}</span></label>)}</div><button type="submit" className="btn-sm" disabled={busy === rule.id}>Guardar cambios</button></form></details></td>
           <td data-label="Curso">{rule.course}</td><td data-label="Momento">{describeMoment(rule.trigger, rule.offsetMinutes)}{rule.requiresStreamUrl ? <div className="muted">Requiere enlace de transmisión</div> : null}</td><td data-label="Canal">{presentAdminValue(rule.channel)}</td>
           <td data-label="Estado"><span className={`pill ${status.tone}`}>{status.label}</span><div className="muted">{status.hint}</div></td>
           <td data-label="Ejecuciones"><strong>{rule.messages}</strong> mensajes<div className="muted">Próxima: {format(rule.nextExecutionAt)}<br />Última: {format(rule.lastExecutedAt)}</div></td>
@@ -167,7 +192,7 @@ export function AutomationManager({ role, courses, campaigns, rules }: { role: s
     <details className="panel automation-config-panel"><summary><span><strong>Nueva automatización</strong><small>Crea una regla por curso cuando sea necesario.</small></span><span>Configurar</span></summary><div className="automation-config-body"><form onSubmit={createRule}>
       <div className="form-row"><select name="courseId" required defaultValue=""><option value="" disabled>Selecciona un curso</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select><select name="campaignId" defaultValue=""><option value="">Sin campaña específica</option>{campaigns.filter((campaign) => campaign.status !== "ARCHIVED").map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select><input name="name" placeholder="Nombre de la regla" required /><select name="status" defaultValue="DRAFT"><option value="DRAFT">Borrador</option><option value="ACTIVE">Activa en simulación</option></select></div>
       <div className="form-row"><label className="field"><span>Momento de envío</span><select name="trigger" defaultValue="ON_REGISTRATION"><option value="ON_REGISTRATION">Al inscribirse</option><option value="BEFORE_COURSE">Antes de cada sesión</option><option value="AFTER_COURSE">Después de la última sesión</option></select></label><label className="field"><span>Anticipación (minutos)</span><input name="offsetMinutes" type="number" min="0" defaultValue="0" required /></label><label className="field"><span>Canal</span><select name="channel" defaultValue="EMAIL"><option value="EMAIL">Correo electrónico</option><option value="WHATSAPP">WhatsApp</option></select></label><input name="subject" placeholder="Asunto para correo" /></div>
-      <textarea name="body" rows={4} placeholder="Contenido de la comunicación" required /><p className="muted">Las variables disponibles se conservan sin cambios y se validan al guardar.</p>
+      <textarea name="body" rows={4} placeholder="Contenido de la comunicación" required /><VariablesDisponibles />
       <label className="checkbox"><input type="checkbox" name="requiresStreamUrl" /><span>Requiere enlace de transmisión</span></label><fieldset><legend>Estados de inscripción incluidos</legend><div className="checkbox-grid">{enrollmentStatuses.map((status) => <label className="checkbox" key={status}><input type="checkbox" name="enrollmentStatuses" value={status} defaultChecked={["INTERESADO", "INSCRITO"].includes(status)} /><span>{presentAdminValue(status)}</span></label>)}</div></fieldset>
       <button type="submit" className="btn-sm" disabled={busy === "rule-new"}>Crear automatización</button>
     </form></div></details>

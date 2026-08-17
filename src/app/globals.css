@@ -2337,3 +2337,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* ── Contadores de la campaña de oferta institucional ───────────────────── */
 .offer-counters { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: #f8fafc; font-size: .8rem; color: var(--muted); }
 .offer-counters strong { color: var(--ink); font-weight: 700; }
+
+/* ── Variables disponibles al editar una comunicacion ───────────────────── */
+.variables-disponibles { margin: 8px 0; font-size: .78rem; }
+.variables-disponibles > summary { cursor: pointer; color: var(--brand-primary); font-weight: 600; }
+.variables-disponibles ul { list-style: none; margin: 8px 0 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: #f8fafc; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 14px; }
+.variables-disponibles code { color: var(--ink); font-weight: 600; }
+.variables-disponibles span { color: var(--muted); }
+.variables-disponibles > small { color: var(--muted); }

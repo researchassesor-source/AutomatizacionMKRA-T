@@ -66,7 +66,9 @@ describe("contrato: acciones y enums", () => {
 
   it("el enum de Prisma coincide con el del contrato", () => {
     for (const estado of COMMERCIAL_STATES) {
-      expect(esquema, estado).toMatch(new RegExp(`\\n\\s+${estado}\\n`));
+      // Delimitadores de espacio en blanco: el esquema se guarda con CRLF y un
+      // `\n` literal al final no casaria con `NOMBRE\r\n`.
+      expect(esquema, estado).toMatch(new RegExp(`\\s${estado}\\s`));
     }
   });
 

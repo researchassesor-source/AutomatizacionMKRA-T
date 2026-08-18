@@ -292,7 +292,11 @@ describe("idempotencia tras el arreglo", () => {
     // Es el escenario de aplicar el plan estándar a un curso que ya tiene
     // inscritos: sin este freno todos recibirían de nuevo "tu inscripción fue
     // registrada", porque la bienvenida está exenta del filtro de fechas pasadas.
-    const reciente = { ...planRule("welcome"), createdAt: new Date(REGISTERED_AT.getTime() + 86_400_000) };
+    //
+    // `updatedAt` acompaña a `createdAt`: en Prisma nacen iguales, así que una
+    // regla recién creada tiene las dos fechas después del registro.
+    const creacion = new Date(REGISTERED_AT.getTime() + 86_400_000);
+    const reciente = { ...planRule("welcome"), createdAt: creacion, updatedAt: creacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reciente] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(messages).toHaveLength(0);
@@ -301,8 +305,36 @@ describe("idempotencia tras el arreglo", () => {
   });
 
   it("una regla anterior a la inscripción sí envía la bienvenida", async () => {
-    const previa = { ...planRule("welcome"), createdAt: new Date(REGISTERED_AT.getTime() - 86_400_000) };
+    const creacion = new Date(REGISTERED_AT.getTime() - 86_400_000);
+    const previa = { ...planRule("welcome"), createdAt: creacion, updatedAt: creacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [previa] }));
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(result.enqueued).toBe(1);
+  });
+
+  it("un paso reactivado después de la inscripción no la saluda retroactivamente", async () => {
+    // El caso que la guarda anterior NO cubría: la regla ya existía desde
+    // antes de la inscripción (createdAt viejo), pero estuvo pausada y se
+    // reactiva DESPUÉS de que alguien se inscribiera. Como pausada nunca
+    // llega a considerarse al programar, no existe ningún mensaje previo;
+    // sin esta guarda, reactivarla crearía uno nuevo con fecha retroactiva.
+    const creacionRegla = new Date(REGISTERED_AT.getTime() - 30 * 86_400_000);
+    const reactivacion = new Date(REGISTERED_AT.getTime() + 5 * 86_400_000);
+    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, updatedAt: reactivacion };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reactivada] }));
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(messages).toHaveLength(0);
+    expect(result.enqueued).toBe(0);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("un paso reactivado antes de la inscripción sí saluda con normalidad", async () => {
+    // Espejo del anterior: si la reactivación ocurrió antes de que esta
+    // persona se inscribiera, es una regla activa como cualquier otra.
+    const creacionRegla = new Date(REGISTERED_AT.getTime() - 30 * 86_400_000);
+    const reactivacion = new Date(REGISTERED_AT.getTime() - 86_400_000);
+    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, updatedAt: reactivacion };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reactivada] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(result.enqueued).toBe(1);
   });

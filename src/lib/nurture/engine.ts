@@ -581,12 +581,26 @@ export async function scheduleEnrollmentAutomations(
     if (!automatizacionPermitida(conversacion?.state, rule.planKey)) { skipped++; continue; }
     if (rule.campaignId && rule.campaignId !== enrollment.campaignId) { skipped++; continue; }
     if (!supportsEnrollmentStatus(rule.enrollmentStatuses, enrollment.status)) { skipped++; continue; }
-    // Una regla de bienvenida creada despues de la inscripcion no saluda hacia
-    // atras. La bienvenida esta exenta del filtro de fechas pasadas (debe salir
-    // aunque se programe con retraso), asi que sin esta condicion aplicar el
-    // plan estandar a un curso con inscritos les reenviaria a todos un "tu
-    // inscripcion fue registrada" semanas despues de haberse inscrito.
-    if (rule.trigger === "ON_REGISTRATION" && enrollment.createdAt < rule.createdAt) { skipped++; continue; }
+    /**
+     * Una regla de bienvenida que no llevaba activa desde antes de la
+     * inscripcion no saluda hacia atras.
+     *
+     * La bienvenida esta exenta del filtro de fechas pasadas (debe salir
+     * aunque se programe con retraso), asi que sin esta guarda dos casos
+     * reenviarian "tu inscripcion fue registrada" semanas despues:
+     *
+     *   1. Aplicar el plan estandar a un curso con inscritos (regla NUEVA).
+     *   2. Reactivar un paso que estuvo pausado desde antes de que alguien se
+     *      inscribiera (regla VIEJA, pero recien vuelta a ACTIVE). Con esa
+     *      inscripcion nunca llego a crearse un mensaje —la regla pausada ni
+     *      se considera al registrarse— asi que comparar solo con
+     *      `rule.createdAt` no la protegia: la regla ya existia desde antes.
+     *
+     * `updatedAt` cubre el segundo caso porque el toggle de un paso lo mueve
+     * al reactivar. Nunca es anterior a `createdAt`, asi que esta guarda solo
+     * puede volverse MAS estricta que antes, jamas menos.
+     */
+    if (rule.trigger === "ON_REGISTRATION" && enrollment.createdAt < rule.updatedAt) { skipped++; continue; }
     const toAddress = rule.channel === "EMAIL" ? enrollment.lead.email : enrollment.lead.phone;
     if (!toAddress) { skipped++; continue; }
 

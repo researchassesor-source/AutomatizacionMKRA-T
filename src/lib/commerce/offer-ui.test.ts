@@ -231,8 +231,10 @@ describe("integración con el backend", () => {
 describe("no se mezcla con los once mensajes", () => {
   it("es una sección aparte dentro de Comunicaciones", () => {
     expect(pagina).toContain("<InstitutionalOfferPanel courseId={course.id}");
-    // El recorrido de los once sigue en su propio panel, antes.
-    expect(pagina).toContain("<CourseTimeline");
+    // El recorrido de los once sigue en su propio panel, antes, ahora como el
+    // gestor operativo que ademas permite activar/desactivar y editar cada paso.
+    expect(pagina).toContain("<CourseCommunicationsManager");
+    expect(pagina.indexOf("<CourseCommunicationsManager")).toBeLessThan(pagina.indexOf("<InstitutionalOfferPanel courseId={course.id}"));
   });
 
   it("el panel no toca el plan ni las reglas de automatización", () => {

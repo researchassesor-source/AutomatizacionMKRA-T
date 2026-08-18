@@ -11,12 +11,12 @@ import { AdminNav } from "../../AdminNav";
 import { AdminEmptyState } from "../../AdminEmptyState";
 import { AdminPageHeader } from "../../AdminPageHeader";
 import { TechnicalOnly } from "../../TechnicalDetail";
-import { CourseTimeline } from "../CourseTimeline";
 import { ScheduleSessionButton } from "../ScheduleSessionButton";
 import { CourseConfigurationPanel } from "./CourseConfigurationPanel";
 import { InstitutionalOfferPanel } from "./InstitutionalOfferPanel";
 import { CourseAutomationsPause } from "./CourseAutomationsPause";
 import { CourseSessionsPanel } from "./CourseSessionsPanel";
+import { CourseCommunicationsManager } from "./CourseCommunicationsManager";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,10 @@ export default async function CoursePage({
       sessions: { orderBy: { startAt: "asc" } },
       automationRules: {
         where: { status: { not: "ARCHIVED" } },
-        select: { id: true, name: true, planKey: true, channel: true, status: true, trigger: true, offsetMinutes: true, requiresStreamUrl: true, waTemplateName: true },
+        select: {
+          id: true, name: true, planKey: true, channel: true, status: true, trigger: true, offsetMinutes: true,
+          requiresStreamUrl: true, waTemplateName: true, subject: true, body: true,
+        },
       },
       _count: { select: { enrollments: true } },
     },
@@ -210,13 +213,28 @@ export default async function CoursePage({
       ) : null}
 
       {tab === "comunicaciones" ? (
-        <section className="panel">
-          <h2>Qué recibe cada inscrito</h2>
-          <p className="muted" style={{ marginTop: -8, marginBottom: 18 }}>
-            El recorrido completo desde que alguien se inscribe hasta que termina el curso.
-          </p>
-          <CourseTimeline hasSchedule={sessions.length > 0} steps={steps} sessionsHref={tabHref("calendario")} />
-        </section>
+        <CourseCommunicationsManager
+          courseId={course.id}
+          canEdit={canEdit}
+          cursoPausado={Boolean(course.automationsPausedAt)}
+          pasos={steps.map((paso) => ({ ...paso, scheduledAt: paso.scheduledAt?.toISOString() ?? null }))}
+          reglas={course.automationRules.map((regla) => ({
+            id: regla.id,
+            planKey: regla.planKey,
+            channel: regla.channel,
+            status: regla.status,
+            trigger: regla.trigger,
+            offsetMinutes: regla.offsetMinutes,
+            subject: regla.subject,
+            body: regla.body,
+            waTemplateName: regla.waTemplateName,
+          }))}
+          enlaces={{
+            whatsappGroupUrl: course.whatsappGroupUrl,
+            courseCompleteUrl: course.courseCompleteUrl,
+            surveyUrl: course.surveyUrl,
+          }}
+        />
       ) : null}
 
       {/* Sistema aparte de los once mensajes: otra audiencia, otro calendario

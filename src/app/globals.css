@@ -2413,3 +2413,23 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .timeline-icon { flex: 0 0 1.5rem; text-align: center; }
 .timeline-title { margin: 0; }
 .timeline-item p { margin: .1rem 0; }
+
+/* Comunicaciones del curso: recorrido operativo con acciones por paso. */
+.comms-links { padding: 14px 0; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+.comms-links h3 { margin: 0 0 8px; font-size: .85rem; color: #243b53; }
+.comms-links p { margin: 2px 0; }
+.comms-links-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.comms-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+.comms-step { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.comms-step:last-child { border-bottom: 0; }
+.comms-step-main { flex: 1 1 260px; min-width: 0; }
+.comms-step-main p { margin: 3px 0; }
+.comms-step-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; }
+.comms-step-editor { flex-basis: 100%; margin-top: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2, #f8fafc); }
+.comms-rule + .comms-rule { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.comms-rule textarea { width: 100%; resize: vertical; }
+
+@media (max-width: 640px) {
+  .comms-step { flex-direction: column; align-items: stretch; }
+  .comms-step-actions { flex-direction: row; align-items: center; justify-content: flex-start; }
+}

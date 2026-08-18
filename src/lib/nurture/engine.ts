@@ -1,7 +1,7 @@
 import { Prisma, type MessageChannel } from "@prisma/client";
 import { automationRuleCanRun, courseAcceptsAutomations } from "@/lib/automation-eligibility";
 import { courseAccessEligibility, ESTADO_PAGO_VERIFICADO, momentoAplicaAlCurso } from "@/lib/commerce/course-entitlement";
-import { automatizacionPermitida } from "@/lib/whatsapp/conversation";
+import { automatizacionPermitida, esMomentoOperativo } from "@/lib/whatsapp/conversation";
 import { calculateAutomationSchedule, ECUADOR_TIME_ZONE, supportsEnrollmentStatus } from "@/lib/automation-schedule";
 import {
   courseCompletionMoment,
@@ -943,6 +943,7 @@ export async function sendMessage(messageId: string) {
       lead: true,
       // Para volver a comprobar el derecho justo antes de enviar.
       enrollment: { include: { course: { select: { isFree: true } }, purchases: { select: { status: true } } } },
+      automationRule: { select: { planKey: true } },
     },
   });
   if (!message) return { ok: false, error: "Mensaje no encontrado." };
@@ -965,6 +966,33 @@ export async function sendMessage(messageId: string) {
       return { ok: true, skipped: true };
     }
   }
+  /**
+   * Atencion humana abierta DESPUES de programar el mensaje.
+   *
+   * El filtro al programar no basta: un comercial pudo quedar en cola dias
+   * antes de que la persona escribiera. Sin esta segunda puerta saldria igual y
+   * hablaria encima del asesor.
+   *
+   * Los operativos si salen: quedarse sin el enlace de la propia sesion por
+   * haber preguntado una duda seria un dano mucho mayor.
+   */
+  if (message.lead.phone && !esMomentoOperativo(message.automationRule?.planKey)) {
+    const conversacion = await prisma.conversation.findUnique({
+      where: { phone: message.lead.phone },
+      select: { state: true },
+    });
+    if (!automatizacionPermitida(conversacion?.state, message.automationRule?.planKey)) {
+      await prisma.outboundMessage.update({
+        where: { id: message.id },
+        // OMITIDO y no CANCELADO: no se envio, pero tampoco lo cancelo nadie.
+        // El historial conserva que existio y por que se quedo fuera.
+        data: { status: "OMITIDO", errorCode: "HUMAN_HANDOFF_ACTIVE", errorMessage: "No se envió: hay una atención humana abierta con este contacto.", nextAttemptAt: null },
+      });
+      await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "HUMAN_HANDOFF_ACTIVE", planKey: message.automationRule?.planKey ?? null } });
+      return { ok: true, skipped: true };
+    }
+  }
+
   if (!isAutomationEligibleContact(message.lead.classification, message.lead.consent)) {
     await prisma.outboundMessage.update({ where: { id: message.id }, data: { status: "OMITIDO", errorCode: "CONTACT_EXCLUDED", errorMessage: "Contacto de prueba, demostración, sin clasificar o sin consentimiento." } });
     await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "CONTACT_EXCLUDED", classification: message.lead.classification, consent: message.lead.consent } });

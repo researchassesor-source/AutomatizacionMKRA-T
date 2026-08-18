@@ -92,15 +92,109 @@ export type StatusEvent = {
 };
 
 export type InboundNotice = {
-  /** Tipo declarado por Meta (text, image, ...). Nunca se guarda el contenido. */
+  /** Tipo declarado por Meta (text, image, ...). */
   type: string;
-  /** Identificador del mensaje entrante, util para trazar sin exponer el texto. */
+  /** Identificador del mensaje entrante. Unico: el webhook se reintenta. */
   providerMessageId: string;
   /** Remitente declarado por Meta. Solo se usa para responder y limitar frecuencia. */
   sender: string;
   /** Número automático receptor, usado para impedir respuestas a sí mismo. */
   businessPhone?: string;
+  /** Identificador del número de empresa que lo recibió. */
+  phoneNumberId?: string;
+  /** Texto legible del mensaje, cuando el tipo lo trae. Un audio no lo tiene. */
+  text?: string;
+  /**
+   * Momento declarado por Meta.
+   *
+   * No es el de recepcion: un webhook puede llegar con retraso, y el que
+   * gobierna la ventana de 24 horas es este.
+   */
+  occurredAt: Date;
+  /** wamid citado cuando el contacto responde a un mensaje concreto. */
+  contextMessageId?: string;
+  /**
+   * Metadatos seguros del adjunto o de la interaccion.
+   *
+   * Nunca el archivo ni el payload completo: solo lo que permite entender el
+   * mensaje en la bandeja y, si algun dia hace falta, ir a buscarlo.
+   */
+  mediaMeta?: Record<string, unknown>;
 };
+
+/** Limite de cortesia para no guardar cuerpos desmesurados. */
+const MAX_TEXTO = 4_000;
+
+function texto(valor: unknown): string | undefined {
+  if (typeof valor !== "string") return undefined;
+  const limpio = valor.trim();
+  return limpio ? limpio.slice(0, MAX_TEXTO) : undefined;
+}
+
+/** Copia solo las claves indicadas, y solo si son primitivas. */
+function metadatosSeguros(origen: unknown, claves: readonly string[]): Record<string, unknown> | undefined {
+  if (!origen || typeof origen !== "object") return undefined;
+  const fuente = origen as Record<string, unknown>;
+  const salida: Record<string, unknown> = {};
+  for (const clave of claves) {
+    const valor = fuente[clave];
+    if (typeof valor === "string") salida[clave] = valor.slice(0, 300);
+    else if (typeof valor === "number" || typeof valor === "boolean") salida[clave] = valor;
+  }
+  return Object.keys(salida).length > 0 ? salida : undefined;
+}
+
+const CLAVES_MEDIA = ["id", "mime_type", "filename", "sha256", "caption", "animated"] as const;
+
+/**
+ * Contenido legible y metadatos de un mensaje, segun su tipo.
+ *
+ * Un tipo que Meta invente manana cae en el ultimo caso y se guarda con su
+ * nombre y nada mas: preferible a un 500 que haria a Meta reintentar el lote
+ * entero indefinidamente.
+ */
+export function contenidoDeMensaje(item: Record<string, unknown>): { text?: string; mediaMeta?: Record<string, unknown> } {
+  const tipo = typeof item.type === "string" ? item.type : "desconocido";
+
+  if (tipo === "text") {
+    return { text: texto((item.text as { body?: unknown })?.body) };
+  }
+  if (tipo === "image" || tipo === "document" || tipo === "audio" || tipo === "video" || tipo === "sticker") {
+    const media = item[tipo];
+    const meta = metadatosSeguros(media, CLAVES_MEDIA);
+    return { text: texto((media as { caption?: unknown })?.caption), mediaMeta: meta };
+  }
+  if (tipo === "location") {
+    return { mediaMeta: metadatosSeguros(item.location, ["latitude", "longitude", "name", "address"]) };
+  }
+  if (tipo === "contacts") {
+    // Resumen, no la agenda entera: un contacto compartido puede traer decenas
+    // de telefonos y direcciones que el CRM no necesita guardar.
+    const contactos = Array.isArray(item.contacts) ? item.contacts : [];
+    const nombres = contactos
+      .map((c) => texto((c as { name?: { formatted_name?: unknown } })?.name?.formatted_name))
+      .filter((n): n is string => Boolean(n))
+      .slice(0, 5);
+    return { mediaMeta: { count: contactos.length, names: nombres } };
+  }
+  if (tipo === "interactive") {
+    const interactive = item.interactive as { type?: unknown; button_reply?: unknown; list_reply?: unknown } | undefined;
+    const respuesta = (interactive?.button_reply ?? interactive?.list_reply) as { id?: unknown; title?: unknown } | undefined;
+    return {
+      text: texto(respuesta?.title),
+      mediaMeta: metadatosSeguros({ ...(respuesta ?? {}), interactiveType: interactive?.type }, ["id", "title", "interactiveType"]),
+    };
+  }
+  if (tipo === "button") {
+    const boton = item.button as { text?: unknown; payload?: unknown } | undefined;
+    return { text: texto(boton?.text), mediaMeta: metadatosSeguros(boton, ["payload", "text"]) };
+  }
+  if (tipo === "reaction") {
+    const reaccion = item.reaction as { emoji?: unknown; message_id?: unknown } | undefined;
+    return { text: texto(reaccion?.emoji), mediaMeta: metadatosSeguros(reaccion, ["emoji", "message_id"]) };
+  }
+  return { mediaMeta: { unsupportedType: tipo } };
+}
 
 export type ParsedWebhook = {
   statuses: StatusEvent[];
@@ -163,18 +257,24 @@ export function parseWebhookPayload(payload: unknown): ParsedWebhook {
       }
 
       if (Array.isArray(value.messages)) {
-        const metadata = value.metadata as { display_phone_number?: unknown } | undefined;
+        const metadata = value.metadata as { display_phone_number?: unknown; phone_number_id?: unknown } | undefined;
         const businessPhone = typeof metadata?.display_phone_number === "string"
           ? metadata.display_phone_number
           : undefined;
+        const phoneNumberId = typeof metadata?.phone_number_id === "string" ? metadata.phone_number_id : undefined;
         for (const raw of value.messages) {
-          const item = raw as { id?: unknown; type?: unknown; from?: unknown };
+          const item = raw as Record<string, unknown>;
           if (typeof item?.id !== "string" || typeof item.from !== "string") continue;
+          const contexto = item.context as { id?: unknown } | undefined;
           result.inbound.push({
             providerMessageId: item.id,
             type: typeof item.type === "string" ? item.type : "desconocido",
             sender: item.from,
             businessPhone,
+            phoneNumberId,
+            occurredAt: toDate(item.timestamp),
+            contextMessageId: typeof contexto?.id === "string" ? contexto.id : undefined,
+            ...contenidoDeMensaje(item),
           });
         }
       }

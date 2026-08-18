@@ -23,7 +23,7 @@ const NOTICE = {
   providerMessageId: "wamid.INBOUND",
   type: "text",
   sender: "593991234567",
-  businessPhone: "+593 99 111 2222",
+  businessPhone: "+593 99 111 2222", occurredAt: new Date("2026-08-20T15:00:00.000Z"),
 };
 
 describe("configuración de atención humana", () => {

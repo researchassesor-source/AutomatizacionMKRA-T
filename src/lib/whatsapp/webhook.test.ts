@@ -113,7 +113,7 @@ describe("lectura del payload", () => {
     expect(parsed.statuses[0]).toMatchObject({ state: "FAILED", errorCode: "WHATSAPP_131047", errorMessage: "Re-engagement message" });
   });
 
-  it("distingue los mensajes entrantes de los estados y no guarda su contenido", () => {
+  it("distingue los mensajes entrantes de los estados y trae su contenido", () => {
     const parsed = parseWebhookPayload({
       object: "whatsapp_business_account",
       entry: [{
@@ -128,13 +128,16 @@ describe("lectura del payload", () => {
       }],
     });
     expect(parsed.statuses).toHaveLength(1);
-    expect(parsed.inbound).toEqual([{
+    // El texto ahora SI viaja: la bandeja necesita mostrar lo que la persona
+    // escribio. Lo que no viaja es el payload crudo de Meta.
+    expect(parsed.inbound[0]).toMatchObject({
       providerMessageId: "wamid.IN",
       type: "text",
       sender: "593999999999",
       businessPhone: "+593 99 111 2222",
-    }]);
-    expect(JSON.stringify(parsed)).not.toContain("información por favor");
+      text: "hola, información por favor",
+    });
+    expect(parsed.inbound[0].occurredAt).toBeInstanceOf(Date);
   });
 
   it("ignora los campos que no son 'messages' y los deja contados", () => {

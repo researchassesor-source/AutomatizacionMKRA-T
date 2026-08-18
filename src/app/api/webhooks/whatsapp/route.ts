@@ -3,6 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { applyMessageProviderEvent } from "@/lib/nurture/provider-events";
 import { resolveWhatsAppConfig } from "@/lib/whatsapp/config";
 import { handleInboundSupportReply } from "@/lib/whatsapp/inbound-reply";
+import { guardarMensajeEntrante } from "@/lib/whatsapp/inbound-store";
 import { parseWebhookPayload, resolveVerification, SIGNATURE_HEADER, verifySignature } from "@/lib/whatsapp/webhook";
 
 export const dynamic = "force-dynamic";
@@ -116,7 +117,32 @@ export async function POST(request: Request) {
     }
   }
 
+  let inboundGuardados = 0;
+  let inboundDuplicados = 0;
+  let inboundSinNormalizar = 0;
+  let inboundHandoff = 0;
+
   for (const notice of parsed.inbound) {
+    /**
+     * Persistir es lo primero y va aislado del resto.
+     *
+     * Si la respuesta automatica falla, el mensaje ya esta guardado y la
+     * bandeja lo muestra igualmente; al reves seria peor, porque Meta
+     * reintentaria el lote entero y el CRM perderia lo unico que no puede
+     * reconstruir despues: lo que la persona escribio.
+     */
+    try {
+      const guardado = await guardarMensajeEntrante(notice);
+      if (guardado.estado === "guardado") {
+        inboundGuardados++;
+        if (guardado.handoffAbierto) inboundHandoff++;
+      } else if (guardado.estado === "duplicado") inboundDuplicados++;
+      else inboundSinNormalizar++;
+    } catch {
+      // Un mensaje problematico no puede tumbar los demas del mismo lote.
+      inboundSinNormalizar++;
+    }
+
     try {
       const outcome = await handleInboundSupportReply(notice);
       if (outcome.status === "sent") inboundReplied++;
@@ -135,8 +161,8 @@ export async function POST(request: Request) {
     }
   }
 
-  // No hay bandeja de conversaciones: se procesa el evento sin guardar cuerpo
-  // ni número. La auditoría conserva únicamente contadores y códigos técnicos.
+  // La auditoría conserva contadores y códigos técnicos; el contenido vive en
+  // `inbound_messages`, que es donde la bandeja lo lee.
   if (parsed.inbound.length > 0) {
     await writeAudit({
       actorEmail: "whatsapp-webhook",
@@ -145,6 +171,10 @@ export async function POST(request: Request) {
       metadata: {
         count: parsed.inbound.length,
         types: [...new Set(parsed.inbound.map((item) => item.type))],
+        guardados: inboundGuardados,
+        duplicados: inboundDuplicados,
+        sinNormalizar: inboundSinNormalizar,
+        handoffAbiertos: inboundHandoff,
         replied: inboundReplied,
         rateLimited: inboundRateLimited,
         selfIgnored: inboundSelfIgnored,
@@ -178,6 +208,9 @@ export async function POST(request: Request) {
     duplicated,
     unknownMessage,
     inbound: parsed.inbound.length,
+    inboundStored: inboundGuardados,
+    inboundDuplicated: inboundDuplicados,
+    inboundHandoff,
     inboundReplied,
     inboundRateLimited,
     inboundSelfIgnored,

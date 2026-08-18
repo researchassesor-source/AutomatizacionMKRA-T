@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   writeAudit: vi.fn().mockResolvedValue(undefined),
   applyMessageProviderEvent: vi.fn(),
   handleInboundSupportReply: vi.fn(),
+  guardarMensajeEntrante: vi.fn(async () => ({ estado: "guardado", inboundId: "in-1", leadId: null, handoffAbierto: true })),
 }));
 
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
@@ -16,6 +17,11 @@ vi.mock("@/lib/whatsapp/config", () => ({
 }));
 vi.mock("@/lib/whatsapp/inbound-reply", () => ({
   handleInboundSupportReply: mocks.handleInboundSupportReply,
+}));
+// La persistencia tiene su propia bateria; aqui solo importa que el webhook la
+// invoque por cada entrante y que un fallo suyo no tumbe el lote.
+vi.mock("@/lib/whatsapp/inbound-store", () => ({
+  guardarMensajeEntrante: mocks.guardarMensajeEntrante,
 }));
 
 import { POST } from "./route";
@@ -67,12 +73,16 @@ describe("POST webhook WhatsApp", () => {
     expect(mocks.applyMessageProviderEvent).toHaveBeenCalledTimes(3);
     expect(mocks.applyMessageProviderEvent.mock.calls.map(([event]) => event.state))
       .toEqual(["SENT", "DELIVERED", "READ"]);
-    expect(mocks.handleInboundSupportReply).toHaveBeenCalledWith({
+    // El aviso ahora lleva ademas contenido, momento y contexto: se comprueba
+    // lo que identifica al mensaje sin fijar el resto del contrato aqui.
+    expect(mocks.handleInboundSupportReply).toHaveBeenCalledWith(expect.objectContaining({
       providerMessageId: "wamid.IN",
       type: "text",
       sender: "593991234567",
       businessPhone: "+593 99 111 2222",
-    });
+    }));
+    // Y cada entrante se persiste, que es lo que alimenta la bandeja.
+    expect(mocks.guardarMensajeEntrante).toHaveBeenCalledTimes(1);
 
     const result = await response.json();
     expect(result).toMatchObject({

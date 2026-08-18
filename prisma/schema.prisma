@@ -19,10 +19,11 @@ model AdminUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  assignedLeads     Lead[]     @relation("LeadAssignee")
+  assignedLeads     Lead[]         @relation("LeadAssignee")
   notes             LeadNote[]
-  assignedFollowUps FollowUp[] @relation("FollowUpAssignee")
+  assignedFollowUps FollowUp[]     @relation("FollowUpAssignee")
   auditLogs         AuditLog[]
+  conversations     Conversation[]
 
   @@index([role, isActive])
   @@map("admin_users")
@@ -180,12 +181,14 @@ model Lead {
   financeInscripcionId String?
   course               Course? @relation(fields: [courseId], references: [id])
 
-  assignedTo  AdminUser?        @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  enrollments Enrollment[]
-  events      LeadEvent[]
-  messages    OutboundMessage[]
-  notes       LeadNote[]
-  followUps   FollowUp[]
+  assignedTo      AdminUser?        @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  enrollments     Enrollment[]
+  events          LeadEvent[]
+  messages        OutboundMessage[]
+  notes           LeadNote[]
+  followUps       FollowUp[]
+  inboundMessages InboundMessage[]
+  conversations   Conversation[]
 
   @@index([stage, isArchived])
   @@index([classification, isArchived])
@@ -254,6 +257,7 @@ model Enrollment {
   course          Course                        @relation(fields: [courseId], references: [id])
   campaign        Campaign?                     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   events          LeadEvent[]
+  inboundMessages InboundMessage[]
   messages        OutboundMessage[]
   purchases       CoursePurchase[]
   offerRecipients CertificationOfferRecipient[]
@@ -956,4 +960,92 @@ model CertificationOfferRecipient {
   @@unique([campaignId, enrollmentId])
   @@index([campaignId, eligibilityStatus])
   @@map("certification_offer_recipients")
+}
+
+/// Mensaje que ENTRA desde WhatsApp.
+///
+/// Vive aparte de `OutboundMessage` a proposito: aquel representa algo que el
+/// CRM decidio enviar, con su regla, su plantilla y su calendario. Un entrante
+/// no tiene nada de eso — lo escribe una persona cuando quiere — y forzarlo en
+/// la misma tabla obligaria a dejar medio modelo en nulo y a filtrar por
+/// direccion en cada consulta ya existente.
+model InboundMessage {
+  id                String    @id @default(cuid())
+  /// wamid de Meta. Unico: el webhook se reintenta y no puede duplicar.
+  providerMessageId String    @unique
+  provider          String    @default("whatsapp_cloud")
+  /// Numero del contacto, normalizado con las mismas funciones del CRM.
+  fromPhone         String
+  /// Numero de empresa que lo recibio, para distinguir si algun dia hay varios.
+  toPhoneNumberId   String?
+  /// text, image, document, audio, video, location, contacts, interactive...
+  type              String
+  /// Solo cuando el mensaje lo trae. Un audio no tiene texto y queda a null.
+  text              String?
+  /// Metadatos seguros del adjunto: id de media, mime, nombre, caption. Nunca
+  /// el archivo, que se descarga bajo demanda si algun dia hace falta.
+  mediaMeta         Json?
+  /// wamid del mensaje citado, cuando el contacto responde a uno concreto.
+  contextMessageId  String?
+  /// Momento declarado por Meta, no el de recepcion: son distintos y el que
+  /// importa para la ventana de 24 horas es el suyo.
+  occurredAt        DateTime
+  /// Resueltos cuando el telefono identifica a UNA sola persona. Si hay varias
+  /// coincidencias quedan en null y la conversacion espera revision humana.
+  leadId            String?
+  enrollmentId      String?
+  readAt            DateTime?
+  readByAdminId     String?
+  createdAt         DateTime  @default(now())
+
+  lead       Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  enrollment Enrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@index([fromPhone, occurredAt])
+  @@index([leadId, occurredAt])
+  @@index([readAt])
+  @@map("inbound_messages")
+}
+
+/// Quien esta atendiendo una conversacion.
+///
+/// AUTOMATION  -> el CRM responde solo, como hasta ahora.
+/// HUMAN_HANDOFF -> hay un asesor escribiendo; las automatizaciones
+///                  comerciales de ESA persona se callan para no hablar
+///                  encima. Las operativas siguen: el enlace de la sesion
+///                  tiene que llegar aunque haya una conversacion abierta.
+/// RESOLVED    -> la atencion se cerro y todo vuelve a la normalidad.
+enum ConversationState {
+  AUTOMATION
+  HUMAN_HANDOFF
+  RESOLVED
+}
+
+/// Estado de atencion de una conversacion de WhatsApp.
+///
+/// La clave es el telefono y no la inscripcion: quien escribe lo hace desde un
+/// numero, y puede tener varias inscripciones o ninguna. Atar el handoff a una
+/// inscripcion obligaria a elegir una arbitrariamente.
+model Conversation {
+  id             String            @id @default(cuid())
+  phone          String            @unique
+  state          ConversationState @default(AUTOMATION)
+  leadId         String?
+  /// Asesor a cargo. Se reutiliza el usuario administrador existente.
+  assignedToId   String?
+  handoffAt      DateTime?
+  handoffBy      String?
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  /// Ultimo mensaje ENTRANTE: es lo que abre la ventana de 24 horas de Meta.
+  lastInboundAt  DateTime?
+  lastOutboundAt DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo AdminUser? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([state, lastInboundAt])
+  @@map("conversations")
 }

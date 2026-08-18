@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
     outboundMessage: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     courseSession: { findMany: vi.fn() },
     automationRule: { findMany: vi.fn(), update: vi.fn() },
-  },
+    conversation: { findUnique: vi.fn(async () => null) },  },
   writeAudit: vi.fn(async () => undefined),
 }));
 

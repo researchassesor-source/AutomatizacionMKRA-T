@@ -1,6 +1,7 @@
 import { Prisma, type MessageChannel } from "@prisma/client";
 import { automationRuleCanRun, courseAcceptsAutomations } from "@/lib/automation-eligibility";
 import { courseAccessEligibility, ESTADO_PAGO_VERIFICADO, momentoAplicaAlCurso } from "@/lib/commerce/course-entitlement";
+import { automatizacionPermitida } from "@/lib/whatsapp/conversation";
 import { calculateAutomationSchedule, ECUADOR_TIME_ZONE, supportsEnrollmentStatus } from "@/lib/automation-schedule";
 import {
   courseCompletionMoment,
@@ -539,6 +540,19 @@ export async function scheduleEnrollmentAutomations(
     return { ...empty, reason: "COURSE_NOT_ENTITLED" };
   }
 
+  /**
+   * Atencion humana en curso: los momentos comerciales de ESTA persona se
+   * callan para no hablar encima del asesor. Los operativos siguen, porque
+   * quedarse sin el enlace de la sesion por haber escrito una duda seria un
+   * dano mucho mayor que un comercial de mas.
+   *
+   * Se consulta una vez por inscripcion, no por regla: son once reglas y la
+   * respuesta es la misma para todas.
+   */
+  const conversacion = enrollment.lead.phone
+    ? await prisma.conversation.findUnique({ where: { phone: enrollment.lead.phone }, select: { state: true } })
+    : null;
+
   const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
   // El curso puede tener sus fechas solo en las sesiones: la elegibilidad se
   // evalua sobre el calendario efectivo, no sobre startsAt/endsAt heredados.
@@ -564,6 +578,7 @@ export async function scheduleEnrollmentAutomations(
     // El cierre y el seguimiento hablan de "esta capacitación gratuita": en un
     // curso de pago le dirian a quien acaba de pagar que lo suyo era gratis.
     if (!momentoAplicaAlCurso(rule.planKey, enrollment.course)) { skipped++; continue; }
+    if (!automatizacionPermitida(conversacion?.state, rule.planKey)) { skipped++; continue; }
     if (rule.campaignId && rule.campaignId !== enrollment.campaignId) { skipped++; continue; }
     if (!supportsEnrollmentStatus(rule.enrollmentStatuses, enrollment.status)) { skipped++; continue; }
     // Una regla de bienvenida creada despues de la inscripcion no saluda hacia
@@ -772,7 +787,7 @@ export async function finalizeCompletedCourseEnrollments(now = new Date()) {
   let completed = 0;
   let cancelled = 0;
   for (const enrollment of candidates ?? []) {
-    const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
+  const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
     const completedAt = courseCompletionMoment(sessions);
     if (!completedAt || completedAt > now) continue;
     const outboundMessageDelegate = prisma.outboundMessage as typeof prisma.outboundMessage & {

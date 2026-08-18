@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   prisma: {
     outboundMessage: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), create: vi.fn() },
     automationRule: { findMany: vi.fn(), update: vi.fn() },
-    enrollment: { findMany: vi.fn(), findUnique: vi.fn() },
+    conversation: { findUnique: vi.fn(async () => null) },    enrollment: { findMany: vi.fn(), findUnique: vi.fn() },
     courseSession: { findMany: vi.fn() },
   },
   writeAudit: vi.fn(async () => undefined),

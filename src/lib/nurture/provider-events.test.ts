@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 const mocks = vi.hoisted(() => ({
   prisma: {
     outboundMessage: { findFirst: vi.fn(), update: vi.fn() },
-    messageProviderEvent: { create: vi.fn() },
+    conversation: { findUnique: vi.fn(async () => null) },    messageProviderEvent: { create: vi.fn() },
   },
   writeAudit: vi.fn(async () => undefined),
 }));

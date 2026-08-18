@@ -153,7 +153,7 @@ export function LeadForm({
   return (
     <form className="card lead-form" onSubmit={handleSubmit} onChange={handleInteraction} noValidate>
       <span className="eyebrow">Registro de interés</span>
-      <h2>Reserva tu cupo gratis</h2>
+      <h2>Reserva tu cupo</h2>
       <p className="sub">Completa tus datos y nuestro equipo se pondrá en contacto contigo para confirmar tu participación.</p>
       <p className="lead-form-course"><strong>{course.title}</strong></p>
       {facts.length > 0 ? <ul className="lead-form-facts">{facts.map((fact) => <li key={fact}>{fact}</li>)}</ul> : null}
@@ -240,7 +240,7 @@ export function LeadForm({
       </label>
       {fieldErrors.consent ? <p className="field-error" id="consent-error">{fieldErrors.consent}</p> : null}
       <button className="btn" type="submit" disabled={loading} aria-busy={loading}>
-        {loading ? "Enviando registro…" : "Quiero mi cupo gratis"}
+        {loading ? "Enviando registro…" : "Reservar mi cupo"}
       </button>
       <div className="form-status" aria-live="polite" aria-atomic="true">
         {error ? <p className="form-error" role="alert">{error}</p> : null}

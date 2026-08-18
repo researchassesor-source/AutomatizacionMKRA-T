@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { courseAccessEligibility } from "@/lib/commerce/course-entitlement";
+import { calcularPasaporte } from "@/lib/commerce/passport";
+import { LeadPassport } from "./LeadPassport";
 import { LeadTimeline } from "./LeadTimeline";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
@@ -27,7 +29,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       include: {
         course: true,
         // `purchases` e `isFree` deciden el acceso operativo al curso.
-        enrollments: { include: { course: { include: { sessions: true } }, purchases: { select: { status: true } } }, orderBy: { createdAt: "desc" } },
+        enrollments: { include: { course: { include: { sessions: true } }, purchases: { select: { status: true, offerType: true } } }, orderBy: { createdAt: "desc" } },
         notes: { include: { author: true }, orderBy: { createdAt: "desc" } },
         followUps: { include: { assignedTo: true }, orderBy: { dueAt: "asc" } },
         messages: { orderBy: { scheduledAt: "desc" }, take: 30 },
@@ -100,6 +102,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         courses={courses}
         role={session.role}
       />
+      <LeadPassport progreso={calcularPasaporte(lead.enrollments.map((item) => ({
+        enrollmentId: item.id,
+        courseId: item.courseId,
+        courseTitle: item.course.title,
+        isFree: item.course.isFree,
+        purchases: item.purchases,
+      })))} />
       <LeadTimeline leadId={lead.id} />
       {lead.notes.length > 0 || lead.followUps.length > 0 ? <div className="grid">
         {lead.notes.length > 0 ? <section className="panel"><h2>Notas</h2>{lead.notes.map((note) => <article className="timeline-item" key={note.id}><strong>{note.author?.name ?? "Equipo CRM"}</strong><p>{note.content}</p><small>{formatDate(note.createdAt)}</small></article>)}</section> : null}

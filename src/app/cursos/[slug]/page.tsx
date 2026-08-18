@@ -38,7 +38,7 @@ export default async function CoursePage({ params }: { params: Promise<{ slug: s
           )}
           <div className="meta-row">
             <span>{mapping.duration}</span>
-            <span>Registro de cupo gratuito</span>
+            <span>Registro de cupo</span>
           </div>
           <a className="text-link" href={mapping.officialCourseUrl}>Consultar información oficial ↗</a>
         </section>

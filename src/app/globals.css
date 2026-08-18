@@ -2405,3 +2405,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .inbox-list { max-height: none; }
   .bubble { max-width: 92%; }
 }
+
+/* Línea de actividad del contacto. */
+.timeline { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.timeline-item { display: flex; gap: .6rem; align-items: flex-start; padding-bottom: .5rem; border-bottom: 1px solid var(--border, #e5e7eb); }
+.timeline-item:last-child { border-bottom: 0; }
+.timeline-icon { flex: 0 0 1.5rem; text-align: center; }
+.timeline-title { margin: 0; }
+.timeline-item p { margin: .1rem 0; }

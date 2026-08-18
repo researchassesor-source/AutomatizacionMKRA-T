@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { courseAccessEligibility } from "@/lib/commerce/course-entitlement";
+import { LeadTimeline } from "./LeadTimeline";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
 import { resolveViewMode } from "@/lib/auth/view-mode";
@@ -99,6 +100,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         courses={courses}
         role={session.role}
       />
+      <LeadTimeline leadId={lead.id} />
       {lead.notes.length > 0 || lead.followUps.length > 0 ? <div className="grid">
         {lead.notes.length > 0 ? <section className="panel"><h2>Notas</h2>{lead.notes.map((note) => <article className="timeline-item" key={note.id}><strong>{note.author?.name ?? "Equipo CRM"}</strong><p>{note.content}</p><small>{formatDate(note.createdAt)}</small></article>)}</section> : null}
         {lead.followUps.length > 0 ? <section className="panel"><h2>Próximas acciones</h2>{lead.followUps.map((item) => <article className="timeline-item" key={item.id}><strong>{presentAdminValue(item.type)} · {presentAdminValue(item.status)}</strong><p>{item.notes ?? "Sin detalle"}</p><small>{formatDate(item.dueAt)} · {item.assignedTo?.name ?? "Sin asignar"}</small></article>)}</section> : null}

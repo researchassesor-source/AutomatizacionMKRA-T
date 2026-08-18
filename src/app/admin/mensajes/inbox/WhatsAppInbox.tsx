@@ -101,6 +101,8 @@ export function WhatsAppInbox() {
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<{ tipo: "error" | "ok"; texto: string } | null>(null);
   const [panelInfo, setPanelInfo] = useState(false);
+  const [asesores, setAsesores] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [asignando, setAsignando] = useState(false);
 
   /**
    * Identidad del intento en curso.
@@ -160,6 +162,20 @@ export function WhatsAppInbox() {
   }, []);
 
   useEffect(() => { void cargarLista(); }, [cargarLista]);
+
+  // La lista de asesores se pide una vez: cambia poco y pedirla por
+  // conversacion seria una peticion por cada clic en la bandeja.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/users/assignable");
+        const json = await res.json();
+        if (json?.ok) setAsesores(json.users);
+      } catch {
+        // Sin lista, el resto de la bandeja sigue siendo usable.
+      }
+    })();
+  }, []);
 
   /**
    * Refresco periodico, solo con la pestana visible.
@@ -530,6 +546,22 @@ export function WhatsAppInbox() {
             )}
 
             <h3>Atención</h3>
+            <label className="sr-only" htmlFor="inbox-asesor">Asesor responsable</label>
+            <select
+              id="inbox-asesor"
+              value={detalle.conversation.assignedTo?.id ?? ""}
+              disabled={asignando}
+              onChange={async (event) => {
+                const valor = event.target.value;
+                setAsignando(true);
+                await actualizarConversacion({ assignedToId: valor || null }, valor ? "Asesor asignado." : "Asignación retirada.");
+                setAsignando(false);
+              }}
+            >
+              <option value="">Sin asignar</option>
+              {asesores.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}
+            </select>
+            {asignando ? <p className="muted">Guardando…</p> : null}
             <p className="muted">{ESTADO_TEXTO[detalle.conversation.state]}</p>
             <p className="muted">{ventana ? textoDeVentana(ventana) : ""}</p>
             <div className="form-row">

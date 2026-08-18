@@ -21,7 +21,8 @@ describe("configuración del correo saliente", () => {
     const config = resolveEmailConfig(smtpEnv);
     expect(config.provider).toBe("smtp");
     expect(config.smtp).toMatchObject({ host: "mail.ra-training.com", port: 465, secure: true });
-    expect(formatSender(config.identity!)).toBe("R.A. Training <avillagomez@ra-training.com>");
+    if (!config.identity) throw new Error("EMAIL_FROM está definido en smtpEnv: identity no puede ser null aquí.");
+    expect(formatSender(config.identity)).toBe("R.A. Training <avillagomez@ra-training.com>");
   });
 
   it("deduce secure desde el puerto cuando SMTP_SECURE no está definido", () => {

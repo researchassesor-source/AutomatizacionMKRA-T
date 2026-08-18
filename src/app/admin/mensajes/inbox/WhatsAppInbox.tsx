@@ -224,7 +224,7 @@ export function WhatsAppInbox() {
   // mientras revisa mensajes antiguos es la forma de perder el hilo.
   useEffect(() => {
     const nodo = chatRef.current;
-    if (nodo && pegadoAbajo.current) nodo.scrollTop = nodo.scrollHeight;
+    if (nodo && pegadoAbajo.current && detalle) nodo.scrollTop = nodo.scrollHeight;
   }, [detalle]);
 
   function alScroll() {
@@ -358,7 +358,7 @@ export function WhatsAppInbox() {
                 >
                   <span className="inbox-item-top">
                     <strong>{item.name}</strong>
-                    {item.unreadCount > 0 ? <span className="badge" aria-label={`${item.unreadCount} sin leer`}>{item.unreadCount}</span> : null}
+                    {item.unreadCount > 0 ? <span className="badge" role="img" aria-label={`${item.unreadCount} sin leer`}>{item.unreadCount}</span> : null}
                   </span>
                   <span className="muted">{item.phonePartial} · {ESTADO_TEXTO[item.state]}</span>
                   {item.lastMessage ? <span className="inbox-preview">{item.lastMessage.preview}</span> : null}

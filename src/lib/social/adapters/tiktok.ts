@@ -37,11 +37,17 @@ export class TikTokAdapter implements SocialAdapter {
   }
 
   private async accessToken(): Promise<string> {
+    const { clientKey, clientSecret, refreshToken } = this.config;
+    // Los llamadores ya verifican isConfigured() antes de invocar esto; esta
+    // guarda solo hace explicito para TypeScript lo que ellos ya garantizan.
+    if (!clientKey || !clientSecret || !refreshToken) {
+      throw new Error("TikTok adapter no configurado: falta clientKey, clientSecret o refreshToken.");
+    }
     const body = new URLSearchParams({
-      client_key: this.config.clientKey!,
-      client_secret: this.config.clientSecret!,
+      client_key: clientKey,
+      client_secret: clientSecret,
       grant_type: "refresh_token",
-      refresh_token: this.config.refreshToken!,
+      refresh_token: refreshToken,
     });
     const res = await fetch(`${API}/oauth/token/`, {
       method: "POST",

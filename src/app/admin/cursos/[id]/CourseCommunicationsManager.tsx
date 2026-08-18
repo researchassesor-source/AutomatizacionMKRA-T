@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { VARIABLES_DISPONIBLES } from "@/lib/template-variables";
 
 type Regla = {
@@ -95,6 +96,7 @@ export function CourseCommunicationsManager({
   const [editando, setEditando] = useState<string | null>(null);
   const [editandoEnlaces, setEditandoEnlaces] = useState(false);
   const [valores, setValores] = useState<Enlaces>(enlaces);
+  const router = useRouter();
 
   async function alternar(planKey: string, activar: boolean) {
     if (!canEdit || ocupado) return;
@@ -128,7 +130,7 @@ export function CourseCommunicationsManager({
       const res = await fetch(`/api/admin/courses/${courseId}/communication-links`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(valores),
+        body: JSON.stringify({ ...valores, confirm: true }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
@@ -137,6 +139,9 @@ export function CourseCommunicationsManager({
       }
       setAviso({ ok: true, texto: "Enlaces guardados." });
       setEditandoEnlaces(false);
+      // El estado "Configurado/Pendiente" y el blockedReason de cada paso los
+      // calcula el servidor: sin esto seguirian mostrando el enlace viejo.
+      router.refresh();
     } catch {
       setAviso({ ok: false, texto: "No se pudieron guardar los enlaces." });
     } finally {
@@ -280,6 +285,7 @@ function ReglaEditor({
   const [body, setBody] = useState(regla.body);
   const [guardando, setGuardando] = useState(false);
   const esWhatsApp = regla.channel === "WHATSAPP";
+  const router = useRouter();
 
   async function guardar() {
     if (!canEdit || guardando) return;
@@ -301,6 +307,9 @@ function ReglaEditor({
         return;
       }
       onAviso({ ok: true, texto: "Cambios guardados." });
+      // describirMomento(regla) y paso.scheduledAt vienen del servidor: sin
+      // esto la pantalla seguiria mostrando el timing viejo tras guardar.
+      router.refresh();
     } catch {
       onAviso({ ok: false, texto: "No se pudo guardar." });
     } finally {

@@ -137,7 +137,7 @@ describe("refresco periódico", () => {
 
 describe("scroll y lectura", () => {
   it("solo baja solo si quien lee ya estaba abajo", () => {
-    expect(inbox).toContain("if (nodo && pegadoAbajo.current) nodo.scrollTop = nodo.scrollHeight");
+    expect(inbox).toContain("if (nodo && pegadoAbajo.current && detalle) nodo.scrollTop = nodo.scrollHeight");
     expect(inbox).toContain("pegadoAbajo.current = nodo.scrollHeight - nodo.scrollTop - nodo.clientHeight < 80");
   });
 

@@ -109,7 +109,7 @@ describe("enlaces del recorrido", () => {
   });
 
   it("los tres enlaces del curso se guardan por su propio endpoint", () => {
-    expect(fuente).toMatch(/\/api\/admin\/courses\$\{courseId\}\/communication-links/);
+    expect(fuente).toMatch(/\/api\/admin\/courses\/\$\{courseId\}\/communication-links/);
   });
 
   it("el mapeo de pasos a enlaces cubre exactamente los pasos que los necesitan", () => {
@@ -136,6 +136,33 @@ describe("el paso 12 (oferta institucional) no vive en este panel", () => {
 
   it("no define su propia lista de pasos: recibe `pasos` ya construidos por el servidor", () => {
     expect(fuente).not.toContain("TIMELINE_STEPS");
+  });
+});
+
+describe("refresh de estado del servidor tras guardar", () => {
+  it("guardarEnlaces manda confirm:true y refresca tras un guardado exitoso, antes de limpiar el aviso", () => {
+    const inicio = fuente.indexOf("async function guardarEnlaces()");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("\n  return (", inicio));
+    expect(cuerpo).toMatch(/body: JSON\.stringify\(\{ \.\.\.valores, confirm: true \}\)/);
+    // El refresh va despues de confirmar el exito (aviso ok), nunca antes.
+    const idxAvisoOk = cuerpo.indexOf('setAviso({ ok: true, texto: "Enlaces guardados."');
+    const idxRefresh = cuerpo.indexOf("router.refresh()");
+    expect(idxAvisoOk).toBeGreaterThan(-1);
+    expect(idxRefresh).toBeGreaterThan(idxAvisoOk);
+  });
+
+  it("ReglaEditor.guardar refresca el estado del servidor tras un guardado exitoso", () => {
+    const inicio = fuente.indexOf("async function guardar()");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("\n  return (\n    <div className=\"comms-rule\">", inicio));
+    const idxAvisoOk = cuerpo.indexOf('onAviso({ ok: true, texto: "Cambios guardados." });');
+    const idxRefresh = cuerpo.indexOf("router.refresh()");
+    expect(idxAvisoOk).toBeGreaterThan(-1);
+    expect(idxRefresh).toBeGreaterThan(idxAvisoOk);
+  });
+
+  it("ambos componentes usan su propio useRouter, sin compartir estado entre ellos", () => {
+    expect((fuente.match(/const router = useRouter\(\);/g) ?? []).length).toBe(2);
+    expect(fuente).toContain('import { useRouter } from "next/navigation";');
   });
 });
 

@@ -124,6 +124,66 @@ describe("encender un paso", () => {
     const fallos = mocks.writeAudit.mock.calls.filter((call: any) => call[0].result === "FAILURE");
     expect(fallos).toHaveLength(1);
   });
+
+  it("un error de reschedule con texto sensible nunca llega a la auditoría, y se guarda bajo una acción propia", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{ id: "rule-email", status: "PAUSED" }]);
+    const secreto = "connection refused at postgres://admin:hunter2@10.0.0.5:5432/prod\n  at Object.<anonymous> (/srv/app/db.ts:42:11)";
+    mocks.rescheduleCourseAutomations.mockRejectedValueOnce(new Error(secreto));
+    await peticion("course-1", "welcome", { enabled: true, confirm: true });
+
+    const fallo = mocks.writeAudit.mock.calls.find((call: any) => call[0].result === "FAILURE");
+    if (!fallo) throw new Error("no se registró ninguna auditoría con result FAILURE");
+    expect(fallo[0].action).toBe("COURSE_COMMUNICATION_STEP_RESCHEDULE_FAILED");
+    expect(fallo[0].metadata).toMatchObject({ courseId: "course-1", planKey: "welcome", enabled: true });
+    // Ni el mensaje del Error ni ningun fragmento del texto sensible viajan en ningun registro de auditoria.
+    const todaLaAuditoria = JSON.stringify(mocks.writeAudit.mock.calls);
+    expect(todaLaAuditoria).not.toContain("hunter2");
+    expect(todaLaAuditoria).not.toContain("postgres://");
+    expect(todaLaAuditoria).not.toContain("/srv/app/db.ts");
+    expect(todaLaAuditoria).not.toMatch(/connection refused/i);
+
+    // El cambio de estado del paso queda como un hecho aparte, con su propia acción normal.
+    const actualizado = mocks.writeAudit.mock.calls.find((call: any) => call[0].action === "COURSE_COMMUNICATION_STEP_UPDATED");
+    if (!actualizado) throw new Error("no se registró la auditoría COURSE_COMMUNICATION_STEP_UPDATED");
+    expect(actualizado[0].result).not.toBe("FAILURE");
+  });
+});
+
+describe("draft safety: una regla DRAFT nunca se activa por accidente", () => {
+  it("al encender, una regla DRAFT del mismo planKey no se promueve aunque su hermana ya estuviera ACTIVE", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-email", status: "ACTIVE" },
+      { id: "rule-wa", status: "DRAFT" },
+    ]);
+    const res = await peticion("course-1", "welcome", { enabled: true, confirm: true });
+    expect(res.status).toBe(200);
+    // No hay ninguna PAUSED que promover, asi que updateMany de activacion ni se llama.
+    expect(mocks.prisma.automationRule.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("al encender con una mezcla de PAUSED y DRAFT, solo la PAUSED pasa a ACTIVE", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-email", status: "PAUSED" },
+      { id: "rule-wa", status: "DRAFT" },
+    ]);
+    await peticion("course-1", "welcome", { enabled: true, confirm: true });
+    expect(mocks.prisma.automationRule.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["rule-email"] } },
+      data: { status: "ACTIVE" },
+    });
+  });
+
+  it("al apagar, tanto la ACTIVE como la DRAFT quedan PAUSED por igual", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-email", status: "ACTIVE" },
+      { id: "rule-wa", status: "DRAFT" },
+    ]);
+    await peticion("course-1", "welcome", { enabled: false, confirm: true });
+    expect(mocks.prisma.automationRule.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["rule-email", "rule-wa"] } },
+      data: { status: "PAUSED" },
+    });
+  });
 });
 
 describe("no configurado / no existe", () => {

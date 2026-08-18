@@ -23,7 +23,7 @@ function formatDate(value: Date) {
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [lead, users, courses, session] = await Promise.all([
+  const [lead, _users, courses, session] = await Promise.all([
     prisma.lead.findUnique({
       where: { id },
       include: {

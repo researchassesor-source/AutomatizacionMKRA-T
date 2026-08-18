@@ -14,7 +14,11 @@ const schema = z.object({
   whatsappGroupUrl: enlace,
   courseCompleteUrl: enlace,
   surveyUrl: enlace,
-}).refine((v) => Object.keys(v).length > 0, { message: "No hay nada que cambiar." });
+  confirm: z.literal(true),
+}).refine(
+  (v) => v.whatsappGroupUrl !== undefined || v.courseCompleteUrl !== undefined || v.surveyUrl !== undefined,
+  { message: "No hay nada que cambiar." },
+);
 
 /**
  * Los tres enlaces que usan los mensajes del recorrido.

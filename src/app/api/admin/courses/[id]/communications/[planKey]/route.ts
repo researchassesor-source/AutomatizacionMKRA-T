@@ -45,11 +45,24 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const ids = reglas.map((r) => r.id);
-  const nuevoEstado = parsed.data.enabled ? "ACTIVE" : "PAUSED";
 
   await prisma.$transaction(async (tx) => {
-    await tx.automationRule.updateMany({ where: { id: { in: ids } }, data: { status: nuevoEstado } });
-    if (!parsed.data.enabled) {
+    if (parsed.data.enabled) {
+      /**
+       * Solo lo que estaba PAUSED reanuda. Una regla DRAFT nunca fue revisada
+       * ni activada a propósito: encenderla solo porque su hermana del mismo
+       * paso (el otro canal) sí estaba activa la mandaría a producción sin que
+       * nadie lo decidiera. Esa decisión es aparte: el editor de la regla o
+       * "aplicar plan" en Automatizaciones.
+       */
+      const idsPausados = reglas.filter((r) => r.status === "PAUSED").map((r) => r.id);
+      if (idsPausados.length > 0) {
+        await tx.automationRule.updateMany({ where: { id: { in: idsPausados } }, data: { status: "ACTIVE" } });
+      }
+    } else {
+      // "No enviar" es una instruccion explicita: tanto lo activo como lo que
+      // seguia en borrador quedan pausados por igual, sin excepcion.
+      await tx.automationRule.updateMany({ where: { id: { in: ids } }, data: { status: "PAUSED" } });
       // Solo lo que aun no ha salido. Lo enviado es historial y no se toca.
       await tx.outboundMessage.updateMany({
         where: { automationRuleId: { in: ids }, status: "PROGRAMADO" },
@@ -70,14 +83,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     try {
       await rescheduleCourseAutomations(id);
       reprogramado = true;
-    } catch (error: unknown) {
+    } catch {
+      /**
+       * Nunca el mensaje real del error: podria traer detalle de conexion,
+       * SQL o rutas internas. Se guarda un codigo fijo y una accion propia,
+       * distinta de COURSE_COMMUNICATION_STEP_UPDATED, para no mezclar dos
+       * hechos distintos ("el paso cambio" y "el reschedule fallo") bajo la
+       * misma accion de auditoria.
+       */
       await writeAudit({
         session: auth.session,
-        action: "COURSE_COMMUNICATION_STEP_UPDATED",
+        action: "COURSE_COMMUNICATION_STEP_RESCHEDULE_FAILED",
         entityType: "Course",
         entityId: id,
         result: "FAILURE",
-        metadata: { planKey, enabled: true, error: error instanceof Error ? error.message.slice(0, 200) : "fallo" },
+        metadata: { courseId: id, planKey, enabled: true, error: "RESCHEDULE_FAILED" },
       }).catch(() => undefined);
     }
   }

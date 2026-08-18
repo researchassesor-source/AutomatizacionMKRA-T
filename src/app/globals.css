@@ -788,6 +788,7 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* biome-ignore lint/complexity/noImportantStyles: el reset de movimiento reducido debe ganarle a cualquier transition/animation declarada despues en la cascada, sin importar su especificidad; quitar !important aqui reintroduce animacion para quien la desactivo por accesibilidad. */
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
 

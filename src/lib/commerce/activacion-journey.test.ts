@@ -28,11 +28,14 @@ describe("el pago verificado arranca el journey", () => {
   });
 
   it("reutiliza el punto canónico en vez de reimplementar la programación", () => {
-    expect(compras).toContain('import { scheduleEnrollmentAutomations, sendDueMessagesForEnrollment } from "@/lib/nurture/engine"');
+    expect(compras).toContain('import { marcarJourneyProgramado, scheduleEnrollmentAutomations, sendDueMessagesForEnrollment } from "@/lib/nurture/engine"');
     const activar = compras.slice(compras.indexOf("async function activarJourney"));
     expect(activar).toContain("await scheduleEnrollmentAutomations(enrollmentId)");
     // Sin lógica propia de calendario: no decide fechas ni claves.
     expect(activar.slice(0, activar.indexOf("} catch"))).not.toMatch(/scheduledAt|sequenceKey|stepKey|prisma\./);
+    // Y la marca de "programado" se escribe solo después de que termine.
+    const hastaElCatch = activar.slice(0, activar.indexOf("} catch"));
+    expect(hastaElCatch.indexOf("scheduleEnrollmentAutomations") < hastaElCatch.indexOf("marcarJourneyProgramado")).toBe(true);
   });
 
   it("la bienvenida sale sin esperar al reloj", () => {
@@ -65,6 +68,9 @@ describe("el pago pesa más que el envío", () => {
     expect(activar).toContain("} catch (error: unknown) {");
     expect(activar).toContain("ENROLLMENT_JOURNEY_ACTIVATION_FAILED");
     expect(activar).not.toContain("throw");
+    // El envío inmediato queda FUERA de ese try: que el proveedor falle no
+    // vuelve incompleta una programación que sí terminó.
+    expect(activar).toContain("await sendDueMessagesForEnrollment(enrollmentId).catch(() => undefined)");
   });
 
   it("la auditoría del fallo no arrastra datos del contacto ni del proveedor", () => {
@@ -84,11 +90,13 @@ describe("idempotencia", () => {
     expect(claves).not.toMatch(/paid|purchase|payment|verificad/i);
   });
 
-  it("el reloj repetido tampoco duplica: la reconciliación solo mira las que no tienen NADA", () => {
+  it("el reloj repetido no duplica: la candidata es la que no tiene marca", () => {
+    // "Tener mensajes" no servía: la programación hace un upsert por paso, así
+    // que una que muriera a medias dejaba un mensaje suelto y quedaba excluida
+    // para siempre. Lo que decide ahora es la marca de haber terminado.
     const reconcilia = motor.slice(motor.indexOf("export async function reconcileEntitledEnrollments"));
-    expect(reconcilia).toContain("messages: { none: {} }");
-    // Con un solo mensaje ya creado, el camino normal funcionó y la
-    // inscripción deja de ser candidata.
+    expect(reconcilia).toContain("events: { none: { type: JOURNEY_SCHEDULED } }");
+    expect(reconcilia).not.toContain("messages: { none: {} }");
   });
 
   it("la reconciliación reutiliza el mismo punto canónico", () => {

@@ -1057,15 +1057,69 @@ export async function sendDueMessagesForEnrollment(enrollmentId: string, now = n
  */
 const RECONCILIACION_POR_VUELTA = 10;
 
+/**
+ * Marca de que la programacion del journey llego hasta el final.
+ *
+ * Existe porque "tiene mensajes" no demuestra nada: `scheduleEnrollmentAutomations`
+ * hace un upsert por paso, de modo que una ejecucion que muriera despues de
+ * crear la bienvenida dejaria un mensaje suelto y la inscripcion pareceria
+ * atendida para siempre.
+ *
+ * Lo que certifica es EL SCHEDULING, no la entrega. Un fallo del proveedor
+ * despues de esto no la borra ni la impide: esos mensajes tienen su propio
+ * reintento y volver a programar el journey no arreglaria nada.
+ *
+ * Se apoya en `idempotencyKey`, que es unica en la tabla: dos procesos que
+ * reconcilien la misma inscripcion a la vez producen una sola marca, y el
+ * segundo recibe un choque de unicidad que aqui significa "ya estaba".
+ */
+export const JOURNEY_SCHEDULED = "ENROLLMENT_JOURNEY_SCHEDULED";
+
+/** Motivos por los que todavia no procede dar el journey por programado. */
+const SIN_MARCAR: ReadonlySet<string> = new Set<ScheduleSkipReason>([
+  "ENROLLMENT_NOT_FOUND",
+  "COURSE_NOT_ENTITLED",
+]);
+
+export async function marcarJourneyProgramado(
+  enrollmentId: string,
+  reason?: ScheduleSkipReason,
+): Promise<boolean> {
+  // El derecho puede llegar despues: marcar ahora dejaria a esa persona fuera
+  // de la reconciliacion justo cuando empiece a necesitarla.
+  if (reason && SIN_MARCAR.has(reason)) return false;
+  // El contacto se resuelve aqui para que quien llama no tenga que arrastrarlo.
+  // Marcar ocurre una vez por inscripcion, asi que la consulta extra no pesa.
+  const inscripcion = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, select: { leadId: true } });
+  if (!inscripcion) return false;
+  try {
+    await prisma.leadEvent.create({
+      data: {
+        leadId: inscripcion.leadId,
+        enrollmentId,
+        type: JOURNEY_SCHEDULED,
+        idempotencyKey: `journey-scheduled:${enrollmentId}`,
+        payload: { reason: reason ?? null },
+      },
+    });
+    return true;
+  } catch (error: unknown) {
+    // P2002 es la marca que ya existia: el journey esta programado igualmente.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return false;
+    throw error;
+  }
+}
+
 export async function reconcileEntitledEnrollments(now = new Date()) {
   const pendientes = await prisma.enrollment.findMany({
     where: {
       status: { in: ["INTERESADO", "INSCRITO", "EN_CURSO"] },
       course: { isFree: false, isPublished: true },
       purchases: { some: { status: ESTADO_PAGO_VERIFICADO } },
-      // "Sin journey" es literal: ni un mensaje, enviado o pendiente. Con uno
-      // solo, el camino normal funciono y no hay nada que recuperar.
-      messages: { none: {} },
+      // Sin la marca de haber terminado. NO "sin mensajes": la programacion
+      // hace un upsert por paso, asi que una que muriera a medio camino dejaria
+      // mensajes creados y, mirando solo eso, pareceria hecha para siempre.
+      events: { none: { type: JOURNEY_SCHEDULED } },
     },
     select: { id: true },
     take: RECONCILIACION_POR_VUELTA,
@@ -1074,14 +1128,19 @@ export async function reconcileEntitledEnrollments(now = new Date()) {
   let recuperadas = 0;
   for (const inscripcion of pendientes) {
     const resultado = await scheduleEnrollmentAutomations(inscripcion.id, now).catch(() => null);
-    if (!resultado || resultado.enqueued === 0) continue;
+    if (!resultado) continue;
+    // Se marca aunque no haya encolado nada nuevo: lo que la marca certifica es
+    // que la programacion llego hasta el final, no cuantos mensajes salieron.
+    // Una segunda vuelta completa lo que falto y entonces si queda marcada.
+    const marcada = await marcarJourneyProgramado(inscripcion.id, resultado.reason);
+    if (!marcada) continue;
     recuperadas++;
     await writeAudit({
       actorEmail: "automation",
       action: "ENROLLMENT_JOURNEY_RECONCILED",
       entityType: "Enrollment",
       entityId: inscripcion.id,
-      metadata: { enqueued: resultado.enqueued },
+      metadata: { enqueued: resultado.enqueued, updated: resultado.updated },
     }).catch(() => undefined);
   }
   return { revisadas: pendientes.length, recuperadas };

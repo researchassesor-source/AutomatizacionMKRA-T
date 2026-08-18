@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { CoursePurchase, CoursePurchaseType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import { scheduleEnrollmentAutomations, sendDueMessagesForEnrollment } from "@/lib/nurture/engine";
+import { marcarJourneyProgramado, scheduleEnrollmentAutomations, sendDueMessagesForEnrollment } from "@/lib/nurture/engine";
 import { getCrmPurchaseStatus, importCrmPurchase } from "@/lib/finance/commerce";
 import { resolverDerecho, validarCompraNueva } from "./entitlement";
 
@@ -246,10 +246,11 @@ export async function refrescarPago(purchaseId: string): Promise<ResultadoCompra
  */
 async function activarJourney(enrollmentId: string) {
   try {
-    await scheduleEnrollmentAutomations(enrollmentId);
-    // La bienvenida se programa para "ahora": sin este paso esperaria al
-    // siguiente tick para salir.
-    await sendDueMessagesForEnrollment(enrollmentId);
+    const resultado = await scheduleEnrollmentAutomations(enrollmentId);
+    // La marca va DESPUES de que la programacion termine, y solo si termino.
+    // Si algo revienta a mitad, no se marca y la reconciliacion del reloj la
+    // vuelve a tomar; sin esto quedaria a medias para siempre.
+    await marcarJourneyProgramado(enrollmentId, resultado.reason);
   } catch (error: unknown) {
     await writeAudit({
       actorEmail: "finance-sync",
@@ -260,7 +261,18 @@ async function activarJourney(enrollmentId: string) {
       // Solo el motivo, recortado: aqui no entra nada del proveedor ni del contacto.
       metadata: { error: error instanceof Error ? error.message.slice(0, 200) : "fallo desconocido" },
     }).catch(() => undefined);
+    return;
   }
+
+  /**
+   * El envio inmediato va aparte, y despues de marcar.
+   *
+   * Que el proveedor falle no significa que la programacion fuera incompleta:
+   * esos mensajes tienen su propio reintento. Si esto entrara en el `try` de
+   * arriba, una caida del proveedor borraria la marca y el reloj reprogramaria
+   * un journey que ya estaba entero.
+   */
+  await sendDueMessagesForEnrollment(enrollmentId).catch(() => undefined);
 }
 
 /**

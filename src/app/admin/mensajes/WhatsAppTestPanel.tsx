@@ -8,12 +8,13 @@ type Preview = { plantilla: string; idioma: string; parametros: Parametro[]; men
 type Respuesta = { ok?: boolean; sent?: boolean; preview?: Preview; message?: string; error?: string };
 
 /**
- * Las once del plan, en el orden en que las recibe un inscrito.
+ * Las doce del catalogo, en el orden del journey.
  *
- * Antes solo se exponian cinco, y las otras seis no habia forma de probarlas
- * desde el panel: para comprobarlas habia que esperar a que un curso real las
- * disparara. Son las mismas once que ya existen en el catalogo; esta lista solo
- * decide cuales se pueden elegir aqui.
+ * Antes solo se exponian cinco, y las demas no habia forma de probarlas desde
+ * el panel: habia que esperar a que un curso real las disparara. La oferta
+ * institucional va la ultima y no forma parte del journey, pero se puede
+ * comprobar igual, porque comparte adaptador y el mismo tipo de fallo por
+ * contrato.
  */
 const PLANTILLAS = [
   { key: "welcome", label: "1 · Bienvenida al inscribirse" },
@@ -23,10 +24,11 @@ const PLANTILLAS = [
   { key: "reminder_15m", label: "5 · Acceso 15 minutos antes" },
   { key: "session_live", label: "6 · Sesión en vivo" },
   { key: "late_access", label: "7 · Acceso para rezagados" },
-  { key: "thank_you", label: "8 · Agradecimiento final" },
+  { key: "thank_you", label: "8 · Fin de sesión" },
   { key: "course_complete", label: "9 · Curso completo" },
   { key: "course_follow_up", label: "10 · Seguimiento" },
   { key: "survey", label: "11 · Encuesta" },
+  { key: "certification_offer", label: "12 · Oferta certificación institucional" },
 ] as const;
 
 /**
@@ -47,6 +49,19 @@ export function WhatsAppTestPanel() {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  /**
+   * Al cambiar de plantilla se borra lo que habia en pantalla.
+   *
+   * Sin esto, la vista previa anterior seguia visible bajo el nombre de la
+   * nueva: quien comprueba doce plantillas seguidas acababa dando por buena una
+   * que no habia mirado.
+   */
+  function elegirPlantilla(clave: string) {
+    setPlantilla(clave);
+    setPreview(null);
+    setAviso(null);
+  }
 
   async function ejecutar(conNumero: boolean) {
     const destino = numero.trim();
@@ -97,7 +112,7 @@ export function WhatsAppTestPanel() {
         sin contactar con nadie. El envío a un número solo funciona cuando el canal está enviando de verdad.
       </p>
       <div className="form-row">
-        <select value={plantilla} onChange={(event) => setPlantilla(event.target.value)} aria-label="Plantilla">
+        <select value={plantilla} onChange={(event) => elegirPlantilla(event.target.value)} aria-label="Plantilla">
           {PLANTILLAS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
         </select>
         <input

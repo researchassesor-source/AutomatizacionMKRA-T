@@ -218,7 +218,7 @@ describe("preflight", () => {
     const report = await runPreflight(db({
       reglasGuardadas: [
         { name: "Acceso 15 minutos antes · WhatsApp", waTemplateName: "ra_training_acceso_15min", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso", "streamUrl"] },
-        { name: "Acceso 2 horas antes · WhatsApp", waTemplateName: "ra_training_acceso_2h", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso", "horaSesion", "streamUrl"] },
+        { name: "Acceso 2 horas antes · WhatsApp", waTemplateName: "ra_training_acceso_2h", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "horaSesion"] },
       ],
     }), NOW);
     const drift = report.checks.find((check) => check.id === "whatsapp_template_drift");
@@ -232,7 +232,7 @@ describe("preflight", () => {
     healthyEnv();
     const report = await runPreflight(db({
       reglasGuardadas: [
-        { name: "Agradecimiento final · WhatsApp", waTemplateName: "ra_training_agradecimiento_final", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso"] },
+        { name: "Fin de sesión · WhatsApp", waTemplateName: "ra_training_fin_sesion", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "proxima_sesion"] },
       ],
     }), NOW);
     expect(report.checks.find((check) => check.id === "whatsapp_template_drift")?.level).toBe("PASS");

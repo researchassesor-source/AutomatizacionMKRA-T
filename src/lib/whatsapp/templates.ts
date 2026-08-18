@@ -82,65 +82,78 @@ export const WHATSAPP_TEMPLATES: Record<
   whatsapp_group: {
     name: "ra_training_grupo_whatsapp",
     language: "es",
-    bodyVars: ["nombre", "curso", "link_grupo_whatsapp"],
-    sample: "Hola {{1}}, tu registro a {{2}} esta confirmado.\n\nGrupo oficial de WhatsApp:\n{{3}}\n\nR.A. Training",
+    // Dos variables, no tres: el mensaje se dirige a la comunidad y no saluda
+    // por nombre. Declarar `nombre` desplazaba curso y enlace una posicion.
+    bodyVars: ["curso", "link_grupo_whatsapp"],
+    sample: "👥 ¡Ya eres parte de nuestra comunidad de aprendizaje!\n\nPara acompañarte durante tu proceso y recibir información relacionada con tu capacitación:\n\n🎓 {{1}}\n\nÚnete al grupo oficial de WhatsApp:\n\n👉 {{2}}\n\nEn este espacio compartiremos información importante antes y durante cada sesión.\n\n¡Te esperamos! 🚀\n\nR.A. Training 💙",
   },
   reminder_24h: {
     name: "ra_training_recordatorio_24h",
     language: "es",
-    bodyVars: ["nombre", "curso", "fechaSesion", "horaSesion"],
-    sample: "⏰ Hola {{1}}, te recordamos que mañana tienes tu sesión de {{2}}.\n\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nTe recomendamos tener listo tu dispositivo y una conexión estable para ingresar sin inconvenientes.\n\nPor este número seguiremos enviándote la información necesaria para tu sesión.\n\nR.A. Training 📚",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "fechaSesion", "horaSesion"],
+    sample: "⏰ ¡Mañana continuamos aprendiendo!\n\nHola {{1}} 👋\n\nTe recordamos que mañana tenemos la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\n📅 Fecha:\n{{5}}\n\n🕒 Hora:\n{{6}}\n\nPrepara tus preguntas y acompáñanos en esta nueva sesión.\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙",
   },
   reminder_2h: {
     name: "ra_training_acceso_2h",
     language: "es",
-    bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "🎓 Hola {{1}}, tu sesión de {{2}} comienza en aproximadamente 2 horas.\n\n🕒 Hora: {{3}}\n🔗 Enlace de acceso: {{4}}\n\nGuarda este enlace y procura ingresar unos minutos antes del inicio de la sesión.\n\n¡Nos vemos pronto!\nR.A. Training 💙",
+    // Sin enlace: este aviso solo anticipa y pide preparar el equipo. El acceso
+    // llega en el de 15 minutos.
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "horaSesion"],
+    sample: "🚀 ¡Faltan 2 horas para comenzar!\n\nHola {{1}} 👋\n\nHoy tenemos la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nRecuerda tener listo:\n\n✅ Tu conexión a internet\n✅ Tu dispositivo\n✅ Tus preguntas\n\nNos vemos a las:\n\n🕒 {{5}}\n\n¡Prepárate para aprender! 💙\n\nR.A. Training",
   },
   reminder_15m: {
     name: "ra_training_acceso_15min",
     language: "es",
-    // Cuatro variables, igual que la plantilla registrada en Meta. Declarar
-    // tres producia el error 132000 ("numero de parametros incorrecto") en el
-    // primer envio real, que es justo donde no conviene descubrirlo.
-    bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "🚀 Hola {{1}}, ¡ya casi comenzamos!\n\nTu sesión de {{2}} inicia en 15 minutos.\n\n🕒 Hora: {{3}}\n🔗 Ingresa aquí: {{4}}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"],
+    sample: "🚀 ¡Comenzamos en 15 minutos!\n\nHola {{1}} 👋\n\nTu:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nestá por iniciar.\n\nIngresa aquí:\n\n👉 {{5}}\n\nTe esperamos dentro.\n\n¡Que empiece el aprendizaje! 💙\n\nR.A. Training",
   },
+  /**
+   * Cierre de CADA sesion.
+   *
+   * La clave interna sigue siendo `thank_you` a proposito: es el `planKey` con
+   * el que estan guardadas las reglas y las claves de idempotencia de los
+   * mensajes ya enviados en produccion. Renombrarla no aportaria nada y
+   * arriesgaria duplicados. Lo que si cambia es la plantilla de Meta, que ahora
+   * se llama `ra_training_fin_sesion` y anuncia la sesion siguiente en vez de
+   * despedirse; por eso solo se programa cuando existe una siguiente.
+   */
   thank_you: {
-    name: "ra_training_agradecimiento_final",
+    name: "ra_training_fin_sesion",
     language: "es",
-    bodyVars: ["nombre", "curso"],
-    sample: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "proxima_sesion"],
+    sample: "✅ Sesión finalizada\n\nHola {{1}}.\n\nTe informamos que la Sesión {{3}} de {{4}} del curso:\n\n🎓 {{2}}\n\nha finalizado correctamente.\n\nLa siguiente sesión está programada para:\n\n📅 {{5}}\n\nRecibirás el acceso y recordatorios correspondientes antes del inicio.\n\nR.A. Training 💙",
   },
   session_live: {
     name: "ra_training_sesion_en_vivo",
     language: "es",
-    bodyVars: ["nombre", "curso", "sesion_actual", "link_reunion"],
-    sample: "Hola {{1}}, {{3}} de {{2}} ya esta comenzando.\n\nIngresa aqui: {{4}}\n\nR.A. Training",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"],
+    sample: "🔴 ¡Tu sesión ya inició!\n\nHola {{1}} 👋\n\nLa Sesión {{3}} de {{4}} del curso:\n\n🎓 {{2}}\n\nya está disponible.\n\nPuedes ingresar desde aquí:\n\n👉 {{5}}\n\nAccede para continuar con tu capacitación.\n\nR.A. Training 💙",
   },
   late_access: {
     name: "ra_training_acceso_rezagados",
     language: "es",
-    bodyVars: ["nombre", "curso", "sesion_actual", "link_reunion"],
-    sample: "Hola {{1}}, si aun no ingresaste a {{3}} de {{2}}, puedes usar este enlace:\n\n{{4}}\n\nR.A. Training",
+    // Numero suelto, no `sesion_actual`: el texto escribe "la Sesión {{3}}", de
+    // modo que "Sesión 1 de 3" produciria "la Sesión Sesión 1 de 3".
+    bodyVars: ["nombre", "curso", "numero_sesion", "streamUrl"],
+    sample: "👋 Hola {{1}}.\n\nTe informamos que la Sesión {{3}} del curso:\n\n🎓 {{2}}\n\nya inició.\n\nSi aún deseas incorporarte a la sesión, puedes ingresar desde el siguiente enlace:\n\n👉 {{4}}\n\nR.A. Training 💙",
   },
   course_complete: {
     name: "ra_training_curso_completo",
     language: "es",
     bodyVars: ["nombre", "curso", "link_curso_completo"],
-    sample: "Hola {{1}}, puedes revisar la informacion completa de {{2}} aqui:\n\n{{3}}\n\nR.A. Training",
+    sample: "🚀 ¡Continúa tu aprendizaje!\n\nHola {{1}} 👋\n\nSi disfrutaste esta capacitación gratuita, ahora puedes profundizar tus conocimientos con la versión completa del curso:\n\n🎓 {{2}}\n\nUna formación más amplia donde encontrarás:\n\n✅ Clases especializadas\n✅ Actividades prácticas\n✅ Recursos de aprendizaje\n✅ Certificación del programa\n\nContinúa desarrollando tus habilidades y aprende la Inteligencia Artificial de forma más completa junto a R.A. Training.\n\nConoce todos los detalles aquí:\n\n👉 {{3}}\n\nR.A. Training 💙\nCapacitación que transforma.",
   },
   course_follow_up: {
     name: "ra_training_seguimiento_curso",
     language: "es",
-    bodyVars: ["nombre", "curso"],
-    sample: "Hola {{1}}, gracias nuevamente por participar en {{2}}.\n\nSi necesitas apoyo adicional, responde a este chat y te orientaremos.\n\nR.A. Training",
+    bodyVars: ["nombre", "curso", "link_curso_completo"],
+    sample: "👋 Hola {{1}}.\n\nEsperamos que hayas disfrutado la capacitación gratuita y que hayas podido conocer el potencial de la Inteligencia Artificial.\n\nSi deseas seguir profundizando, puedes continuar tu formación con:\n\n🎓 {{2}}\n\nUna experiencia más completa con contenido práctico, actividades y herramientas para aplicar lo aprendido.\n\nSi tienes alguna duda sobre el programa, estamos para ayudarte. 💙\n\nConoce todos los detalles aquí:\n\n👉 {{3}}\n\nContinúa aprendiendo junto a R.A. Training 🚀",
   },
   survey: {
-    name: "ra_training_encuesta",
+    name: "ra_training_encuesta_experiencia",
     language: "es",
     bodyVars: ["nombre", "curso", "link_encuesta"],
-    sample: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
+    sample: "⭐ Queremos conocer tu experiencia.\n\nHola {{1}} 👋\n\nGracias por formar parte de:\n\n🎓 {{2}}\n\nTu opinión nos ayuda a mejorar nuestras próximas capacitaciones.\n\nCuéntanos cómo fue tu experiencia:\n\n👉 {{3}}\n\nGracias por aprender junto a R.A. Training 💙",
   },
   /**
    * Oferta de certificacion institucional.
@@ -154,7 +167,7 @@ export const WHATSAPP_TEMPLATES: Record<
     name: "ra_training_certificacion_institucional",
     language: "es",
     bodyVars: ["nombre", "curso", "link_oferta_institucional"],
-    sample: "Hola {{1}}, ya puedes obtener tu certificado institucional de {{2}}.\n\nAccede al curso completo de 60 horas y a tu certificado R.A. Training aqui:\n\n{{3}}\n\nR.A. Training",
+    sample: "🎓 Tenemos una oportunidad especial para ti, {{1}}.\n\nSi aún no continuaste con la versión completa de {{2}}, ahora puedes acceder a la formación completa y obtener tu certificado institucional de R.A. Training.\n\n✅ Acceso al curso completo de 60 horas\n✅ Recursos y actividades de aprendizaje\n✅ Certificado institucional R.A. Training\n\nValor especial: $10\n\nEsta modalidad incluye únicamente el certificado institucional y no incluye el certificado con aval externo.\n\n👉 Puedes revisar todos los detalles y continuar desde este enlace: {{3}}\n\nR.A. Training | Formación que impulsa tu desarrollo.",
   },
 };
 
@@ -196,11 +209,30 @@ const BY_META_NAME = new Map<string, WhatsAppTemplateSpec>(
 );
 
 /**
+ * Nombres que la plantilla tuvo antes en Meta y ya no existen alli.
+ *
+ * Las reglas guardadas en produccion siguen apuntando a ellos. Sin esta tabla,
+ * `canonicalTemplate` devolveria null para esos nombres, el motor caeria en la
+ * copia guardada en la regla y enviaria a Meta una plantilla que ya no existe:
+ * un 132001 por cada mensaje, en silencio, hasta que alguien revise la cola.
+ *
+ * Resolverlos hacia la ficha nueva hace que el arreglo no dependa de ejecutar
+ * ningun script; el script de limpieza solo ordena la base despues.
+ */
+const NOMBRES_ANTERIORES: Record<string, WhatsAppTemplateKey> = {
+  ra_training_agradecimiento_final: "thank_you",
+  ra_training_encuesta: "survey",
+};
+
+/**
  * Ficha del catalogo para un nombre registrado en Meta, o `null` si el nombre
- * no es de las cinco plantillas del plan (por ejemplo una dada de alta a mano).
+ * no es de las doce del catalogo (por ejemplo una dada de alta a mano).
  */
 export function canonicalTemplate(name: string): WhatsAppTemplateSpec | null {
-  return BY_META_NAME.get(name.trim()) ?? null;
+  const limpio = name.trim();
+  const anterior = NOMBRES_ANTERIORES[limpio];
+  if (anterior) return WHATSAPP_TEMPLATES[anterior];
+  return BY_META_NAME.get(limpio) ?? null;
 }
 
 export type TemplateBinding = {

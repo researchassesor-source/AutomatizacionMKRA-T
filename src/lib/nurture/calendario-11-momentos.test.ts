@@ -91,13 +91,18 @@ describe("avisos por sesión", () => {
     });
   });
 
-  it("el cierre de sesión sale tras CADA sesión, contado desde su final", () => {
-    // Este es el fallo que corrigio esta prueba: `thank_you` es AFTER_COURSE y
-    // caia en el bloque de "una vez por curso", asi que en un curso de tres
-    // sesiones solo habia un cierre, al final. Las sesiones intermedias son
-    // justo las que deben anunciar cual es la siguiente.
+  it("el cierre sale tras cada sesión que tenga siguiente, contado desde su final", () => {
+    // `thank_you` es AFTER_COURSE y caia en el bloque de "una vez por curso",
+    // asi que en un curso de tres sesiones solo habia un cierre, al final. Las
+    // sesiones intermedias son justo las que deben anunciar cual es la
+    // siguiente.
+    //
+    // Y por eso la ultima queda fuera: el texto registrado en Meta dice "La
+    // siguiente sesión está programada para {{5}}", y despues de la tercera no
+    // hay ninguna. El cierre del curso entero lo cubren `course_complete` y
+    // `survey`.
     const salidas = momentos("thank_you");
-    expect(salidas).toHaveLength(3);
+    expect(salidas).toHaveLength(SESIONES.length - 1);
     salidas.forEach((momento, i) => {
       expect(minutosDesde(SESIONES[i].endAt as Date, momento), `sesión ${i + 1}`).toBe(5);
     });

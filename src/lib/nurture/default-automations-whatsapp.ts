@@ -54,10 +54,13 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     planKey: "reminder_2h",
     templateKey: "reminder_2h",
     name: "Acceso 2 horas antes - WhatsApp",
-    description: "Entrega el enlace de la reunion. Necesita enlace configurado.",
+    // El texto registrado en Meta avisa y pide preparar el equipo, pero NO
+    // lleva enlace: ese llega en el de 15 minutos. Por eso no exige enlace
+    // configurado, y un curso sin enlace todavia recibe el aviso.
+    description: "Avisa con dos horas de antelacion. No incluye el enlace.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 120,
-    requiresStreamUrl: true,
+    requiresStreamUrl: false,
     enrollmentStatuses: AUDIENCE,
   },
   {

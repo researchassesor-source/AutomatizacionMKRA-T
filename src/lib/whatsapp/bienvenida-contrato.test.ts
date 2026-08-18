@@ -58,14 +58,14 @@ describe("bienvenida", () => {
 describe("panel de prueba", () => {
   const panel = readFileSync(join(process.cwd(), "src/app/admin/mensajes/WhatsAppTestPanel.tsx"), "utf8");
 
-  it("ofrece las once plantillas del plan, no solo cinco", () => {
+  it("ofrece las doce del catálogo, no solo cinco", () => {
     // Sin esto, seis de las once solo podian comprobarse esperando a que un
     // curso real las disparara.
     const claves = [...panel.matchAll(/\{ key: "([a-z0-9_]+)"/g)].map((m) => m[1]);
     expect(claves).toEqual([
       "welcome", "whatsapp_group", "reminder_24h", "reminder_2h", "reminder_15m",
       "session_live", "late_access", "thank_you", "course_complete",
-      "course_follow_up", "survey",
+      "course_follow_up", "survey", "certification_offer",
     ]);
   });
 
@@ -75,8 +75,11 @@ describe("panel de prueba", () => {
     }
   });
 
-  it("no ofrece la oferta institucional: no es parte del plan", () => {
-    expect(panel).not.toContain("certification_offer");
+  it("la oferta institucional va la última y separada del journey", () => {
+    // Se puede comprobar tecnicamente, pero no forma parte del journey: por eso
+    // cierra la lista en vez de mezclarse entre los once.
+    const claves = [...panel.matchAll(/\{ key: "([a-z0-9_]+)"/g)].map((m) => m[1]);
+    expect(claves[claves.length - 1]).toBe("certification_offer");
   });
 });
 
@@ -87,8 +90,6 @@ describe("la vista previa puede armar las once", () => {
   it("hay un valor de ejemplo para cada variable de cada plantilla del plan", () => {
     // Una variable sin ejemplo deja la vista previa en TEMPLATE_VARIABLE_MISSING,
     // que es exactamente lo que impediria comprobar la plantilla.
-    const claves = [...ruta.matchAll(/\{ key: "([a-z0-9_]+)"/g)].map((m) => m[1]);
-    void claves;
     for (const [clave, spec] of Object.entries(WHATSAPP_TEMPLATES)) {
       if (clave === "certification_offer") continue;
       for (const variable of spec.bodyVars) {

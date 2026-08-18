@@ -17,6 +17,16 @@ import { buildTemplateComponents, fillTemplateBody, WHATSAPP_TEMPLATES, type Wha
 export const dynamic = "force-dynamic";
 
 /**
+ * Pruebas admitidas por ventana de diez minutos.
+ *
+ * Son doce plantillas: con cinco no se podia comprobar una ronda completa sin
+ * esperar, y quien comprueba acaba dejando plantillas sin mirar. Quince deja
+ * margen para repetir alguna. No es un canal de envio masivo: sigue exigiendo
+ * sesion, rol tecnico, confirmacion y un numero indicado a mano.
+ */
+const LIMITE_PRUEBAS = 15;
+
+/**
  * Prueba controlada de WhatsApp.
  *
  * Dos cosas distintas, y a proposito en el mismo sitio:
@@ -49,6 +59,7 @@ const EJEMPLO: Record<string, string> = {
   // "Sesión {{3}} de {{4}}" alrededor.
   numero_sesion: "1",
   total_sesiones: "3",
+  proxima_sesion: "22 de agosto de 2026",
   sesion_actual: "Sesión 1 de 3",
   link_reunion: "https://meet.google.com/prueba-crm",
   link_grupo_whatsapp: "https://chat.whatsapp.com/prueba-crm",
@@ -67,7 +78,7 @@ export async function POST(request: Request) {
   const auth = await requireRole(request, TECNICO);
   if (auth.error) return auth.error;
 
-  const limit = await checkRateLimit(requestKey(request, "whatsapp-test"), { limit: 5, windowMs: 10 * 60_000 });
+  const limit = await checkRateLimit(requestKey(request, "whatsapp-test"), { limit: LIMITE_PRUEBAS, windowMs: 10 * 60_000 });
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Se alcanzó el límite de pruebas de WhatsApp. Espera unos minutos." },

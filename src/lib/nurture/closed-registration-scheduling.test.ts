@@ -17,6 +17,16 @@ vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 import { describeScheduleResult, rescheduleCourseAutomations, scheduleEnrollmentAutomations } from "./engine";
 import { DEFAULT_AUTOMATION_PLAN } from "./default-automations";
 
+/**
+ * Momentos que recibe una inscripcion en un curso de UNA sola sesion.
+ *
+ * Son diez y no once: el cierre de sesion anuncia cuando es la siguiente ("La
+ * siguiente sesión está programada para..."), asi que en un curso de una sesion
+ * no tiene nada que decir y no se programa. El cierre del curso lo cubren
+ * `course_complete` y `survey`.
+ */
+const MOMENTOS_UNA_SESION = 10;
+
 /** Caso QA: hoy 6 de agosto; la sesión es el 7 de agosto 19:30 Guayaquil. */
 const NOW = new Date("2026-08-06T15:00:00.000Z");
 const SESSION_START = new Date("2026-08-08T00:30:00.000Z"); // 7 ago 19:30 en Guayaquil
@@ -115,8 +125,8 @@ describe("regresión: curso con registro cerrado", () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     const result = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
     expect(result.reason).toBeUndefined();
-    expect(result.enqueued).toBe(11);
-    expect(messages).toHaveLength(11);
+    expect(result.enqueued).toBe(MOMENTOS_UNA_SESION);
+    expect(messages).toHaveLength(MOMENTOS_UNA_SESION);
   });
 
   it("incluye bienvenida, los tres recordatorios y el agradecimiento", async () => {
@@ -132,7 +142,6 @@ describe("regresión: curso con registro cerrado", () => {
       "automation:EMAIL:reminder_2h",
       "automation:EMAIL:session_live",
       "automation:EMAIL:survey",
-      "automation:EMAIL:thank_you",
       "automation:EMAIL:welcome",
       "automation:EMAIL:whatsapp_group",
     ]);
@@ -151,7 +160,7 @@ describe("regresión: curso con registro cerrado", () => {
   it("también funciona con el registro abierto", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ acceptsRegistrations: true }));
     const result = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
-    expect(result.enqueued).toBe(11);
+    expect(result.enqueued).toBe(MOMENTOS_UNA_SESION);
   });
 
   it("un curso despublicado sí detiene la programación", async () => {
@@ -176,7 +185,7 @@ describe("regresión: curso con registro cerrado", () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment());
     await scheduleEnrollmentAutomations("enrollment-qa", NOW);
     const second = await scheduleEnrollmentAutomations("enrollment-qa", NOW);
-    expect(messages).toHaveLength(11);
+    expect(messages).toHaveLength(MOMENTOS_UNA_SESION);
     expect(second.enqueued).toBe(0);
   });
 });
@@ -228,8 +237,8 @@ describe("plan estándar sobre inscripciones anteriores", () => {
     const result = await rescheduleCourseAutomations("course-marketing", NOW);
 
     expect(result.enrollments).toBe(1);
-    expect(result.enqueued).toBe(11);
-    expect(messages).toHaveLength(11);
+    expect(result.enqueued).toBe(MOMENTOS_UNA_SESION);
+    expect(messages).toHaveLength(MOMENTOS_UNA_SESION);
   });
 
   it("reaplicar el plan no duplica los mensajes existentes", async () => {
@@ -239,7 +248,7 @@ describe("plan estándar sobre inscripciones anteriores", () => {
     mocks.prisma.enrollment.findMany.mockResolvedValueOnce([{ id: "enrollment-qa" }]).mockResolvedValue([]);
     const second = await rescheduleCourseAutomations("course-marketing", NOW);
 
-    expect(messages).toHaveLength(11);
+    expect(messages).toHaveLength(MOMENTOS_UNA_SESION);
     expect(second.enqueued).toBe(0);
   });
 });

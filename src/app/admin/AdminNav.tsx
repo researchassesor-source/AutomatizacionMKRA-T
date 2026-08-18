@@ -36,6 +36,7 @@ const GESTION_LINKS: AdminLink[] = [
 ];
 
 const SISTEMA: AdminLink[] = [
+  { href: "/admin/mensajes?vista=inbox", label: "Inbox WhatsApp", icon: "messages" },
   { href: "/admin/mensajes?vista=integraciones", label: "Integraciones", icon: "activity" },
   { href: "/admin/automatizaciones", label: "Automatizaciones", icon: "calendar" },
   { href: "/admin/cursos?vista=catalogo", label: "Catálogo", icon: "courses" },

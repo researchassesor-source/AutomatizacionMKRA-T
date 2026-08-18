@@ -7,6 +7,7 @@ import { isMessagingSimulation } from "@/lib/nurture/engine";
 import { ESTADOS_VISIBLES, esEstadoVisible, filtroDe } from "@/lib/message-states";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { AdminNav } from "../AdminNav";
+import { WhatsAppInbox } from "./inbox/WhatsAppInbox";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { ChannelModeBanner } from "../ChannelModeBanner";
 import { HealthStrip } from "../HealthStrip";
@@ -29,6 +30,14 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
     return <main className="container admin-shell"><AdminNav view={view} /><AdminEmptyState icon="secure" title="Acceso restringido" description="No tienes permisos para consultar mensajes." /></main>;
   }
   const technical = view === "tecnica";
+
+  if (filters.vista === "inbox") {
+    return <main className="container admin-shell">
+      <AdminNav view={view} />
+      <AdminPageHeader eyebrow="Comunicaciones" title="Inbox WhatsApp" description="Conversaciones reales con los contactos, con atención humana y respuesta manual." />
+      <WhatsAppInbox />
+    </main>;
+  }
 
   if (filters.vista === "integraciones") {
     if (!technical) {

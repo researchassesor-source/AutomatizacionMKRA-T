@@ -2345,3 +2345,63 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .variables-disponibles code { color: var(--ink); font-weight: 600; }
 .variables-disponibles span { color: var(--muted); }
 .variables-disponibles > small { color: var(--muted); }
+
+/* ---------------------------------------------------------------------------
+   Inbox de WhatsApp.
+
+   Tres columnas en escritorio. En pantallas pequenas no se encogen: se navega
+   entre ellas, porque tres columnas en 375 px no se leen.
+--------------------------------------------------------------------------- */
+.inbox-shell {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) minmax(240px, 300px);
+  gap: 1rem;
+  align-items: start;
+  min-height: 60vh;
+}
+.inbox-list { display: flex; flex-direction: column; gap: .5rem; max-height: 70vh; overflow-y: auto; }
+.inbox-filters { display: flex; flex-wrap: wrap; gap: .25rem; }
+.inbox-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.inbox-item {
+  display: flex; flex-direction: column; gap: .15rem;
+  width: 100%; text-align: left; padding: .6rem .7rem;
+  border: 1px solid var(--border, #e5e7eb); border-radius: .5rem;
+  background: transparent; cursor: pointer;
+}
+.inbox-item.is-active { border-color: currentColor; }
+.inbox-item-top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.inbox-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-chat { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+.inbox-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.inbox-back { display: none; }
+.inbox-note { margin: 0; }
+.inbox-messages {
+  display: flex; flex-direction: column; gap: .5rem;
+  max-height: 55vh; overflow-y: auto; padding-right: .25rem;
+}
+.bubble { max-width: min(80%, 40rem); padding: .5rem .7rem; border-radius: .6rem; border: 1px solid var(--border, #e5e7eb); }
+.bubble.is-inbound { align-self: flex-start; }
+.bubble.is-outbound { align-self: flex-end; }
+.bubble-text { margin: .2rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble-meta, .bubble-kind { margin: 0; font-size: .8rem; opacity: .75; }
+.inbox-composer { display: flex; flex-direction: column; gap: .5rem; }
+.inbox-composer textarea { width: 100%; resize: vertical; }
+.inbox-info { display: flex; flex-direction: column; gap: .4rem; }
+.inbox-enrollments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@media (max-width: 900px) {
+  /* Una columna cada vez: lista, y al elegir, conversación. */
+  .inbox-shell { grid-template-columns: 1fr; }
+  .inbox-shell .inbox-chat, .inbox-shell .inbox-info { display: none; }
+  .inbox-shell.has-selection .inbox-list { display: none; }
+  .inbox-shell.has-selection .inbox-chat { display: flex; }
+  .inbox-shell.shows-info .inbox-chat { display: none; }
+  .inbox-shell.shows-info .inbox-info { display: flex; }
+  .inbox-back { display: inline-flex; }
+  .inbox-list { max-height: none; }
+  .bubble { max-width: 92%; }
+}

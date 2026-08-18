@@ -92,7 +92,7 @@ describe("lectura de Meta", () => {
   it("sigue la paginación hasta agotarla", async () => {
     const paginas = [
       respuesta({ data: [remotaDe(BIENVENIDA)], paging: { next: "https://graph.facebook.com/siguiente" } }),
-      respuesta({ data: [remotaDe("thank_you")] }),
+      respuesta({ data: [remotaDe("session_complete")] }),
     ];
     const fetchMock = vi.fn(async () => paginas.shift() ?? respuesta({ data: [] }));
     const r = await descargarPlantillasDeMeta({ accessToken: TOKEN, wabaId: "w", graphVersion: "v25.0" }, fetchMock as unknown as typeof fetch);
@@ -130,14 +130,14 @@ describe("semáforo", () => {
     expect(r.total).toBe(12);
   });
 
-  it("4 en el CRM contra 3 en Meta da RED y nombra ambos números", () => {
+  it("menos parámetros en Meta que en el CRM da RED y nombra ambos números", () => {
     const remota = remotaDe(BIENVENIDA, { components: [{ type: "BODY", text: "Hola {{1}} {{2}} {{3}}" }] });
     const fila = compararPlantilla(BIENVENIDA, spec, [remota]);
     expect(fila.result).toBe("RED");
     expect(fila.meta?.bodyParams).toBe(3);
-    expect(fila.codigo.bodyParams).toBe(4);
+    expect(fila.codigo.bodyParams).toBe(6);
     expect(fila.detail).toContain("Meta espera 3");
-    expect(fila.detail).toContain("CRM envía 4");
+    expect(fila.detail).toContain("CRM envía 6");
   });
 
   it("una cabecera con variable da RED: el CRM no envía cabecera", () => {

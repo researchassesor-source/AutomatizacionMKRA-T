@@ -17,7 +17,7 @@ export type AutomationPlanKey =
   | "course_complete"
   | "course_follow_up"
   | "survey"
-  | "thank_you";
+  | "session_complete";
 
 export type AutomationPlanEntry = {
   planKey: AutomationPlanKey;
@@ -169,7 +169,7 @@ R.A. Training`,
     enrollmentStatuses: AUDIENCE,
   },
   {
-    planKey: "thank_you",
+    planKey: "session_complete",
     name: "Fin de sesion",
     description: "Cierra la ultima sesion y confirma el fin del curso.",
     trigger: "AFTER_COURSE",
@@ -250,5 +250,5 @@ export const AUTOMATION_PLAN_LABELS: Record<AutomationPlanKey, string> = {
   course_complete: "Curso completo",
   course_follow_up: "Seguimiento del curso",
   survey: "Encuesta final",
-  thank_you: "Fin de sesion",
+  session_complete: "Fin de sesion",
 };

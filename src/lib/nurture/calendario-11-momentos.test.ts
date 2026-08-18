@@ -51,7 +51,7 @@ const minutosDesde = (referencia: Date, momento: Date) => Math.round((momento.ge
 describe("los once momentos existen en los dos canales", () => {
   const ESPERADOS = [
     "welcome", "whatsapp_group", "reminder_24h", "reminder_2h", "reminder_15m",
-    "session_live", "late_access", "thank_you", "course_complete", "course_follow_up", "survey",
+    "session_live", "late_access", "session_complete", "course_complete", "course_follow_up", "survey",
   ];
 
   it("el plan de correo declara los once", () => {
@@ -91,13 +91,17 @@ describe("avisos por sesión", () => {
     });
   });
 
-  it("el cierre de sesión sale tras CADA sesión, contado desde su final", () => {
-    // Este es el fallo que corrigio esta prueba: `thank_you` es AFTER_COURSE y
-    // caia en el bloque de "una vez por curso", asi que en un curso de tres
-    // sesiones solo habia un cierre, al final. Las sesiones intermedias son
-    // justo las que deben anunciar cual es la siguiente.
-    const salidas = momentos("thank_you");
-    expect(salidas).toHaveLength(3);
+  it("el cierre sale tras cada sesión que tenga siguiente, contado desde su final", () => {
+    // `session_complete` es AFTER_COURSE y caia en el bloque de "una vez por
+    // curso", asi que en un curso de tres sesiones solo habia un cierre, al
+    // final. Las sesiones intermedias son justo las que deben anunciar cual es
+    // la siguiente.
+    //
+    // Y por eso mismo la ultima queda fuera: el texto dice "continuaremos con
+    // {{proxima_sesion}}" y despues de la tercera no hay nada que anunciar. El
+    // cierre del curso entero lo cubren `course_complete` y `survey`.
+    const salidas = momentos("session_complete");
+    expect(salidas).toHaveLength(SESIONES.length - 1);
     salidas.forEach((momento, i) => {
       expect(minutosDesde(SESIONES[i].endAt as Date, momento), `sesión ${i + 1}`).toBe(5);
     });

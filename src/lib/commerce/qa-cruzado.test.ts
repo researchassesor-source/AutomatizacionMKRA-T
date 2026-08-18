@@ -232,8 +232,8 @@ describe("los once mensajes no cambiaron", () => {
       .sort();
     expect(nombres).toEqual([
       "ra_training_acceso_15min", "ra_training_acceso_2h", "ra_training_acceso_rezagados",
-      "ra_training_agradecimiento_final", "ra_training_bienvenida_inscripcion", "ra_training_curso_completo",
-      "ra_training_encuesta", "ra_training_grupo_whatsapp", "ra_training_recordatorio_24h",
+      "ra_training_bienvenida_inscripcion", "ra_training_curso_completo",
+      "ra_training_encuesta_experiencia", "ra_training_fin_sesion", "ra_training_grupo_whatsapp", "ra_training_recordatorio_24h",
       "ra_training_seguimiento_curso", "ra_training_sesion_en_vivo",
     ]);
   });

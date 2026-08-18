@@ -21,7 +21,7 @@
 export const TEMPLATE_VARIABLES = [
   "nombre", "apellido", "curso", "courseUrl", "moodleUrl", "asesor", "fecha",
   "hora", "modalidad", "enlace", "appUrl", "streamUrl", "bloqueEnlace",
-  "fechaSesion", "horaSesion", "sesion", "sesion_actual", "total_sesiones",
+  "fechaSesion", "horaSesion", "sesion", "sesion_actual", "numero_sesion", "total_sesiones", "proxima_sesion",
   "link_reunion", "link_grupo_whatsapp", "link_curso_completo", "link_encuesta", "bloqueFecha",
   // Oferta comercial: no pertenece al plan de once mensajes.
   "link_oferta_institucional",
@@ -47,7 +47,10 @@ const DESCRIPCIONES: Record<string, string> = {
   horaSesion: "Hora de la sesión concreta",
   sesion: "Nombre de la sesión",
   sesion_actual: "Nombre de la sesión actual",
-  total_sesiones: "Número total de sesiones",
+  // Numeros sueltos, para textos que ya escriben "Sesión {{n}} de {{total}}".
+  numero_sesion: "Número de la sesión actual (1, 2, 3…)",
+  total_sesiones: "Número total de sesiones (solo el número)",
+  proxima_sesion: "Fecha y hora de la siguiente sesión, o vacío si es la última",
   link_reunion: "Enlace de la reunión",
   link_grupo_whatsapp: "Grupo oficial de WhatsApp del curso",
   link_curso_completo: "Página informativa del curso completo",

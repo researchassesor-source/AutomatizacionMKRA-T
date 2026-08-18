@@ -54,10 +54,13 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     planKey: "reminder_2h",
     templateKey: "reminder_2h",
     name: "Acceso 2 horas antes - WhatsApp",
-    description: "Entrega el enlace de la reunion. Necesita enlace configurado.",
+    // El texto canonico avisa y pide preparar el equipo, pero NO lleva enlace:
+    // ese llega a los 15 minutos. Por eso no exige enlace configurado, y un
+    // curso sin enlace todavia recibe el aviso.
+    description: "Avisa con dos horas de antelacion. No incluye el enlace.",
     trigger: "BEFORE_COURSE",
     offsetMinutes: 120,
-    requiresStreamUrl: true,
+    requiresStreamUrl: false,
     enrollmentStatuses: AUDIENCE,
   },
   {
@@ -91,8 +94,8 @@ const PLAN_SIN_CUERPO: readonly WhatsAppPlanDraft[] = [
     enrollmentStatuses: AUDIENCE,
   },
   {
-    planKey: "thank_you",
-    templateKey: "thank_you",
+    planKey: "session_complete",
+    templateKey: "session_complete",
     name: "Fin de sesion - WhatsApp",
     description: "Cierra el curso al terminar la ultima sesion.",
     trigger: "AFTER_COURSE",

@@ -10,7 +10,7 @@ export const TIMELINE_STEPS = [
   { planKey: "reminder_15m", when: "15 minutos antes", title: "Ya empezamos", detail: "Repite el enlace justo antes de comenzar." },
   { planKey: "session_live", when: "Al iniciar", title: "Sesion en vivo", detail: "Aviso de inicio con enlace directo." },
   { planKey: "late_access", when: "20 minutos despues", title: "Acceso rezagados", detail: "Reenvia el enlace a quien entra tarde." },
-  { planKey: "thank_you", when: "5 minutos despues de terminar", title: "Fin de sesion", detail: "Cierra el curso agradeciendo la participacion." },
+  { planKey: "session_complete", when: "5 minutos despues de terminar", title: "Fin de sesion", detail: "Cierra el curso agradeciendo la participacion." },
   { planKey: "course_complete", when: "1 hora despues", title: "Curso completo", detail: "Comparte la informacion completa del curso." },
   { planKey: "course_follow_up", when: "24 horas despues", title: "Seguimiento", detail: "Abre una via de apoyo posterior." },
   { planKey: "survey", when: "48 horas despues", title: "Encuesta final", detail: "Solicita la encuesta configurada en el curso." },

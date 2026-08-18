@@ -15,6 +15,15 @@ export type WhatsAppTemplateSpec = {
   name: string;
   language: string;
   /**
+   * Categoria con la que se da de alta en Meta.
+   *
+   * No la elige el CRM: Meta cobra y enruta distinto un aviso de servicio que
+   * una promocion, y registrar una plantilla comercial como UTILITY es motivo
+   * de rechazo. Se declara aqui para que el registro manual en Meta no dependa
+   * de recordarlo.
+   */
+  category: "UTILITY" | "MARKETING";
+  /**
    * Orden EXACTO de las variables del cuerpo. El elemento 0 alimenta {{1}}.
    * Son claves de TEMPLATE_VARIABLES del motor, no textos ya resueltos.
    */
@@ -55,7 +64,7 @@ export const WHATSAPP_TEMPLATES: Record<
   | "reminder_15m"
   | "session_live"
   | "late_access"
-  | "thank_you"
+  | "session_complete"
   | "course_complete"
   | "course_follow_up"
   | "survey"
@@ -65,71 +74,89 @@ export const WHATSAPP_TEMPLATES: Record<
   welcome: {
     name: "ra_training_bienvenida_inscripcion",
     language: "es",
-    bodyVars: ["nombre", "curso", "fecha", "hora"],
-    sample: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
+    category: "UTILITY",
+    bodyVars: ["nombre", "curso", "fechaSesion", "horaSesion", "numero_sesion", "total_sesiones"],
+    sample: "👋 ¡Hola {{1}}! Tu inscripción está confirmada. ✅\n\nGracias por registrarte en:\n\n🎓 {{2}}\n\nTu capacitación iniciará con la Sesión {{5}} de {{6}}.\n\n📅 Fecha: {{3}}\n🕢 Hora: {{4}}\n💻 Modalidad: Online\n\nPor este medio recibirás los accesos, recordatorios e información necesaria para acompañarte durante tu aprendizaje.\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙\nCapacitación que transforma.",
   },
   whatsapp_group: {
     name: "ra_training_grupo_whatsapp",
     language: "es",
-    bodyVars: ["nombre", "curso", "link_grupo_whatsapp"],
-    sample: "Hola {{1}}, tu registro a {{2}} esta confirmado.\n\nGrupo oficial de WhatsApp:\n{{3}}\n\nR.A. Training",
+    category: "MARKETING",
+    // Sin nombre: el mensaje se dirige a la comunidad, no a la persona.
+    bodyVars: ["curso", "link_grupo_whatsapp"],
+    sample: "👥 ¡Ya eres parte de nuestra comunidad de aprendizaje!\n\nPara acompañarte durante tu proceso y recibir información relacionada con tu capacitación:\n\n🎓 {{1}}\n\nÚnete al grupo oficial de WhatsApp:\n\n👉 {{2}}\n\nEn este espacio compartiremos información importante antes y durante cada sesión.\n\n¡Te esperamos! 🚀\n\nR.A. Training 💙",
   },
   reminder_24h: {
     name: "ra_training_recordatorio_24h",
     language: "es",
-    bodyVars: ["nombre", "curso", "fechaSesion", "horaSesion"],
-    sample: "⏰ Hola {{1}}, te recordamos que mañana tienes tu sesión de {{2}}.\n\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nTe recomendamos tener listo tu dispositivo y una conexión estable para ingresar sin inconvenientes.\n\nPor este número seguiremos enviándote la información necesaria para tu sesión.\n\nR.A. Training 📚",
+    category: "UTILITY",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "fechaSesion", "horaSesion"],
+    sample: "⏰ ¡Mañana continuamos aprendiendo!\n\nHola {{1}} 👋\n\nTe recordamos que mañana tenemos la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\n📅 Fecha:\n{{5}}\n\n🕢 Hora:\n{{6}}\n\nPrepara tus preguntas y acompáñanos en esta nueva sesión.\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙",
   },
   reminder_2h: {
     name: "ra_training_acceso_2h",
     language: "es",
-    bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "🎓 Hola {{1}}, tu sesión de {{2}} comienza en aproximadamente 2 horas.\n\n🕒 Hora: {{3}}\n🔗 Enlace de acceso: {{4}}\n\nGuarda este enlace y procura ingresar unos minutos antes del inicio de la sesión.\n\n¡Nos vemos pronto!\nR.A. Training 💙",
+    category: "UTILITY",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "horaSesion"],
+    sample: "🚀 ¡Faltan 2 horas para comenzar!\n\nHola {{1}} 👋\n\nHoy tenemos la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nRecuerda tener listo:\n\n✅ Tu conexión a internet\n✅ Tu dispositivo\n✅ Tus preguntas\n\nNos vemos a las:\n\n🕢 {{5}}\n\n¡Prepárate para aprender! 💙\n\nR.A. Training",
   },
   reminder_15m: {
     name: "ra_training_acceso_15min",
     language: "es",
-    // Cuatro variables, igual que la plantilla registrada en Meta. Declarar
-    // tres producia el error 132000 ("numero de parametros incorrecto") en el
-    // primer envio real, que es justo donde no conviene descubrirlo.
-    bodyVars: ["nombre", "curso", "horaSesion", "streamUrl"],
-    sample: "🚀 Hola {{1}}, ¡ya casi comenzamos!\n\nTu sesión de {{2}} inicia en 15 minutos.\n\n🕒 Hora: {{3}}\n🔗 Ingresa aquí: {{4}}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚",
+    category: "UTILITY",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"],
+    sample: "🚀 ¡Comenzamos en 15 minutos!\n\nHola {{1}} 👋\n\nTu:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nestá por iniciar.\n\nIngresa aquí:\n\n👉 {{5}}\n\nTe esperamos dentro.\n\n¡Que empiece el aprendizaje! 💙\n\nR.A. Training",
   },
-  thank_you: {
-    name: "ra_training_agradecimiento_final",
+  /**
+   * Cierre de CADA sesion, no del curso.
+   *
+   * Sustituye al antiguo `thank_you` / `ra_training_agradecimiento_final`, que
+   * agradecia al terminar sin decir que venia despues. Este anuncia la
+   * siguiente sesion, y por eso solo se programa cuando existe una: ver
+   * `scheduleTargets`.
+   */
+  session_complete: {
+    name: "ra_training_fin_sesion",
     language: "es",
-    bodyVars: ["nombre", "curso"],
-    sample: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
+    category: "UTILITY",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "proxima_sesion"],
+    sample: "✅ ¡Sesión completada!\n\nHola {{1}} 👋\n\nGracias por acompañarnos en la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nEsperamos que esta experiencia haya sido útil para tu aprendizaje.\n\nRecuerda que continuaremos con:\n\n📅 {{5}}\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙",
   },
   session_live: {
     name: "ra_training_sesion_en_vivo",
     language: "es",
-    bodyVars: ["nombre", "curso", "sesion_actual", "link_reunion"],
-    sample: "Hola {{1}}, {{3}} de {{2}} ya esta comenzando.\n\nIngresa aqui: {{4}}\n\nR.A. Training",
+    category: "UTILITY",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"],
+    sample: "🔴 ¡Ya estamos en vivo!\n\nHola {{1}} 👋\n\nLa Sesión {{3}} de {{4}} del curso:\n\n🎓 {{2}}\n\nacaba de comenzar.\n\nPuedes ingresar ahora:\n\n👉 {{5}}\n\n¡Te esperamos dentro! 🚀\n\nR.A. Training 💙",
   },
   late_access: {
     name: "ra_training_acceso_rezagados",
     language: "es",
-    bodyVars: ["nombre", "curso", "sesion_actual", "link_reunion"],
-    sample: "Hola {{1}}, si aun no ingresaste a {{3}} de {{2}}, puedes usar este enlace:\n\n{{4}}\n\nR.A. Training",
+    category: "UTILITY",
+    // Sin total: quien llega tarde necesita entrar, no situarse en el curso.
+    bodyVars: ["nombre", "curso", "numero_sesion", "streamUrl"],
+    sample: "👋 {{1}}, todavía puedes unirte.\n\nLa Sesión {{3}} del curso:\n\n🎓 {{2}}\n\nya comenzó, pero aún puedes ingresar.\n\nAccede aquí:\n\n👉 {{4}}\n\nTe esperamos para continuar aprendiendo. 🚀\n\nR.A. Training",
   },
   course_complete: {
     name: "ra_training_curso_completo",
     language: "es",
+    category: "MARKETING",
     bodyVars: ["nombre", "curso", "link_curso_completo"],
-    sample: "Hola {{1}}, puedes revisar la informacion completa de {{2}} aqui:\n\n{{3}}\n\nR.A. Training",
+    sample: "🚀 ¡Continúa tu aprendizaje!\n\nHola {{1}} 👋\n\nLa capacitación gratuita fue el primer paso.\n\nAhora puedes profundizar tus conocimientos con:\n\n🎓 {{2}}\n\nUna formación completa con:\n\n✅ Clases especializadas\n✅ Actividades prácticas\n✅ Recursos de aprendizaje\n✅ Certificación del programa\n\nConoce todos los detalles aquí:\n\n👉 {{3}}\n\nSigue desarrollando nuevas habilidades junto a R.A. Training 💙",
   },
   course_follow_up: {
     name: "ra_training_seguimiento_curso",
     language: "es",
-    bodyVars: ["nombre", "curso"],
-    sample: "Hola {{1}}, gracias nuevamente por participar en {{2}}.\n\nSi necesitas apoyo adicional, responde a este chat y te orientaremos.\n\nR.A. Training",
+    category: "MARKETING",
+    bodyVars: ["nombre", "curso", "link_curso_completo"],
+    sample: "👋 Hola {{1}}.\n\nQueríamos saber si pudiste revisar la información del programa:\n\n🎓 {{2}}\n\nEsta formación está diseñada para quienes quieren aprender Inteligencia Artificial de manera práctica y aplicada.\n\nSi tienes alguna duda, estaremos encantados de ayudarte.\n\nPuedes revisar todos los detalles aquí:\n\n👉 {{3}}\n\n¡Esperamos verte dentro! 🚀\n\nR.A. Training",
   },
   survey: {
-    name: "ra_training_encuesta",
+    name: "ra_training_encuesta_experiencia",
     language: "es",
+    category: "MARKETING",
     bodyVars: ["nombre", "curso", "link_encuesta"],
-    sample: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
+    sample: "⭐ Queremos conocer tu experiencia.\n\nHola {{1}} 👋\n\nGracias por formar parte de:\n\n🎓 {{2}}\n\nTu opinión nos ayuda a mejorar nuestras próximas capacitaciones.\n\nCuéntanos cómo fue tu experiencia:\n\n👉 {{3}}\n\nGracias por aprender junto a R.A. Training 💙",
   },
   /**
    * Oferta de certificacion institucional.
@@ -142,6 +169,7 @@ export const WHATSAPP_TEMPLATES: Record<
   certification_offer: {
     name: "ra_training_certificacion_institucional",
     language: "es",
+    category: "MARKETING",
     bodyVars: ["nombre", "curso", "link_oferta_institucional"],
     sample: "Hola {{1}}, ya puedes obtener tu certificado institucional de {{2}}.\n\nAccede al curso completo de 60 horas y a tu certificado R.A. Training aqui:\n\n{{3}}\n\nR.A. Training",
   },

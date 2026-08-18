@@ -116,14 +116,30 @@ type CourseVariables = {
   modality: string | null;
 };
 
+/**
+ * Sesion siguiente a la dada, dentro del calendario real del curso.
+ *
+ * Devuelve `null` cuando la sesion es la ultima: no hay nada despues y no se
+ * puede inventar una fecha.
+ */
+function nextSessionAfter(
+  session: ResolvedCourseSession | null | undefined,
+  sessions: readonly ResolvedCourseSession[],
+): ResolvedCourseSession | null {
+  if (!session) return null;
+  return sessions.find((candidate) => candidate.position === session.position + 1) ?? null;
+}
+
 function templateVariables(
   lead: LeadVariables,
   course: CourseVariables,
   session?: ResolvedCourseSession | null,
+  sessions: readonly ResolvedCourseSession[] = session ? [session] : [],
 ) {
   const reference = session?.startAt ?? course.startsAt;
   const streamUrl = session?.streamUrl ?? "";
   const sessionName = session ? sessionLabel(session) : "";
+  const next = nextSessionAfter(session, sessions);
   return {
     nombre: lead.firstName ?? lead.fullName.split(" ")[0] ?? lead.fullName,
     apellido: lead.lastName ?? "",
@@ -137,7 +153,14 @@ function templateVariables(
     horaSesion: formatTime(session?.startAt ?? reference),
     sesion: sessionName,
     sesion_actual: sessionName,
+    // Numeros desnudos, no frases: los textos aprobados ya escriben
+    // "Sesión {{n}} de {{total}}", asi que devolver "Sesión 1" produciria
+    // "Sesión Sesión 1 de 3 sesiones".
+    numero_sesion: session ? String(session.position) : "",
     total_sesiones: session ? String(session.totalSessions) : "",
+    // Fecha y hora reales de la sesion siguiente. Vacia si no hay siguiente:
+    // los mensajes que la usan solo se programan cuando existe.
+    proxima_sesion: next ? `${formatDate(next.startAt)} · ${formatTime(next.startAt)}` : "",
     modalidad: course.modality ?? "por confirmar",
     enlace: course.moodleCourseUrl ?? course.officialCourseUrl,
     streamUrl,
@@ -344,24 +367,32 @@ export function scheduleTargets(
   /**
    * Avisos que ocurren UNA VEZ POR SESION, no una vez por curso.
    *
-   *   late_access -> se cuenta desde que la sesion EMPIEZA (quien llega tarde).
-   *   thank_you   -> se cuenta desde que la sesion TERMINA (cierre de sesion).
+   *   late_access      -> se cuenta desde que la sesion EMPIEZA (quien llega tarde).
+   *   session_complete -> se cuenta desde que la sesion TERMINA (cierre de sesion).
    *
-   * `thank_you` caia antes en el bloque final, que solo produce un objetivo
+   * El cierre caia antes en el bloque final, que solo produce un objetivo
    * medido desde el fin del curso. En un curso de tres sesiones eso significaba
    * un unico "fin de sesion" al terminar la tercera, y ningun cierre en la
    * primera ni en la segunda, que son justo las que deben anunciar cual es la
    * siguiente.
    */
-  if (rule.trigger === "AFTER_COURSE" && (rule.planKey === "late_access" || rule.planKey === "thank_you")) {
-    return sessions.map((session) => {
-      const referencia = rule.planKey === "thank_you" ? (session.endAt ?? session.startAt) : session.startAt;
-      return {
+  if (rule.trigger === "AFTER_COURSE" && (rule.planKey === "late_access" || rule.planKey === "session_complete")) {
+    const esCierre = rule.planKey === "session_complete";
+    return sessions.flatMap((session) => {
+      /**
+       * El cierre anuncia la sesion siguiente ("continuaremos con {{5}}"), asi
+       * que sin siguiente no tiene nada que decir. Se omite en la ultima sesion
+       * en lugar de enviarlo con el hueco vacio: el cierre del curso completo
+       * lo cubren `course_complete` y `survey`.
+       */
+      if (esCierre && !nextSessionAfter(session, sessions)) return [];
+      const referencia = esCierre ? (session.endAt ?? session.startAt) : session.startAt;
+      return [{
         session,
         contentSession: session,
         scheduledAt: new Date(referencia.getTime() + Math.abs(rule.offsetMinutes) * 60_000),
         stepKey: session.key ? `${baseKey}:session:${session.key}` : baseKey,
-      };
+      }];
     });
   }
   const final = lastSession(sessions);
@@ -523,7 +554,7 @@ export async function scheduleEnrollmentAutomations(
       // fallo tecnico: se contabiliza como omitido del cálculo.
       if (rule.trigger !== "ON_REGISTRATION" && target.scheduledAt < oldestAllowed) { skipped++; continue; }
       const missingStreamUrl = rule.requiresStreamUrl && !target.contentSession?.streamUrl;
-      const vars = templateVariables(enrollment.lead, enrollment.course, target.contentSession);
+      const vars = templateVariables(enrollment.lead, enrollment.course, target.contentSession, sessions);
       const missingWhatsappGroupUrl = (rule.planKey === "whatsapp_group" || rule.body.includes("{{link_grupo_whatsapp}}")) && !vars.link_grupo_whatsapp;
       /**
        * El seguimiento tambien depende del enlace, aunque no lo incluya.

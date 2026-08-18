@@ -22,7 +22,7 @@ function reglas() {
     { id: "r5", name: "15m", planKey: "reminder_15m", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
     { id: "r6", name: "En vivo", planKey: "session_live", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: true, waTemplateName: null },
     { id: "r7", name: "Rezagados", planKey: "late_access", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r8", name: "Gracias", planKey: "thank_you", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: false, waTemplateName: null },
+    { id: "r8", name: "Gracias", planKey: "session_complete", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: false, waTemplateName: null },
     { id: "r9", name: "Curso completo", planKey: "course_complete", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 5, requiresStreamUrl: false, waTemplateName: null },
     { id: "r10", name: "Seguimiento", planKey: "course_follow_up", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 10, requiresStreamUrl: false, waTemplateName: null },
     { id: "r11", name: "Encuesta", planKey: "survey", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: false, waTemplateName: null },

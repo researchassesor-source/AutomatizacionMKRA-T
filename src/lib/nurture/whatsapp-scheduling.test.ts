@@ -113,10 +113,14 @@ describe("programación de WhatsApp con plantillas", () => {
       language: "es",
     });
     const parametros = messages[0].waTemplate.components[0].parameters;
-    // El orden es el que espera Meta: {{1}} nombre, {{2}} curso, {{3}} fecha, {{4}} hora.
+    // El orden es el que espera Meta: {{1}} nombre, {{2}} curso, {{3}} fecha,
+    // {{4}} hora, {{5}} numero de sesion y {{6}} total de sesiones.
     expect(parametros[0]).toEqual({ type: "text", text: "Angel" });
     expect(parametros[1]).toEqual({ type: "text", text: "IA para Apoyo en Tareas Académicas" });
-    expect(parametros).toHaveLength(4);
+    // Numeros sueltos: el texto ya escribe "Sesión {{5}} de {{6}}" alrededor.
+    expect(parametros[4]).toEqual({ type: "text", text: "1" });
+    expect(parametros[5]).toEqual({ type: "text", text: "1" });
+    expect(parametros).toHaveLength(6);
   });
 
   it("una regla de WhatsApp sin plantilla produce OMITIDO, nunca un mensaje de texto", async () => {

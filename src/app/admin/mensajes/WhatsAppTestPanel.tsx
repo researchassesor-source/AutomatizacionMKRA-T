@@ -7,12 +7,19 @@ type Parametro = { posicion: string; variable: string; valorDeEjemplo: string };
 type Preview = { plantilla: string; idioma: string; parametros: Parametro[]; mensaje: string; textoRegistrado: string };
 type Respuesta = { ok?: boolean; sent?: boolean; preview?: Preview; message?: string; error?: string };
 
+/** Los once del journey, en el orden en que los recibe un inscrito. */
 const PLANTILLAS = [
-  { key: "welcome", label: "Bienvenida al inscribirse" },
-  { key: "reminder_24h", label: "Recordatorio 24 horas antes" },
-  { key: "reminder_2h", label: "Acceso 2 horas antes" },
-  { key: "reminder_15m", label: "Acceso 15 minutos antes" },
-  { key: "thank_you", label: "Agradecimiento final" },
+  { key: "welcome", label: "1 · Bienvenida al inscribirse" },
+  { key: "whatsapp_group", label: "2 · Grupo de WhatsApp" },
+  { key: "reminder_24h", label: "3 · Recordatorio 24 horas antes" },
+  { key: "reminder_2h", label: "4 · Acceso 2 horas antes" },
+  { key: "reminder_15m", label: "5 · Acceso 15 minutos antes" },
+  { key: "session_live", label: "6 · Sesión en vivo" },
+  { key: "late_access", label: "7 · Acceso para rezagados" },
+  { key: "session_complete", label: "8 · Fin de sesión" },
+  { key: "course_complete", label: "9 · Curso completo" },
+  { key: "course_follow_up", label: "10 · Seguimiento" },
+  { key: "survey", label: "11 · Encuesta de experiencia" },
 ] as const;
 
 /**

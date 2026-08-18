@@ -17,7 +17,9 @@ const VARS = {
   link_curso_completo: "https://ra-training.com/cursos/ia/",
   link_encuesta: "https://forms.example.com/encuesta",
   sesion_actual: "Sesion 1 de 3",
+  numero_sesion: "1",
   total_sesiones: "3",
+  proxima_sesion: "22 de agosto de 2026 - 7:30 p. m.",
 };
 
 describe("construcción de components", () => {
@@ -124,17 +126,17 @@ describe("plan estándar de WhatsApp", () => {
     expect(Object.fromEntries(
       Object.entries(WHATSAPP_TEMPLATES).map(([key, spec]) => [key, spec.bodyVars]),
     )).toEqual({
-      welcome: ["nombre", "curso", "fecha", "hora"],
-      whatsapp_group: ["nombre", "curso", "link_grupo_whatsapp"],
-      reminder_24h: ["nombre", "curso", "fechaSesion", "horaSesion"],
-      reminder_2h: ["nombre", "curso", "horaSesion", "streamUrl"],
-      reminder_15m: ["nombre", "curso", "horaSesion", "streamUrl"],
-      session_live: ["nombre", "curso", "sesion_actual", "link_reunion"],
-      late_access: ["nombre", "curso", "sesion_actual", "link_reunion"],
+      welcome: ["nombre", "curso", "fechaSesion", "horaSesion", "numero_sesion", "total_sesiones"],
+      whatsapp_group: ["curso", "link_grupo_whatsapp"],
+      reminder_24h: ["nombre", "curso", "numero_sesion", "total_sesiones", "fechaSesion", "horaSesion"],
+      reminder_2h: ["nombre", "curso", "numero_sesion", "total_sesiones", "horaSesion"],
+      reminder_15m: ["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"],
+      session_live: ["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"],
+      late_access: ["nombre", "curso", "numero_sesion", "streamUrl"],
       course_complete: ["nombre", "curso", "link_curso_completo"],
-      course_follow_up: ["nombre", "curso"],
+      course_follow_up: ["nombre", "curso", "link_curso_completo"],
       survey: ["nombre", "curso", "link_encuesta"],
-      thank_you: ["nombre", "curso"],
+      session_complete: ["nombre", "curso", "numero_sesion", "total_sesiones", "proxima_sesion"],
       // Campaña comercial: no pertenece al plan de once mensajes.
       certification_offer: ["nombre", "curso", "link_oferta_institucional"],
     });
@@ -154,16 +156,16 @@ describe("plan estándar de WhatsApp", () => {
     for (const entry of WHATSAPP_AUTOMATION_PLAN) {
       const vars = templateFieldsFor(entry).waTemplateBodyVars;
       const usaEnlace = vars.includes("streamUrl") || vars.includes("link_reunion");
-      expect(usaEnlace).toBe(["reminder_2h", "reminder_15m", "session_live", "late_access"].includes(entry.planKey));
+      expect(usaEnlace).toBe(["reminder_15m", "session_live", "late_access"].includes(entry.planKey));
       // Meta rechaza un parámetro vacío: si la plantilla lleva el enlace, la
       // regla tiene que exigirlo o el mensaje fallaría en el envío.
       if (usaEnlace) expect(entry.requiresStreamUrl).toBe(true);
     }
   });
 
-  it("el agradecimiento no se reprograma para quien ya figura como COMPLETADO", () => {
-    const gracias = WHATSAPP_AUTOMATION_PLAN.find((entry) => entry.planKey === "thank_you");
-    expect(gracias?.enrollmentStatuses).not.toContain("COMPLETADO");
+  it("el cierre de sesión no se reprograma para quien ya figura como COMPLETADO", () => {
+    const cierre = WHATSAPP_AUTOMATION_PLAN.find((entry) => entry.planKey === "session_complete");
+    expect(cierre?.enrollmentStatuses).not.toContain("COMPLETADO");
   });
 
   it("todo registro del formulario recibe las automatizaciones de WhatsApp", () => {
@@ -176,58 +178,58 @@ describe("plan estándar de WhatsApp", () => {
   const TEXTOS_FINALES = {
     ra_training_bienvenida_inscripcion: {
       idioma: "es",
-      variables: 4,
-      texto: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
+      variables: 6,
+      texto: "👋 ¡Hola {{1}}! Tu inscripción está confirmada. ✅\n\nGracias por registrarte en:\n\n🎓 {{2}}\n\nTu capacitación iniciará con la Sesión {{5}} de {{6}}.\n\n📅 Fecha: {{3}}\n🕢 Hora: {{4}}\n💻 Modalidad: Online\n\nPor este medio recibirás los accesos, recordatorios e información necesaria para acompañarte durante tu aprendizaje.\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙\nCapacitación que transforma.",
     },
     ra_training_grupo_whatsapp: {
       idioma: "es",
-      variables: 3,
-      texto: "Hola {{1}}, tu registro a {{2}} esta confirmado.\n\nGrupo oficial de WhatsApp:\n{{3}}\n\nR.A. Training",
+      variables: 2,
+      texto: "👥 ¡Ya eres parte de nuestra comunidad de aprendizaje!\n\nPara acompañarte durante tu proceso y recibir información relacionada con tu capacitación:\n\n🎓 {{1}}\n\nÚnete al grupo oficial de WhatsApp:\n\n👉 {{2}}\n\nEn este espacio compartiremos información importante antes y durante cada sesión.\n\n¡Te esperamos! 🚀\n\nR.A. Training 💙",
     },
     ra_training_recordatorio_24h: {
       idioma: "es",
-      variables: 4,
-      texto: "⏰ Hola {{1}}, te recordamos que mañana tienes tu sesión de {{2}}.\n\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nTe recomendamos tener listo tu dispositivo y una conexión estable para ingresar sin inconvenientes.\n\nPor este número seguiremos enviándote la información necesaria para tu sesión.\n\nR.A. Training 📚",
+      variables: 6,
+      texto: "⏰ ¡Mañana continuamos aprendiendo!\n\nHola {{1}} 👋\n\nTe recordamos que mañana tenemos la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\n📅 Fecha:\n{{5}}\n\n🕢 Hora:\n{{6}}\n\nPrepara tus preguntas y acompáñanos en esta nueva sesión.\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙",
     },
     ra_training_acceso_2h: {
       idioma: "es",
-      variables: 4,
-      texto: "🎓 Hola {{1}}, tu sesión de {{2}} comienza en aproximadamente 2 horas.\n\n🕒 Hora: {{3}}\n🔗 Enlace de acceso: {{4}}\n\nGuarda este enlace y procura ingresar unos minutos antes del inicio de la sesión.\n\n¡Nos vemos pronto!\nR.A. Training 💙",
+      variables: 5,
+      texto: "🚀 ¡Faltan 2 horas para comenzar!\n\nHola {{1}} 👋\n\nHoy tenemos la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nRecuerda tener listo:\n\n✅ Tu conexión a internet\n✅ Tu dispositivo\n✅ Tus preguntas\n\nNos vemos a las:\n\n🕢 {{5}}\n\n¡Prepárate para aprender! 💙\n\nR.A. Training",
     },
     ra_training_acceso_15min: {
       idioma: "es",
-      variables: 4,
-      texto: "🚀 Hola {{1}}, ¡ya casi comenzamos!\n\nTu sesión de {{2}} inicia en 15 minutos.\n\n🕒 Hora: {{3}}\n🔗 Ingresa aquí: {{4}}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚",
+      variables: 5,
+      texto: "🚀 ¡Comenzamos en 15 minutos!\n\nHola {{1}} 👋\n\nTu:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nestá por iniciar.\n\nIngresa aquí:\n\n👉 {{5}}\n\nTe esperamos dentro.\n\n¡Que empiece el aprendizaje! 💙\n\nR.A. Training",
     },
-    ra_training_agradecimiento_final: {
+    ra_training_fin_sesion: {
       idioma: "es",
-      variables: 2,
-      texto: "✅ Hola {{1}}, hemos finalizado {{2}}.\n\nGracias por acompañarnos y ser parte de esta capacitación. Esperamos que lo aprendido sea de utilidad para ti. 📚\n\nSi necesitas ayuda o tienes alguna consulta, puedes responder a este chat y te indicaremos cómo comunicarte con nuestro equipo.\n\nGracias por confiar en R.A. Training. 💙",
+      variables: 5,
+      texto: "✅ ¡Sesión completada!\n\nHola {{1}} 👋\n\nGracias por acompañarnos en la:\n\n📚 Sesión {{3}} de {{4}}\n\nDel curso:\n\n🎓 {{2}}\n\nEsperamos que esta experiencia haya sido útil para tu aprendizaje.\n\nRecuerda que continuaremos con:\n\n📅 {{5}}\n\n¡Nos vemos pronto! 🚀\n\nR.A. Training 💙",
     },
     ra_training_sesion_en_vivo: {
       idioma: "es",
-      variables: 4,
-      texto: "Hola {{1}}, {{3}} de {{2}} ya esta comenzando.\n\nIngresa aqui: {{4}}\n\nR.A. Training",
+      variables: 5,
+      texto: "🔴 ¡Ya estamos en vivo!\n\nHola {{1}} 👋\n\nLa Sesión {{3}} de {{4}} del curso:\n\n🎓 {{2}}\n\nacaba de comenzar.\n\nPuedes ingresar ahora:\n\n👉 {{5}}\n\n¡Te esperamos dentro! 🚀\n\nR.A. Training 💙",
     },
     ra_training_acceso_rezagados: {
       idioma: "es",
       variables: 4,
-      texto: "Hola {{1}}, si aun no ingresaste a {{3}} de {{2}}, puedes usar este enlace:\n\n{{4}}\n\nR.A. Training",
+      texto: "👋 {{1}}, todavía puedes unirte.\n\nLa Sesión {{3}} del curso:\n\n🎓 {{2}}\n\nya comenzó, pero aún puedes ingresar.\n\nAccede aquí:\n\n👉 {{4}}\n\nTe esperamos para continuar aprendiendo. 🚀\n\nR.A. Training",
     },
     ra_training_curso_completo: {
       idioma: "es",
       variables: 3,
-      texto: "Hola {{1}}, puedes revisar la informacion completa de {{2}} aqui:\n\n{{3}}\n\nR.A. Training",
+      texto: "🚀 ¡Continúa tu aprendizaje!\n\nHola {{1}} 👋\n\nLa capacitación gratuita fue el primer paso.\n\nAhora puedes profundizar tus conocimientos con:\n\n🎓 {{2}}\n\nUna formación completa con:\n\n✅ Clases especializadas\n✅ Actividades prácticas\n✅ Recursos de aprendizaje\n✅ Certificación del programa\n\nConoce todos los detalles aquí:\n\n👉 {{3}}\n\nSigue desarrollando nuevas habilidades junto a R.A. Training 💙",
     },
     ra_training_seguimiento_curso: {
       idioma: "es",
-      variables: 2,
-      texto: "Hola {{1}}, gracias nuevamente por participar en {{2}}.\n\nSi necesitas apoyo adicional, responde a este chat y te orientaremos.\n\nR.A. Training",
+      variables: 3,
+      texto: "👋 Hola {{1}}.\n\nQueríamos saber si pudiste revisar la información del programa:\n\n🎓 {{2}}\n\nEsta formación está diseñada para quienes quieren aprender Inteligencia Artificial de manera práctica y aplicada.\n\nSi tienes alguna duda, estaremos encantados de ayudarte.\n\nPuedes revisar todos los detalles aquí:\n\n👉 {{3}}\n\n¡Esperamos verte dentro! 🚀\n\nR.A. Training",
     },
-    ra_training_encuesta: {
+    ra_training_encuesta_experiencia: {
       idioma: "es",
       variables: 3,
-      texto: "Hola {{1}}, tu opinion nos ayuda a mejorar.\n\nCompleta la encuesta final de {{2}} aqui:\n\n{{3}}\n\nGracias por confiar en R.A. Training.",
+      texto: "⭐ Queremos conocer tu experiencia.\n\nHola {{1}} 👋\n\nGracias por formar parte de:\n\n🎓 {{2}}\n\nTu opinión nos ayuda a mejorar nuestras próximas capacitaciones.\n\nCuéntanos cómo fue tu experiencia:\n\n👉 {{3}}\n\nGracias por aprender junto a R.A. Training 💙",
     },
     // Campaña comercial, aparte de los once mensajes. Ya activa en Meta.
     ra_training_certificacion_institucional: {
@@ -270,9 +272,19 @@ describe("plan estándar de WhatsApp", () => {
 
   it("la vista previa reproduce el mensaje con los valores puestos", () => {
     const quince = WHATSAPP_TEMPLATES.reminder_15m;
-    expect(fillTemplateBody(quince, (variable) => VARS[variable as keyof typeof VARS])).toBe(
-      `🚀 Hola Angel, ¡ya casi comenzamos!\n\nTu sesión de ${VARS.curso} inicia en 15 minutos.\n\n🕒 Hora: ${VARS.horaSesion}\n🔗 Ingresa aquí: ${VARS.streamUrl}\n\nTe recomendamos conectarte desde ahora para estar listo al comenzar.\n\nR.A. Training 📚`,
-    );
+    const render = fillTemplateBody(quince, (variable) => VARS[variable as keyof typeof VARS]);
+
+    // Ni un marcador sobrevive: un {{n}} suelto es exactamente lo que llegaria
+    // al contacto, escrito tal cual.
+    expect(render).not.toMatch(/\{\{\d+\}\}/);
+    // Cada valor esta puesto en la frase que le corresponde, no solo presente.
+    expect(render).toContain(`Sesión ${VARS.numero_sesion} de ${VARS.total_sesiones}`);
+    expect(render).toContain(`🎓 ${VARS.curso}`);
+    expect(render).toContain(`👉 ${VARS.streamUrl}`);
+    expect(render).toContain("Hola Angel 👋");
+    // El texto fijo que rodea a las variables se conserva intacto.
+    expect(render.startsWith("🚀 ¡Comenzamos en 15 minutos!")).toBe(true);
+    expect(render.endsWith("R.A. Training")).toBe(true);
   });
 
   it("el cuerpo guardado en la regla es el mismo texto, con los marcadores del motor", () => {
@@ -304,7 +316,7 @@ describe("plan estándar de WhatsApp", () => {
       waTemplateBodyVars: ["nombre", "curso", "streamUrl"],
       waTemplateUrlVar: null,
     });
-    expect(binding?.bodyVars).toEqual(["nombre", "curso", "horaSesion", "streamUrl"]);
+    expect(binding?.bodyVars).toEqual(["nombre", "curso", "numero_sesion", "total_sesiones", "streamUrl"]);
     expect(binding?.language).toBe("es");
   });
 

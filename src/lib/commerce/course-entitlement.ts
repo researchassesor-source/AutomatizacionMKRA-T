@@ -40,7 +40,14 @@ export type AccesoAlCurso = {
   etiqueta: string;
 };
 
-const VERIFICADO: CoursePurchaseStatus = "PAYMENT_VERIFIED";
+/**
+ * El unico estado de compra que concede derecho.
+ *
+ * Se exporta para que quien necesite filtrar por el —una consulta que acote
+ * candidatos, por ejemplo— use esta constante en lugar de repetir el literal.
+ * Dos literales iguales hoy son dos literales que manana pueden dejar de serlo.
+ */
+export const ESTADO_PAGO_VERIFICADO: CoursePurchaseStatus = "PAYMENT_VERIFIED";
 
 const ETIQUETAS: Record<MotivoAcceso, string> = {
   GRATUITO: "Gratuito · habilitado",
@@ -69,7 +76,7 @@ export function courseAccessEligibility(
   // Una inscripcion cancelada no recibe nada, ni siquiera de un curso gratuito.
   if (inscripcion.status === "CANCELADO") return resultado(false, "INSCRIPCION_CANCELADA");
   if (curso.isFree) return resultado(true, "GRATUITO");
-  if (compras.some((compra) => compra.status === VERIFICADO)) return resultado(true, "PAGO_VERIFICADO");
+  if (compras.some((compra) => compra.status === ESTADO_PAGO_VERIFICADO)) return resultado(true, "PAGO_VERIFICADO");
   if (compras.length === 0) return resultado(false, "SIN_PAGO");
   return resultado(false, "PAGO_PENDIENTE");
 }

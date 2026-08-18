@@ -49,6 +49,9 @@ function message(overrides: Record<string, any> = {}) {
 }
 
 beforeEach(() => {
+  // El reloj consulta las inscripciones pagadas sin journey antes de
+  // despachar; sin este valor la reconciliacion recibe undefined.
+  mocks.prisma.enrollment.findMany.mockResolvedValue([]);
   mocks.prisma.automationRule.findMany.mockResolvedValue([]);
   mocks.prisma.outboundMessage.findMany.mockResolvedValue([]);
   mocks.prisma.outboundMessage.updateMany.mockResolvedValue({ count: 1 });

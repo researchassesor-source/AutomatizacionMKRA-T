@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { CoursePurchase, CoursePurchaseType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { scheduleEnrollmentAutomations, sendDueMessagesForEnrollment } from "@/lib/nurture/engine";
 import { getCrmPurchaseStatus, importCrmPurchase } from "@/lib/finance/commerce";
 import { resolverDerecho, validarCompraNueva } from "./entitlement";
 
@@ -225,8 +226,41 @@ export async function refrescarPago(purchaseId: string): Promise<ResultadoCompra
       result: "SUCCESS",
       metadata: { enrollmentId: compra.enrollmentId, offerType: compra.offerType },
     });
+    await activarJourney(compra.enrollmentId);
   }
   return { ok: true, compra: actualizada };
+}
+
+/**
+ * Arranca el journey de una inscripcion recien pagada.
+ *
+ * Va FUERA de la transaccion del pago y a proposito. El pago es el hecho
+ * importante: si el proveedor de mensajeria esta caido, lo que no puede pasar
+ * es que se pierda un cobro verificado. Por eso aqui no se propaga ningun
+ * error; se deja escrito en la auditoria y la reconciliacion del reloj lo
+ * recoge en la siguiente vuelta.
+ *
+ * Sin esto, quien pagaba quedaba con el derecho concedido pero sin bienvenida:
+ * el reloj programa por reglas vencidas, y una bienvenida es inmediata, asi que
+ * su momento ya habia pasado cuando el reloj miraba.
+ */
+async function activarJourney(enrollmentId: string) {
+  try {
+    await scheduleEnrollmentAutomations(enrollmentId);
+    // La bienvenida se programa para "ahora": sin este paso esperaria al
+    // siguiente tick para salir.
+    await sendDueMessagesForEnrollment(enrollmentId);
+  } catch (error: unknown) {
+    await writeAudit({
+      actorEmail: "finance-sync",
+      action: "ENROLLMENT_JOURNEY_ACTIVATION_FAILED",
+      entityType: "Enrollment",
+      entityId: enrollmentId,
+      result: "FAILURE",
+      // Solo el motivo, recortado: aqui no entra nada del proveedor ni del contacto.
+      metadata: { error: error instanceof Error ? error.message.slice(0, 200) : "fallo desconocido" },
+    }).catch(() => undefined);
+  }
 }
 
 /**

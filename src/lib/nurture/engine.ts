@@ -1,6 +1,6 @@
 import { Prisma, type MessageChannel } from "@prisma/client";
 import { automationRuleCanRun, courseAcceptsAutomations } from "@/lib/automation-eligibility";
-import { courseAccessEligibility, momentoAplicaAlCurso } from "@/lib/commerce/course-entitlement";
+import { courseAccessEligibility, ESTADO_PAGO_VERIFICADO, momentoAplicaAlCurso } from "@/lib/commerce/course-entitlement";
 import { calculateAutomationSchedule, ECUADOR_TIME_ZONE, supportsEnrollmentStatus } from "@/lib/automation-schedule";
 import {
   courseCompletionMoment,
@@ -1039,6 +1039,54 @@ export async function sendDueMessagesForEnrollment(enrollmentId: string, now = n
   };
 }
 
+/**
+ * Recupera inscripciones pagadas que se quedaron sin journey.
+ *
+ * Activar el journey al verificar el pago puede fallar —un corte, un despliegue
+ * a medias— y ese fallo no revierte el cobro, como debe ser. Sin esta segunda
+ * oportunidad, la persona se quedaria pagada y sin bienvenida para siempre.
+ *
+ * Es deliberadamente estrecha. Solo mira cursos de pago, solo inscripciones con
+ * una compra verificada, solo las que no tienen NI UN mensaje, y como mucho un
+ * puñado por vuelta: no es un barrido del historico, es una red por debajo del
+ * camino normal. Los cursos gratuitos ni se consultan, porque ellos nunca
+ * dependieron de este disparo.
+ *
+ * Reutiliza `scheduleEnrollmentAutomations`, asi que hereda su idempotencia: si
+ * el journey ya estaba, no crea nada nuevo.
+ */
+const RECONCILIACION_POR_VUELTA = 10;
+
+export async function reconcileEntitledEnrollments(now = new Date()) {
+  const pendientes = await prisma.enrollment.findMany({
+    where: {
+      status: { in: ["INTERESADO", "INSCRITO", "EN_CURSO"] },
+      course: { isFree: false, isPublished: true },
+      purchases: { some: { status: ESTADO_PAGO_VERIFICADO } },
+      // "Sin journey" es literal: ni un mensaje, enviado o pendiente. Con uno
+      // solo, el camino normal funciono y no hay nada que recuperar.
+      messages: { none: {} },
+    },
+    select: { id: true },
+    take: RECONCILIACION_POR_VUELTA,
+  });
+
+  let recuperadas = 0;
+  for (const inscripcion of pendientes) {
+    const resultado = await scheduleEnrollmentAutomations(inscripcion.id, now).catch(() => null);
+    if (!resultado || resultado.enqueued === 0) continue;
+    recuperadas++;
+    await writeAudit({
+      actorEmail: "automation",
+      action: "ENROLLMENT_JOURNEY_RECONCILED",
+      entityType: "Enrollment",
+      entityId: inscripcion.id,
+      metadata: { enqueued: resultado.enqueued },
+    }).catch(() => undefined);
+  }
+  return { revisadas: pendientes.length, recuperadas };
+}
+
 const DISPATCH_CHANNELS: MessageChannel[] = ["EMAIL", "WHATSAPP"];
 
 export async function processScheduledMessages(now = new Date()) {
@@ -1072,6 +1120,9 @@ export async function processScheduledMessages(now = new Date()) {
     return { blocked: true, blockedChannels, errorCode: first?.errorCode ?? null, error: first?.error ?? null, automations: null, processed: 0, succeeded: 0, failed: 0, results: [] };
   }
 
+  // Antes de despachar: si alguien pago y su journey no llego a crearse, se
+  // crea ahora y sus mensajes vencidos salen en esta misma vuelta.
+  const reconciliadas = await reconcileEntitledEnrollments(now);
   const automations = await processDueAutomationRules(now);
   const pending = await prisma.outboundMessage.findMany({
     where: {
@@ -1099,5 +1150,5 @@ export async function processScheduledMessages(now = new Date()) {
     });
   }
   const finalized = await finalizeCompletedCourseEnrollments(now);
-  return { blocked: false, blockedChannels, errorCode: null, error: null, automations, finalized, processed: results.length, succeeded: results.filter((result) => result.ok).length, failed: results.filter((result) => !result.ok).length, results };
+  return { blocked: false, blockedChannels, errorCode: null, error: null, automations, reconciliadas, finalized, processed: results.length, succeeded: results.filter((result) => result.ok).length, failed: results.filter((result) => !result.ok).length, results };
 }

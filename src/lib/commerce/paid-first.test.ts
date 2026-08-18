@@ -128,8 +128,11 @@ describe("arranque del journey", () => {
     // Buscar el estado verificado suelto por el codigo seria la forma de que
     // dos sitios acabaran discrepando.
     const propio = readFileSync(join(raiz, "lib/commerce/course-entitlement.ts"), "utf8");
-    expect(propio).toContain('CoursePurchaseStatus = "PAYMENT_VERIFIED"');
-    expect(motor).not.toContain("PAYMENT_VERIFIED");
+    expect(propio).toContain('ESTADO_PAGO_VERIFICADO: CoursePurchaseStatus = "PAYMENT_VERIFIED"');
+    // El literal existe una sola vez en todo el codigo: quien necesita filtrar
+    // por ese estado importa la constante.
+    expect(motor).not.toContain('"PAYMENT_VERIFIED"');
+    expect(motor).toContain("status: ESTADO_PAGO_VERIFICADO");
   });
 
   it("no duplica: la identidad del mensaje no depende de cuándo se pagó", () => {

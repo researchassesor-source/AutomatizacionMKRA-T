@@ -86,6 +86,8 @@ function enrollment(overrides: {
       moodleCourseUrl: null,
       modality: "Virtual",
       isPublished: overrides.isPublished ?? true,
+      // Taller gratuito: el derecho de acceso lo concede el registro.
+      isFree: true,
       // El caso reproducido: registro CERRADO.
       acceptsRegistrations: overrides.acceptsRegistrations ?? false,
       startsAt: null,

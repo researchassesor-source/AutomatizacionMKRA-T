@@ -1,5 +1,6 @@
 import { Prisma, type MessageChannel } from "@prisma/client";
 import { automationRuleCanRun, courseAcceptsAutomations } from "@/lib/automation-eligibility";
+import { courseAccessEligibility, momentoAplicaAlCurso } from "@/lib/commerce/course-entitlement";
 import { calculateAutomationSchedule, ECUADOR_TIME_ZONE, supportsEnrollmentStatus } from "@/lib/automation-schedule";
 import {
   courseCompletionMoment,
@@ -210,6 +211,9 @@ export async function enqueueSequence(leadId: string, enrollmentId?: string, seq
 
 const enrollmentWithSchedule = {
   lead: true,
+  // Hacen falta para decidir el derecho de acceso: en un curso de pago, el
+  // journey no existe hasta que una de ellas esta verificada.
+  purchases: { select: { status: true } },
   course: {
     include: {
       sessions: { orderBy: { startAt: "asc" } },
@@ -470,6 +474,7 @@ export type ScheduleSkipReason =
   | "ENROLLMENT_COMPLETED"
   | "CONTACT_EXCLUDED"
   | "COURSE_NOT_PUBLISHED"
+  | "COURSE_NOT_ENTITLED"
   | "NO_ACTIVE_RULES"
   | "NO_APPLICABLE_RULES";
 
@@ -480,6 +485,7 @@ export const SCHEDULE_SKIP_MESSAGES: Record<ScheduleSkipReason, string> = {
   ENROLLMENT_COMPLETED: "La inscripcion ya finalizo, asi que no recibe nuevos mensajes automaticos de este curso.",
   CONTACT_EXCLUDED: "El contacto no recibe automatizaciones: debe estar clasificado como real y tener consentimiento registrado.",
   COURSE_NOT_PUBLISHED: "El curso no está publicado, así que no se programaron mensajes.",
+  COURSE_NOT_ENTITLED: "El curso es de pago y todavía no hay un pago verificado, así que no se programaron mensajes. Se programarán solos al verificar el pago.",
   NO_ACTIVE_RULES: "El curso todavía no tiene automatizaciones activas. Aplica el plan estándar de correos y actívalo.",
   NO_APPLICABLE_RULES: "Hay automatizaciones activas, pero ninguna aplica a esta inscripción: revisa las fechas de las sesiones, el estado de la inscripción y la campaña asociada.",
 };
@@ -518,6 +524,20 @@ export async function scheduleEnrollmentAutomations(
   if (!courseAcceptsAutomations(enrollment.course)) {
     return { ...empty, reason: "COURSE_NOT_PUBLISHED" };
   }
+  /**
+   * Paid first: en un curso de pago el journey no empieza al registrarse, sino
+   * cuando el pago queda verificado.
+   *
+   * Se comprueba aqui, antes de crear nada, y no solo al enviar: un mensaje
+   * programado para quien no ha pagado es una fecha que alguien puede mirar y
+   * dar por buena. Cuando el pago se verifique, esta misma funcion se vuelve a
+   * llamar y programa el journey completo; la idempotencia de siempre impide
+   * que se dupliquen.
+   */
+  const acceso = courseAccessEligibility(enrollment.course, enrollment, enrollment.purchases);
+  if (!acceso.habilitado) {
+    return { ...empty, reason: "COURSE_NOT_ENTITLED" };
+  }
 
   const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
   // El curso puede tener sus fechas solo en las sesiones: la elegibilidad se
@@ -541,6 +561,9 @@ export async function scheduleEnrollmentAutomations(
 
   for (const rule of rules) {
     if (!automationRuleCanRun(effectiveCourse, rule)) { skipped++; continue; }
+    // El cierre y el seguimiento hablan de "esta capacitación gratuita": en un
+    // curso de pago le dirian a quien acaba de pagar que lo suyo era gratis.
+    if (!momentoAplicaAlCurso(rule.planKey, enrollment.course)) { skipped++; continue; }
     if (rule.campaignId && rule.campaignId !== enrollment.campaignId) { skipped++; continue; }
     if (!supportsEnrollmentStatus(rule.enrollmentStatuses, enrollment.status)) { skipped++; continue; }
     // Una regla de bienvenida creada despues de la inscripcion no saluda hacia
@@ -899,8 +922,34 @@ export async function sendMessage(messageId: string) {
   });
   if (claimed.count !== 1) return { ok: false, error: "El mensaje ya fue procesado o todavía no corresponde reintentarlo." };
 
-  const message = await prisma.outboundMessage.findUnique({ where: { id: messageId }, include: { lead: true } });
+  const message = await prisma.outboundMessage.findUnique({
+    where: { id: messageId },
+    include: {
+      lead: true,
+      // Para volver a comprobar el derecho justo antes de enviar.
+      enrollment: { include: { course: { select: { isFree: true } }, purchases: { select: { status: true } } } },
+    },
+  });
   if (!message) return { ok: false, error: "Mensaje no encontrado." };
+  /**
+   * Segunda comprobacion del derecho, ya con el mensaje reclamado.
+   *
+   * El programador ya impide crearlos, pero un mensaje puede haberse quedado
+   * de antes, o el pago puede haberse cancelado despues de programarlo. Aqui
+   * se falla cerrado: se marca OMITIDO con el motivo, en lugar de enviarlo.
+   * Un curso gratuito no pasa por esto, porque su derecho es el registro.
+   */
+  if (message.enrollment) {
+    const acceso = courseAccessEligibility(message.enrollment.course, message.enrollment, message.enrollment.purchases);
+    if (!acceso.habilitado) {
+      await prisma.outboundMessage.update({
+        where: { id: message.id },
+        data: { status: "OMITIDO", errorCode: "COURSE_NOT_ENTITLED", errorMessage: `No se envió: ${acceso.etiqueta.toLowerCase()}.`, nextAttemptAt: null },
+      });
+      await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "COURSE_NOT_ENTITLED", motivo: acceso.motivo } });
+      return { ok: true, skipped: true };
+    }
+  }
   if (!isAutomationEligibleContact(message.lead.classification, message.lead.consent)) {
     await prisma.outboundMessage.update({ where: { id: message.id }, data: { status: "OMITIDO", errorCode: "CONTACT_EXCLUDED", errorMessage: "Contacto de prueba, demostración, sin clasificar o sin consentimiento." } });
     await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "CONTACT_EXCLUDED", classification: message.lead.classification, consent: message.lead.consent } });

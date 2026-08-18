@@ -40,6 +40,8 @@ function course(overrides: Record<string, unknown> = {}) {
     externalId: "2287",
     externalSource: "wordpress",
     isPublished: true,
+    // Taller gratuito: el derecho de acceso lo concede el registro.
+    isFree: true,
     acceptsRegistrations: false,
     syncStatus: "SYNCED",
     startsAt: null,

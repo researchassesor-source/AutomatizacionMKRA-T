@@ -65,6 +65,8 @@ function enrollment(overrides: { rules?: any[]; streamUrl?: string | null; sessi
       moodleCourseUrl: null,
       modality: "Virtual",
       isPublished: true,
+      // Taller gratuito: el derecho de acceso lo concede el registro.
+      isFree: true,
       acceptsRegistrations: true,
       startsAt: null,
       endsAt: null,

@@ -79,6 +79,8 @@ function enrollment(overrides: { sessions?: any[]; startsAt?: Date | null; strea
       moodleCourseUrl: null,
       modality: "Virtual",
       isPublished: true,
+      // Taller gratuito: el derecho de acceso lo concede el registro.
+      isFree: true,
       acceptsRegistrations: false,
       startsAt: overrides.startsAt === undefined ? null : overrides.startsAt,
       endsAt: null,

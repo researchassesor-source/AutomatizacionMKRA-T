@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { courseAccessEligibility } from "@/lib/commerce/course-entitlement";
 import { prisma } from "@/lib/db";
 import { currentAdminSession } from "@/lib/auth/server";
 import { resolveViewMode } from "@/lib/auth/view-mode";
@@ -24,7 +25,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       where: { id },
       include: {
         course: true,
-        enrollments: { include: { course: { include: { sessions: true } } }, orderBy: { createdAt: "desc" } },
+        // `purchases` e `isFree` deciden el acceso operativo al curso.
+        enrollments: { include: { course: { include: { sessions: true } }, purchases: { select: { status: true } } }, orderBy: { createdAt: "desc" } },
         notes: { include: { author: true }, orderBy: { createdAt: "desc" } },
         followUps: { include: { assignedTo: true }, orderBy: { dueAt: "asc" } },
         messages: { orderBy: { scheduledAt: "desc" }, take: 30 },
@@ -67,6 +69,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     const last = schedule[schedule.length - 1] ?? null;
     return {
       id: item.id, status: item.status, financeStatus: item.financeStatus,
+      // Se deriva, no se guarda: un estado persistido puede quedarse desfasado
+      // respecto de las compras y entonces la pantalla miente.
+      acceso: courseAccessEligibility(item.course, item, item.purchases),
       certificateStatus: item.certificateStatus, financeInscripcionId: item.financeInscripcionId,
       financeUrl: item.financeInscripcionId ? financeEnrollmentUrl(item.financeInscripcionId) : "",
       moodleCompletionDate: item.moodleCompletionDate?.toISOString() ?? null,

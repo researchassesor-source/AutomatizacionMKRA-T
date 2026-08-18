@@ -7,6 +7,8 @@ import {
 
 const course = {
   isPublished: true,
+  // Taller gratuito: el derecho de acceso lo concede el registro.
+  isFree: true,
   acceptsRegistrations: true,
   startsAt: new Date("2026-08-11T00:30:00.000Z"),
   endsAt: new Date("2026-08-14T02:00:00.000Z"),

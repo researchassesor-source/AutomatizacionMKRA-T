@@ -16,6 +16,7 @@ import { EmailTestPanel } from "./EmailTestPanel";
 import { MessageList, type MessageRow } from "./MessageList";
 import { TemplateManager } from "./TemplateManager";
 import { WhatsAppStatusPanel } from "./WhatsAppStatusPanel";
+import { WhatsAppTemplateAudit } from "./WhatsAppTemplateAudit";
 import { WhatsAppTestPanel } from "./WhatsAppTestPanel";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
         <div className="technical-tools-body">
           <WhatsAppStatusPanel rulesWithoutTemplate={waRulesWithoutTemplate} queued={waQueued} />
           <WhatsAppTestPanel />
+          <WhatsAppTemplateAudit />
           <EmailTestPanel />
           <TemplateManager />
         </div>

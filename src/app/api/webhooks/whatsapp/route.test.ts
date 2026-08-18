@@ -73,16 +73,16 @@ describe("POST webhook WhatsApp", () => {
     expect(mocks.applyMessageProviderEvent).toHaveBeenCalledTimes(3);
     expect(mocks.applyMessageProviderEvent.mock.calls.map(([event]) => event.state))
       .toEqual(["SENT", "DELIVERED", "READ"]);
-    // El aviso ahora lleva ademas contenido, momento y contexto: se comprueba
-    // lo que identifica al mensaje sin fijar el resto del contrato aqui.
-    expect(mocks.handleInboundSupportReply).toHaveBeenCalledWith(expect.objectContaining({
+    // Cada entrante se persiste, que es lo que alimenta la bandeja.
+    expect(mocks.guardarMensajeEntrante).toHaveBeenCalledTimes(1);
+    expect(mocks.guardarMensajeEntrante).toHaveBeenCalledWith(expect.objectContaining({
       providerMessageId: "wamid.IN",
       type: "text",
       sender: "593991234567",
-      businessPhone: "+593 99 111 2222",
     }));
-    // Y cada entrante se persiste, que es lo que alimenta la bandeja.
-    expect(mocks.guardarMensajeEntrante).toHaveBeenCalledTimes(1);
+    // Y NO se contesta automaticamente: este numero ya tiene atencion humana,
+    // asi que un bot respondiendo encima seria exactamente lo que se evita.
+    expect(mocks.handleInboundSupportReply).not.toHaveBeenCalled();
 
     const result = await response.json();
     expect(result).toMatchObject({
@@ -90,8 +90,8 @@ describe("POST webhook WhatsApp", () => {
       statuses: 3,
       applied: 3,
       inbound: 1,
-      inboundReplied: 1,
-      inboundFailed: 0,
+      inboundStored: 1,
+      inboundHandoff: 1,
     });
     const rendered = JSON.stringify(result);
     expect(rendered).not.toContain(WEBHOOK_SECRET);

@@ -109,12 +109,15 @@ export class WhatsAppChannel implements MessageChannelAdapter {
 
     const version = this.config.graphVersion ?? DEFAULT_GRAPH_API_VERSION;
     const url = `https://graph.facebook.com/${version}/${this.config.phoneNumberId}/messages`;
+    // La cita, cuando la hay. Va fuera del if para no repetirla en las dos ramas.
+    const contexto = input.contextMessageId ? { context: { message_id: input.contextMessageId } } : {};
     const payload = input.template
       ? {
           messaging_product: "whatsapp",
           recipient_type: "individual",
           to: input.to,
           type: "template",
+          ...contexto,
           template: {
             name: input.template.name,
             language: { code: input.template.language },
@@ -126,6 +129,7 @@ export class WhatsAppChannel implements MessageChannelAdapter {
           recipient_type: "individual",
           to: input.to,
           type: "text",
+          ...contexto,
           text: { preview_url: false, body: input.body },
         };
 

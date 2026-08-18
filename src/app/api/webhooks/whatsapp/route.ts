@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { writeAudit } from "@/lib/audit";
 import { applyMessageProviderEvent } from "@/lib/nurture/provider-events";
 import { resolveWhatsAppConfig } from "@/lib/whatsapp/config";
-import { handleInboundSupportReply } from "@/lib/whatsapp/inbound-reply";
 import { guardarMensajeEntrante } from "@/lib/whatsapp/inbound-store";
 import { parseWebhookPayload, resolveVerification, SIGNATURE_HEADER, verifySignature } from "@/lib/whatsapp/webhook";
 
@@ -87,13 +86,6 @@ export async function POST(request: Request) {
   let applied = 0;
   let unknownMessage = 0;
   let duplicated = 0;
-  let inboundReplied = 0;
-  let inboundRateLimited = 0;
-  let inboundSelfIgnored = 0;
-  let inboundNotLive = 0;
-  let inboundInvalid = 0;
-  let inboundFailed = 0;
-  const inboundErrors = new Set<string>();
 
   for (const event of parsed.statuses) {
     try {
@@ -119,50 +111,42 @@ export async function POST(request: Request) {
 
   let inboundGuardados = 0;
   let inboundDuplicados = 0;
-  let inboundSinNormalizar = 0;
+  let inboundInvalidos = 0;
   let inboundHandoff = 0;
+  /**
+   * Un fallo de persistencia obliga a que Meta reintente el lote.
+   *
+   * Responder 200 con un mensaje sin guardar lo daria por entregado y el
+   * contenido se perderia sin dejar rastro: es lo unico del webhook que no se
+   * puede reconstruir despues. Como el wamid es unico, el reintento vuelve a
+   * guardar solo el que falto y los demas quedan en duplicado seguro.
+   */
+  let fallosPersistencia = 0;
+  const codigosPersistencia = new Set<string>();
 
   for (const notice of parsed.inbound) {
-    /**
-     * Persistir es lo primero y va aislado del resto.
-     *
-     * Si la respuesta automatica falla, el mensaje ya esta guardado y la
-     * bandeja lo muestra igualmente; al reves seria peor, porque Meta
-     * reintentaria el lote entero y el CRM perderia lo unico que no puede
-     * reconstruir despues: lo que la persona escribio.
-     */
+    // Se procesa el lote entero aunque uno falle: cortar aqui dejaria sin
+    // guardar los que vienen detras y estan perfectamente bien.
     try {
       const guardado = await guardarMensajeEntrante(notice);
       if (guardado.estado === "guardado") {
         inboundGuardados++;
         if (guardado.handoffAbierto) inboundHandoff++;
-      } else if (guardado.estado === "duplicado") inboundDuplicados++;
-      else inboundSinNormalizar++;
-    } catch {
-      // Un mensaje problematico no puede tumbar los demas del mismo lote.
-      inboundSinNormalizar++;
-    }
-
-    try {
-      const outcome = await handleInboundSupportReply(notice);
-      if (outcome.status === "sent") inboundReplied++;
-      else if (outcome.status === "rate_limited") inboundRateLimited++;
-      else if (outcome.status === "self_message") inboundSelfIgnored++;
-      else if (outcome.status === "not_live") inboundNotLive++;
-      else if (outcome.status === "send_failed") {
-        inboundFailed++;
-        inboundErrors.add(outcome.errorCode);
+      } else if (guardado.estado === "duplicado") {
+        inboundDuplicados++;
+      } else if (guardado.estado === "invalido") {
+        // Definitivo: reintentarlo daria lo mismo, asi que no fuerza reintento.
+        inboundInvalidos++;
       } else {
-        inboundInvalid++;
+        fallosPersistencia++;
+        codigosPersistencia.add(guardado.codigo);
       }
     } catch {
-      inboundFailed++;
-      inboundErrors.add("WHATSAPP_INBOUND_EXCEPTION");
+      fallosPersistencia++;
+      codigosPersistencia.add("EXCEPCION_NO_CLASIFICADA");
     }
   }
 
-  // La auditoría conserva contadores y códigos técnicos; el contenido vive en
-  // `inbound_messages`, que es donde la bandeja lo lee.
   if (parsed.inbound.length > 0) {
     await writeAudit({
       actorEmail: "whatsapp-webhook",
@@ -173,15 +157,10 @@ export async function POST(request: Request) {
         types: [...new Set(parsed.inbound.map((item) => item.type))],
         guardados: inboundGuardados,
         duplicados: inboundDuplicados,
-        sinNormalizar: inboundSinNormalizar,
+        invalidos: inboundInvalidos,
         handoffAbiertos: inboundHandoff,
-        replied: inboundReplied,
-        rateLimited: inboundRateLimited,
-        selfIgnored: inboundSelfIgnored,
-        notLive: inboundNotLive,
-        invalid: inboundInvalid,
-        failed: inboundFailed,
-        errorCodes: [...inboundErrors],
+        fallosPersistencia,
+        codigos: [...codigosPersistencia],
       },
     }).catch(() => undefined);
   }
@@ -201,8 +180,7 @@ export async function POST(request: Request) {
     }).catch(() => undefined);
   }
 
-  return NextResponse.json({
-    ok: true,
+  const cuerpo = {
     statuses: parsed.statuses.length,
     applied,
     duplicated,
@@ -210,12 +188,18 @@ export async function POST(request: Request) {
     inbound: parsed.inbound.length,
     inboundStored: inboundGuardados,
     inboundDuplicated: inboundDuplicados,
+    inboundInvalid: inboundInvalidos,
     inboundHandoff,
-    inboundReplied,
-    inboundRateLimited,
-    inboundSelfIgnored,
-    inboundNotLive,
-    inboundInvalid,
-    inboundFailed,
-  });
+  };
+
+  if (fallosPersistencia > 0) {
+    // 503 y no 500: es una condicion temporal y se espera que Meta reintente.
+    // El cuerpo no lleva contenido ni numeros, solo codigos tecnicos.
+    return NextResponse.json(
+      { ok: false, error: "No se pudo guardar parte del lote.", pendientes: fallosPersistencia, ...cuerpo },
+      { status: 503 },
+    );
+  }
+
+  return NextResponse.json({ ok: true, ...cuerpo });
 }

@@ -1,5 +1,14 @@
 -- CreateEnum
+CREATE TYPE "MessageOrigin" AS ENUM ('AUTOMATION', 'HUMAN');
+
+-- CreateEnum
 CREATE TYPE "ConversationState" AS ENUM ('AUTOMATION', 'HUMAN_HANDOFF', 'RESOLVED');
+
+-- AlterTable
+ALTER TABLE "outbound_messages" ADD COLUMN     "clientRequestId" TEXT,
+ADD COLUMN     "conversationId" TEXT,
+ADD COLUMN     "humanActorId" TEXT,
+ADD COLUMN     "origin" "MessageOrigin" NOT NULL DEFAULT 'AUTOMATION';
 
 -- CreateTable
 CREATE TABLE "inbound_messages" (
@@ -58,6 +67,12 @@ CREATE UNIQUE INDEX "conversations_phone_key" ON "conversations"("phone");
 
 -- CreateIndex
 CREATE INDEX "conversations_state_lastInboundAt_idx" ON "conversations"("state", "lastInboundAt");
+
+-- AddForeignKey
+ALTER TABLE "outbound_messages" ADD CONSTRAINT "outbound_messages_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "conversations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "outbound_messages" ADD CONSTRAINT "outbound_messages_humanActorId_fkey" FOREIGN KEY ("humanActorId") REFERENCES "admin_users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inbound_messages" ADD CONSTRAINT "inbound_messages_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "leads"("id") ON DELETE SET NULL ON UPDATE CASCADE;

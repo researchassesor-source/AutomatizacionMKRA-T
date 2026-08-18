@@ -134,9 +134,24 @@ describe("idempotencia", () => {
     expect(resultados.filter((r) => r.estado === "duplicado")).toHaveLength(4);
   });
 
-  it("un error que no sea de unicidad sí se propaga", async () => {
+  it("un fallo de base pide REINTENTO en vez de perder el mensaje", async () => {
+    // Devolver "invalido" aqui haria que el webhook respondiera 200 y Meta
+    // diera el lote por entregado: el mensaje se perderia sin dejar rastro.
     mocks.prisma.inboundMessage.create.mockRejectedValueOnce(new Error("base caída"));
-    await expect(guardarMensajeEntrante(aviso())).rejects.toThrow("base caída");
+    const r = await guardarMensajeEntrante(aviso());
+    expect(r).toEqual({ estado: "reintentable", codigo: "PERSISTENCIA_FALLIDA" });
+  });
+
+  it("si falla la conversación, el mensaje ya guardado también pide reintento", async () => {
+    // Al repetirse, el mensaje será duplicado seguro y solo se rehará el upsert.
+    mocks.prisma.conversation.upsert.mockRejectedValueOnce(new Error("timeout"));
+    const r = await guardarMensajeEntrante(aviso());
+    expect(r).toEqual({ estado: "reintentable", codigo: "CONVERSACION_NO_PERSISTIDA" });
+  });
+
+  it("un teléfono inválido NO pide reintento: repetirlo daría lo mismo", async () => {
+    const r = await guardarMensajeEntrante(aviso({ sender: "12345" }));
+    expect(r.estado).toBe("invalido");
   });
 });
 
@@ -239,7 +254,7 @@ describe("tipos de mensaje: ninguno rompe", () => {
     const contactos = Array.from({ length: 20 }, (_, i) => ({ name: { formatted_name: `Persona ${i}` }, phones: [{ phone: "+593999999999" }] }));
     const [m] = parseWebhookPayload(payload({ ...base, type: "contacts", contacts: contactos })).inbound;
     expect(m.mediaMeta?.count).toBe(20);
-    expect((m.mediaMeta?.names as string[]).length).toBeLessThanOrEqual(5);
+    expect((m.mediaMeta?.names as string[] | undefined)?.length ?? 0).toBeLessThanOrEqual(5);
     expect(JSON.stringify(m.mediaMeta)).not.toContain("+593999999999");
   });
 

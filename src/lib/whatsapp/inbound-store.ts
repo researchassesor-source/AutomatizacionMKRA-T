@@ -17,7 +17,14 @@ import type { InboundNotice } from "@/lib/whatsapp/webhook";
 export type ResultadoInbound =
   | { estado: "guardado"; inboundId: string; leadId: string | null; handoffAbierto: boolean }
   | { estado: "duplicado" }
-  | { estado: "invalido"; motivo: string };
+  /** Definitivo: reintentarlo daria exactamente el mismo resultado. */
+  | { estado: "invalido"; motivo: string }
+  /**
+   * Transitorio: la base fallo. Quien llama debe pedir a Meta que reintente,
+   * porque un 200 aqui haria que diera el webhook por entregado y el mensaje se
+   * perderia sin dejar rastro.
+   */
+  | { estado: "reintentable"; codigo: string };
 
 /**
  * Telefono en el formato canonico del CRM.
@@ -110,7 +117,9 @@ export async function guardarMensajeEntrante(notice: InboundNotice): Promise<Res
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return { estado: "duplicado" };
     }
-    throw error;
+    // Cualquier otro fallo de escritura es transitorio hasta que se demuestre
+    // lo contrario: se pide reintento en lugar de perder el mensaje.
+    return { estado: "reintentable", codigo: error instanceof Prisma.PrismaClientKnownRequestError ? `PRISMA_${error.code}` : "PERSISTENCIA_FALLIDA" };
   }
 
   const conversacion = await prisma.conversation.findUnique({
@@ -132,7 +141,8 @@ export async function guardarMensajeEntrante(notice: InboundNotice): Promise<Res
 
   const estadoHandoff = { state: "HUMAN_HANDOFF" as const, handoffAt: new Date(), handoffBy: "whatsapp-inbound" };
 
-  await prisma.conversation.upsert({
+  try {
+    await prisma.conversation.upsert({
     where: { phone: telefono },
     create: {
       phone: telefono,
@@ -152,7 +162,13 @@ export async function guardarMensajeEntrante(notice: InboundNotice): Promise<Res
       // reabrirlo en cada mensaje falsearia cuando empezo la conversacion.
       ...(abrirHandoff ? estadoHandoff : {}),
     },
-  });
+    });
+  } catch {
+    // El mensaje ya esta guardado; lo que falto es la conversacion. Se pide
+    // reintento: al repetirse, el mensaje sera duplicado seguro y solo se
+    // rehara el upsert.
+    return { estado: "reintentable", codigo: "CONVERSACION_NO_PERSISTIDA" };
+  }
 
   if (abrirHandoff) {
     await writeAudit({

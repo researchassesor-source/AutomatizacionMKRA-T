@@ -19,6 +19,13 @@ export interface SendInput {
     components: unknown[];
   };
   /**
+   * wamid al que responde este mensaje.
+   *
+   * Meta lo muestra como una cita en el hilo. Solo lo usa la respuesta humana
+   * desde la bandeja: una automatizacion no responde a nada concreto.
+   */
+  contextMessageId?: string;
+  /**
    * Identificador del mensaje en el CRM. Sirve solo para poder cruzar una
    * linea de registro con la fila de la base al investigar un fallo; no viaja
    * a ningun proveedor.

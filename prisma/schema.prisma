@@ -19,11 +19,12 @@ model AdminUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  assignedLeads     Lead[]         @relation("LeadAssignee")
+  assignedLeads     Lead[]            @relation("LeadAssignee")
   notes             LeadNote[]
-  assignedFollowUps FollowUp[]     @relation("FollowUpAssignee")
+  assignedFollowUps FollowUp[]        @relation("FollowUpAssignee")
   auditLogs         AuditLog[]
   conversations     Conversation[]
+  mensajesHumanos   OutboundMessage[] @relation("MensajesHumanos")
 
   @@index([role, isActive])
   @@map("admin_users")
@@ -451,6 +452,17 @@ model OutboundMessage {
   automationRuleId  String?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+
+  /// Conversacion de WhatsApp a la que pertenece, cuando la hay.
+  conversationId  String?
+  /// Administrador que la escribio. Null en todo lo automatico.
+  humanActorId    String?
+  /// Identidad de la peticion del panel, para que un doble clic no envie dos.
+  clientRequestId String?
+  origin          MessageOrigin @default(AUTOMATION)
+
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  humanActor   AdminUser?    @relation("MensajesHumanos", fields: [humanActorId], references: [id], onDelete: SetNull)
 
   lead           Lead                   @relation(fields: [leadId], references: [id], onDelete: Cascade)
   enrollment     Enrollment?            @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
@@ -1015,6 +1027,16 @@ model InboundMessage {
 ///                  encima. Las operativas siguen: el enlace de la sesion
 ///                  tiene que llegar aunque haya una conversacion abierta.
 /// RESOLVED    -> la atencion se cerro y todo vuelve a la normalidad.
+/// Quien redacto un mensaje saliente.
+///
+/// Los historicos son AUTOMATION porque hasta ahora no habia otra cosa. Se
+/// distingue para que la bandeja pueda separar lo que escribio una persona de
+/// lo que mando una regla, sin adivinarlo por la ausencia de `automationRuleId`.
+enum MessageOrigin {
+  AUTOMATION
+  HUMAN
+}
+
 enum ConversationState {
   AUTOMATION
   HUMAN_HANDOFF
@@ -1043,8 +1065,9 @@ model Conversation {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  assignedTo AdminUser? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  lead       Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo AdminUser?        @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages   OutboundMessage[]
 
   @@index([state, lastInboundAt])
   @@map("conversations")

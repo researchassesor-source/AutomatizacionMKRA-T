@@ -62,11 +62,22 @@ export const WHATSAPP_TEMPLATES: Record<
   | "certification_offer",
   WhatsAppTemplateSpec
 > = {
+  /**
+   * Seis variables, no cuatro.
+   *
+   * La plantilla se edito en Meta entre el 13 y el 14 de agosto de 2026: paso a
+   * anunciar "Sesión {{3}} de {{4}}" y desplazo fecha y hora a {{5}} y {{6}}.
+   * El catalogo seguia declarando cuatro, asi que desde entonces cada envio
+   * moria con 132000 ("numero de parametros incorrecto"). El ultimo envio real
+   * que Meta acepto fue el 13/8; las pruebas del 14, 15 y 17 ya fallaron.
+   *
+   * El texto de aqui es el registrado en Meta, comprobado a mano en su panel.
+   */
   welcome: {
     name: "ra_training_bienvenida_inscripcion",
     language: "es",
-    bodyVars: ["nombre", "curso", "fecha", "hora"],
-    sample: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
+    bodyVars: ["nombre", "curso", "numero_sesion", "total_sesiones", "fechaSesion", "horaSesion"],
+    sample: "👋 ¡Hola {{1}}! Tu inscripción está confirmada. ✅\n\nGracias por registrarte en:\n\n🎓 {{2}}\n\nTu participación corresponde a la Sesión {{3}} de {{4}}.\n\n📅 Fecha: {{5}}\n🕒 Hora: {{6}}\n💻 Modalidad: Online\n\nPor este medio recibirás los recordatorios, accesos y novedades importantes para acompañarte durante tu capacitación. 🚀\n\n¡Nos vemos pronto!\n\nR.A. Training 💙\nCapacitación que transforma.",
   },
   whatsapp_group: {
     name: "ra_training_grupo_whatsapp",

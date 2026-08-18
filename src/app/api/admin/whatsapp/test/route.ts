@@ -45,6 +45,16 @@ const EJEMPLO: Record<string, string> = {
   fechaSesion: "20 de agosto de 2026",
   horaSesion: "7:30 p. m.",
   streamUrl: "https://meet.google.com/prueba-crm",
+  // Numeros sueltos, como los devuelve el motor: la plantilla ya escribe
+  // "Sesión {{3}} de {{4}}" alrededor.
+  numero_sesion: "1",
+  total_sesiones: "3",
+  sesion_actual: "Sesión 1 de 3",
+  link_reunion: "https://meet.google.com/prueba-crm",
+  link_grupo_whatsapp: "https://chat.whatsapp.com/prueba-crm",
+  link_curso_completo: "https://ra-training.com/curso-completo",
+  link_encuesta: "https://ra-training.com/encuesta",
+  link_oferta_institucional: "https://ra-training.com/certificacion",
 };
 
 const schema = z.object({

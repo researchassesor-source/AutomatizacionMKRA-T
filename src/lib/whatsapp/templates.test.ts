@@ -17,6 +17,7 @@ const VARS = {
   link_curso_completo: "https://ra-training.com/cursos/ia/",
   link_encuesta: "https://forms.example.com/encuesta",
   sesion_actual: "Sesion 1 de 3",
+  numero_sesion: "1",
   total_sesiones: "3",
 };
 
@@ -124,7 +125,7 @@ describe("plan estándar de WhatsApp", () => {
     expect(Object.fromEntries(
       Object.entries(WHATSAPP_TEMPLATES).map(([key, spec]) => [key, spec.bodyVars]),
     )).toEqual({
-      welcome: ["nombre", "curso", "fecha", "hora"],
+      welcome: ["nombre", "curso", "numero_sesion", "total_sesiones", "fechaSesion", "horaSesion"],
       whatsapp_group: ["nombre", "curso", "link_grupo_whatsapp"],
       reminder_24h: ["nombre", "curso", "fechaSesion", "horaSesion"],
       reminder_2h: ["nombre", "curso", "horaSesion", "streamUrl"],
@@ -174,10 +175,12 @@ describe("plan estándar de WhatsApp", () => {
 
   /** Contrato literal que debe someterse a revisión y quedar aprobado en Meta. */
   const TEXTOS_FINALES = {
+    // Copiado del panel de Meta, no del catalogo: es la unica forma de que
+    // esta prueba detecte una diferencia en vez de confirmarla.
     ra_training_bienvenida_inscripcion: {
       idioma: "es",
-      variables: 4,
-      texto: "👋 Hola {{1}}, ¡tu inscripción está registrada! ✅\n\nTe esperamos en {{2}}.\n📅 Fecha: {{3}}\n🕒 Hora: {{4}}\n\nPor este número recibirás los recordatorios y enlaces necesarios para participar en tu curso. 📚\n\nEste es un canal automático de información. Si respondes a este chat, te indicaremos cómo comunicarte con nuestro equipo de atención.\n\nR.A. Training 💙",
+      variables: 6,
+      texto: "👋 ¡Hola {{1}}! Tu inscripción está confirmada. ✅\n\nGracias por registrarte en:\n\n🎓 {{2}}\n\nTu participación corresponde a la Sesión {{3}} de {{4}}.\n\n📅 Fecha: {{5}}\n🕒 Hora: {{6}}\n💻 Modalidad: Online\n\nPor este medio recibirás los recordatorios, accesos y novedades importantes para acompañarte durante tu capacitación. 🚀\n\n¡Nos vemos pronto!\n\nR.A. Training 💙\nCapacitación que transforma.",
     },
     ra_training_grupo_whatsapp: {
       idioma: "es",

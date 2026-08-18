@@ -137,6 +137,10 @@ function templateVariables(
     horaSesion: formatTime(session?.startAt ?? reference),
     sesion: sessionName,
     sesion_actual: sessionName,
+    // Numero desnudo, no frase: la plantilla registrada en Meta ya escribe
+    // "Sesión {{3}} de {{4}}" alrededor, asi que devolver "Sesión 1" produciria
+    // "Sesión Sesión 1 de 3" en el telefono del contacto.
+    numero_sesion: session ? String(session.position) : "",
     total_sesiones: session ? String(session.totalSessions) : "",
     modalidad: course.modality ?? "por confirmar",
     enlace: course.moodleCourseUrl ?? course.officialCourseUrl,

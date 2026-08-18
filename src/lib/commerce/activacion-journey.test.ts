@@ -115,8 +115,14 @@ describe("recuperación", () => {
 
   it("es estrecha: solo cursos de pago, solo con pago verificado, y acotada", () => {
     const reconcilia = motor.slice(motor.indexOf("export async function reconcileEntitledEnrollments"));
-    expect(reconcilia).toContain("course: { isFree: false, isPublished: true }");
+    expect(reconcilia).toContain("isFree: false");
+    expect(reconcilia).toContain("isPublished: true");
     expect(reconcilia).toContain("purchases: { some: { status: ESTADO_PAGO_VERIFICADO } }");
+    // Se descartan de entrada los candidatos que el programador rechazaria: no
+    // cambia el resultado, evita revisarlos en cada vuelta del reloj.
+    expect(reconcilia).toContain("automationsPausedAt: null");
+    expect(reconcilia).toContain('automationRules: { some: { status: "ACTIVE" } }');
+    expect(reconcilia).toContain('lead: { classification: "REAL", consent: true }');
     expect(reconcilia).toContain("take: RECONCILIACION_POR_VUELTA");
     expect(motor).toContain("const RECONCILIACION_POR_VUELTA = 10");
   });

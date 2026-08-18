@@ -57,6 +57,17 @@ function regla(planKey: string) {
   };
 }
 
+type Escenario = {
+  /** Curso con las automatizaciones en pausa. */
+  pausado?: boolean;
+  /** Contacto sin consentimiento o sin clasificar. */
+  contactoExcluido?: boolean;
+  /** Curso sin ninguna regla activa todavia. */
+  sinReglas?: boolean;
+};
+
+let escenario: Escenario;
+
 /** Curso de PAGO con el pago verificado: el escenario de paid first. */
 function inscripcionPagada() {
   return {
@@ -70,7 +81,9 @@ function inscripcionPagada() {
     lead: {
       id: "lead-1", firstName: "Ana", lastName: "Pérez", fullName: "Ana Pérez",
       email: "ana@example.test", phone: "+593999999999",
-      classification: "REAL", consent: true, assignedToId: null,
+      classification: escenario.contactoExcluido ? "PRUEBA" : "REAL",
+      consent: !escenario.contactoExcluido,
+      assignedToId: null,
     },
     course: {
       id: "course-1",
@@ -80,12 +93,13 @@ function inscripcionPagada() {
       modality: "Virtual",
       isPublished: true,
       isFree: false,
+      automationsPausedAt: escenario.pausado ? new Date("2026-08-15T00:00:00.000Z") : null,
       acceptsRegistrations: true,
       startsAt: null,
       endsAt: null,
       streamUrl: "https://meet.google.com/abc-defg-hij",
       sessions: [{ id: "s1", title: null, startAt: SESION, endAt: null, streamUrl: "https://meet.google.com/abc-defg-hij" }],
-      automationRules: PASOS.map(regla),
+      automationRules: escenario.sinReglas ? [] : PASOS.map(regla),
     },
   };
 }
@@ -99,6 +113,7 @@ beforeEach(() => {
   mensajes = [];
   marcas = [];
   romperTrasCrear = 0;
+  escenario = {};
 
   mocks.prisma.enrollment.findUnique.mockImplementation(async ({ select }: any) => (
     select?.leadId ? { leadId: "lead-1" } : inscripcionPagada()
@@ -230,6 +245,75 @@ describe("una vez marcada", () => {
     const segunda = await reconcileEntitledEnrollments(NOW);
     expect(segunda.revisadas).toBe(0);
     expect(marcas).toHaveLength(1);
+  });
+});
+
+describe("el programador se detuvo antes de terminar: no se marca", () => {
+  /**
+   * Cada uno de estos casos hacia que `scheduleEnrollmentAutomations` volviera
+   * con un motivo, sin haber programado nada. Marcar entonces cerraba la puerta
+   * para siempre a una situacion temporal.
+   */
+  it("curso con las automatizaciones pausadas: sin marca", async () => {
+    escenario.pausado = true;
+    await reconcileEntitledEnrollments(NOW);
+    expect(mensajes).toHaveLength(0);
+    expect(marcas).toHaveLength(0);
+  });
+
+  it("al reanudar el curso, la reconciliación lo recoge y entonces sí marca", async () => {
+    escenario.pausado = true;
+    await reconcileEntitledEnrollments(NOW);
+    expect(marcas).toHaveLength(0);
+
+    escenario.pausado = false;
+    const segunda = await reconcileEntitledEnrollments(NOW);
+    expect(mensajes).toHaveLength(PASOS.length);
+    expect(marcas).toHaveLength(1);
+    expect(segunda.recuperadas).toBe(1);
+  });
+
+  it("contacto sin consentimiento: sin marca", async () => {
+    escenario.contactoExcluido = true;
+    await reconcileEntitledEnrollments(NOW);
+    expect(mensajes).toHaveLength(0);
+    expect(marcas).toHaveLength(0);
+  });
+
+  it("cuando el contacto pasa a ser real y con consentimiento, se recupera", async () => {
+    escenario.contactoExcluido = true;
+    await reconcileEntitledEnrollments(NOW);
+    expect(marcas).toHaveLength(0);
+
+    escenario.contactoExcluido = false;
+    await reconcileEntitledEnrollments(NOW);
+    expect(mensajes).toHaveLength(PASOS.length);
+    expect(marcas).toHaveLength(1);
+  });
+
+  it("curso sin reglas activas: sin marca", async () => {
+    escenario.sinReglas = true;
+    await reconcileEntitledEnrollments(NOW);
+    expect(mensajes).toHaveLength(0);
+    expect(marcas).toHaveLength(0);
+  });
+
+  it("cuando se activan las reglas, se recupera", async () => {
+    escenario.sinReglas = true;
+    await reconcileEntitledEnrollments(NOW);
+    expect(marcas).toHaveLength(0);
+
+    escenario.sinReglas = false;
+    await reconcileEntitledEnrollments(NOW);
+    expect(mensajes).toHaveLength(PASOS.length);
+    expect(marcas).toHaveLength(1);
+  });
+
+  it("una programación normal marca exactamente una vez", async () => {
+    await reconcileEntitledEnrollments(NOW);
+    await reconcileEntitledEnrollments(NOW);
+    expect(marcas).toHaveLength(1);
+    expect(mensajes).toHaveLength(PASOS.length);
   });
 });
 

@@ -1075,19 +1075,22 @@ const RECONCILIACION_POR_VUELTA = 10;
  */
 export const JOURNEY_SCHEDULED = "ENROLLMENT_JOURNEY_SCHEDULED";
 
-/** Motivos por los que todavia no procede dar el journey por programado. */
-const SIN_MARCAR: ReadonlySet<string> = new Set<ScheduleSkipReason>([
-  "ENROLLMENT_NOT_FOUND",
-  "COURSE_NOT_ENTITLED",
-]);
-
 export async function marcarJourneyProgramado(
   enrollmentId: string,
   reason?: ScheduleSkipReason,
 ): Promise<boolean> {
-  // El derecho puede llegar despues: marcar ahora dejaria a esa persona fuera
-  // de la reconciliacion justo cuando empiece a necesitarla.
-  if (reason && SIN_MARCAR.has(reason)) return false;
+  /**
+   * Cualquier `reason` significa que el journey NO quedo programado: la
+   * funcion salio antes de recorrer las reglas. Marcarlo entonces cerraria la
+   * puerta para siempre a una situacion que casi siempre es temporal —un curso
+   * pausado, un contacto sin consentimiento todavia, reglas sin activar— y esa
+   * inscripcion no volveria a reconciliarse nunca.
+   *
+   * Se comprueba la existencia del motivo, no una lista de motivos concretos:
+   * una lista se queda corta en cuanto alguien anade uno nuevo, que es
+   * exactamente como aparecio este fallo.
+   */
+  if (reason) return false;
   // El contacto se resuelve aqui para que quien llama no tenga que arrastrarlo.
   // Marcar ocurre una vez por inscripcion, asi que la consulta extra no pesa.
   const inscripcion = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, select: { leadId: true } });
@@ -1114,7 +1117,16 @@ export async function reconcileEntitledEnrollments(now = new Date()) {
   const pendientes = await prisma.enrollment.findMany({
     where: {
       status: { in: ["INTERESADO", "INSCRITO", "EN_CURSO"] },
-      course: { isFree: false, isPublished: true },
+      course: {
+        isFree: false,
+        isPublished: true,
+        // Un curso pausado no programa nada, asi que revisarlo cada vuelta es
+        // trabajo perdido. Al reanudarlo vuelve a entrar por si solo.
+        automationsPausedAt: null,
+        automationRules: { some: { status: "ACTIVE" } },
+      },
+      // Sin contacto elegible el programador se detiene antes de crear nada.
+      lead: { classification: "REAL", consent: true },
       purchases: { some: { status: ESTADO_PAGO_VERIFICADO } },
       // Sin la marca de haber terminado. NO "sin mensajes": la programacion
       // hace un upsert por paso, asi que una que muriera a medio camino dejaria

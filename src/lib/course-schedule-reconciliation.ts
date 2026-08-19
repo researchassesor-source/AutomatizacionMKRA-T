@@ -15,6 +15,8 @@
  * recrearse con una identidad nueva.
  */
 
+import { createHash } from "node:crypto";
+
 export type ExistingSession = { id: string; startAt: Date; endAt: Date | null };
 export type ProposedSession = { startAt: string; endAt: string | null };
 
@@ -97,4 +99,19 @@ export function planScheduleReconciliation(
   const toCreate = proposedSorted.slice(matched).map((session) => ({ startAt: session.startAt, endAt: session.endAt }));
 
   return { toUpdate, toRemove, toCreate };
+}
+
+/**
+ * Huella estable del calendario actual: id + startAt + endAt de cada sesión,
+ * ordenados por id (no por fecha, para que el orden no dependa de lo que
+ * cambió). Sirve para detectar que el calendario que alguien confirmó ya no
+ * es el que hay en la base — otra persona lo cambió mientras se revisaba la
+ * propuesta— y abortar sin escribir nada en lugar de pisar ese cambio.
+ */
+export function calendarRevisionOf(sessions: readonly ExistingSession[]): string {
+  const serialized = [...sessions]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((session) => `${session.id}:${session.startAt.toISOString()}:${session.endAt?.toISOString() ?? ""}`)
+    .join("|");
+  return createHash("sha256").update(serialized).digest("hex");
 }

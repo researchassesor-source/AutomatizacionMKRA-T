@@ -19,7 +19,11 @@ type Propuesta = {
   fuenteInicio?: string | null;
   sessions?: SesionJSON[];
   existingSessions?: SesionJSON[];
+  /** Huella del calendario tal como se vio en el GET; la ruta la exige al confirmar. */
+  calendarRevision?: string;
 };
+
+type ResultadoAplicar = "ok" | "conflicto" | "recalculo_pendiente" | "error";
 
 const formatoFecha = new Intl.DateTimeFormat("es-EC", { day: "numeric", month: "short", timeZone: "America/Guayaquil" });
 const formatoHora = new Intl.DateTimeFormat("es-EC", { timeStyle: "short", timeZone: "America/Guayaquil" });
@@ -86,6 +90,7 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
           fuenteInicio: result.fuenteInicio,
           sessions: result.sessions,
           existingSessions: result.existingSessions,
+          calendarRevision: result.calendarRevision,
         });
       } catch {
         encontradas.push({ courseId: course.id, courseTitle: course.title, enrollments: course.enrollments, status: "ERROR", motivo: "No se pudo abrir la página del curso." });
@@ -98,13 +103,21 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
   }
 
   /** Aplica un calendario YA CONFIRMADO. Nunca se llama sin que alguien haya pulsado un botón explícito. */
-  async function aplicar(courseId: string, sesiones: SesionJSON[]): Promise<boolean> {
-    const response = await fetch(`/api/admin/courses/${courseId}/schedule-proposal`, {
+  async function aplicar(propuesta: Propuesta): Promise<ResultadoAplicar> {
+    const response = await fetch(`/api/admin/courses/${propuesta.courseId}/schedule-proposal`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ confirm: true, sessions: sesiones }),
+      body: JSON.stringify({
+        confirm: "APPLY_WORDPRESS_SCHEDULE",
+        calendarRevision: propuesta.calendarRevision,
+        sessions: propuesta.sessions ?? [],
+      }),
     });
-    return response.ok;
+    if (response.ok) return "ok";
+    if (response.status === 409) return "conflicto";
+    const detalle = await response.json().catch(() => ({}));
+    if (detalle.calendarUpdated && detalle.messagesSafe) return "recalculo_pendiente";
+    return "error";
   }
 
   /** Grupo de cursos sin ninguna sesión previa: confirmación en bloque, como antes. */
@@ -112,12 +125,15 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
     setFase("trabajando");
     let cursos = 0;
     let sesiones = 0;
+    let conAviso = 0;
     for (const propuesta of nuevas) {
       setPaso(`Programando ${propuesta.courseTitle}…`);
-      const ok = await aplicar(propuesta.courseId, propuesta.sessions ?? []);
-      if (ok) {
+      const resultado = await aplicar(propuesta);
+      if (resultado === "ok") {
         cursos++;
         sesiones += propuesta.sessions?.length ?? 0;
+      } else if (resultado === "conflicto" || resultado === "recalculo_pendiente") {
+        conAviso++;
       }
     }
     setPropuestas((prev) => prev.filter((p) => p.status !== "SIN_CALENDARIO_CRM"));
@@ -125,7 +141,11 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
     toast({
       tone: cursos > 0 ? "success" : "warning",
       title: cursos > 0 ? `${sesiones} sesiones programadas en ${cursos} curso${cursos === 1 ? "" : "s"}` : "No se programó ninguna sesión",
-      detail: cursos > 0 ? "Los recordatorios ya se calcularon para quienes están inscritos." : undefined,
+      detail: cursos > 0
+        ? "Los recordatorios ya se calcularon para quienes están inscritos."
+        : conAviso > 0
+          ? "Sincroniza de nuevo: el calendario de algún curso cambió mientras lo revisabas."
+          : undefined,
     });
     router.refresh();
   }
@@ -134,13 +154,28 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
   async function actualizarCalendario(propuesta: Propuesta) {
     setProcesando((prev) => new Set(prev).add(propuesta.courseId));
     try {
-      const ok = await aplicar(propuesta.courseId, propuesta.sessions ?? []);
-      if (ok) {
+      const resultado = await aplicar(propuesta);
+      if (resultado === "ok") {
         setPropuestas((prev) => prev.filter((p) => p.courseId !== propuesta.courseId));
         toast({
           tone: "success",
           title: `Calendario de "${propuesta.courseTitle}" actualizado`,
           detail: "Se recalcularon únicamente los mensajes pendientes. Los ya enviados se conservan como historial.",
+        });
+        router.refresh();
+      } else if (resultado === "conflicto") {
+        toast({
+          tone: "warning",
+          title: `"${propuesta.courseTitle}": el calendario cambió mientras lo revisabas`,
+          detail: "El calendario cambió mientras lo revisabas. Sincroniza de nuevo antes de aplicarlo.",
+        });
+      } else if (resultado === "recalculo_pendiente") {
+        // El calendario SÍ cambió: nunca decir "no se aplicó ningún cambio" aquí.
+        setPropuestas((prev) => prev.filter((p) => p.courseId !== propuesta.courseId));
+        toast({
+          tone: "warning",
+          title: `"${propuesta.courseTitle}": calendario actualizado, recálculo pendiente`,
+          detail: "El calendario se actualizó, pero los recordatorios quedaron detenidos de forma segura. Reintenta para completar el recálculo.",
         });
         router.refresh();
       } else {

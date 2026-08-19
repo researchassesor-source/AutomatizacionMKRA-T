@@ -74,12 +74,36 @@ describe("confirmación explícita de un cambio de calendario", () => {
     expect(source).toContain("onClick={() => mantenerFechas(item.courseId)}");
   });
 
-  it("«Actualizar calendario» manda confirmación literal explícita con las fechas propuestas", () => {
-    expect(source).toContain("body: JSON.stringify({ confirm: true, sessions: sesiones })");
+  it("«Actualizar calendario» manda el literal APPLY_WORDPRESS_SCHEDULE junto con la revisión vista en el GET", () => {
+    const cuerpo = source.slice(source.indexOf("body: JSON.stringify({"), source.indexOf("}),\n    });"));
+    expect(cuerpo).toContain('confirm: "APPLY_WORDPRESS_SCHEDULE"');
+    expect(cuerpo).toContain("calendarRevision: propuesta.calendarRevision");
+    expect(cuerpo).not.toContain("confirm: true");
     expect(source).toContain("onClick={() => actualizarCalendario(item)}");
   });
 
   it("el botón de aplicar se deshabilita mientras esa fila está en curso, sin bloquear las demás", () => {
     expect(source).toContain("disabled={procesando.has(item.courseId)}");
+  });
+});
+
+describe("concurrencia: la ruta puede rechazar un calendario desactualizado o quedar a medio recalcular", () => {
+  it("guarda la calendarRevision recibida del GET en cada propuesta", () => {
+    expect(source).toContain("calendarRevision: result.calendarRevision");
+  });
+
+  it("un 409 (calendario cambió mientras se revisaba) nunca se confunde con un fallo genérico", () => {
+    expect(source).toContain('if (response.status === 409) return "conflicto";');
+    expect(source).toContain("El calendario cambió mientras lo revisabas. Sincroniza de nuevo antes de aplicarlo.");
+  });
+
+  it("calendarUpdated:true + messagesSafe:true nunca se muestra como \"no se aplicó ningún cambio\"", () => {
+    const ramaRecalculo = source.slice(source.indexOf('resultado === "recalculo_pendiente"'), source.indexOf("} else {"));
+    expect(ramaRecalculo).not.toContain("No se aplicó ningún cambio");
+    expect(source).toContain("El calendario se actualizó, pero los recordatorios quedaron detenidos de forma segura. Reintenta para completar el recálculo.");
+  });
+
+  it("«no se aplicó ningún cambio» solo aparece en la rama de error genérico real", () => {
+    expect(source).toContain('detail: "No se aplicó ningún cambio. Puedes intentarlo de nuevo."');
   });
 });

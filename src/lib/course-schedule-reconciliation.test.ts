@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareCourseSchedule, planScheduleReconciliation } from "./course-schedule-reconciliation";
+import { calendarRevisionOf, compareCourseSchedule, planScheduleReconciliation } from "./course-schedule-reconciliation";
 
 const s = (id: string, startAt: string, endAt: string | null = null) => ({ id, startAt: new Date(startAt), endAt: endAt ? new Date(endAt) : null });
 const p = (startAt: string, endAt: string | null = null) => ({ startAt, endAt });
@@ -126,5 +126,36 @@ describe("planScheduleReconciliation", () => {
       { id: "s-temprano", startAt: new Date("2026-08-25T00:00:00.000Z"), endAt: null },
       { id: "s-tarde", startAt: new Date("2026-08-26T00:00:00.000Z"), endAt: null },
     ]));
+  });
+});
+
+describe("calendarRevisionOf", () => {
+  it("es estable ante el mismo calendario, sin importar el orden de entrada", () => {
+    const a = [s("s1", "2026-08-18T00:00:00.000Z"), s("s2", "2026-08-19T00:00:00.000Z")];
+    const b = [s("s2", "2026-08-19T00:00:00.000Z"), s("s1", "2026-08-18T00:00:00.000Z")];
+    expect(calendarRevisionOf(a)).toBe(calendarRevisionOf(b));
+  });
+
+  it("cambia si una fecha cambia", () => {
+    const antes = [s("s1", "2026-08-18T00:00:00.000Z")];
+    const despues = [s("s1", "2026-08-25T00:00:00.000Z")];
+    expect(calendarRevisionOf(antes)).not.toBe(calendarRevisionOf(despues));
+  });
+
+  it("cambia si la cantidad de sesiones cambia", () => {
+    const una = [s("s1", "2026-08-18T00:00:00.000Z")];
+    const dos = [s("s1", "2026-08-18T00:00:00.000Z"), s("s2", "2026-08-19T00:00:00.000Z")];
+    expect(calendarRevisionOf(una)).not.toBe(calendarRevisionOf(dos));
+  });
+
+  it("cambia si solo el cierre (endAt) cambia", () => {
+    const a = [s("s1", "2026-08-18T00:00:00.000Z", "2026-08-18T01:00:00.000Z")];
+    const b = [s("s1", "2026-08-18T00:00:00.000Z", "2026-08-18T02:00:00.000Z")];
+    expect(calendarRevisionOf(a)).not.toBe(calendarRevisionOf(b));
+  });
+
+  it("el calendario vacío tiene una huella estable propia", () => {
+    expect(calendarRevisionOf([])).toBe(calendarRevisionOf([]));
+    expect(calendarRevisionOf([])).not.toBe(calendarRevisionOf([s("s1", "2026-08-18T00:00:00.000Z")]));
   });
 });

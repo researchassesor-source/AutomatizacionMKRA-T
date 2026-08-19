@@ -35,25 +35,37 @@ const LOTE_MAXIMO = 5;
  * Libera atenciones humanas abandonadas.
  *
  * Si nadie hace clic en "Cerrar atencion", HUMAN_HANDOFF bloquearia lo
- * comercial de ese contacto para siempre. Se usa la misma ventana de 24 h que
- * ya rige el envio libre de WhatsApp: pasado ese plazo desde que se abrio la
- * atencion, se asume abandonada y se libera sola.
+ * comercial de ese contacto para siempre. Pero "abandonada" no es lo mismo
+ * que "vieja": `handoffAt` no se mueve mientras dura la atencion (a
+ * proposito, para no falsear cuando empezo), asi que una conversacion con
+ * idas y vueltas activas hace HORAS igual tendria un `handoffAt` de hace mas
+ * de 24 h. Cerrarla solo por eso interrumpiria una atencion en curso.
  *
- * Reclamo optimista (`updateMany` condicionado al estado actual) para que dos
- * vueltas del cron no liberen la misma conversacion dos veces ni pisen a un
- * asesor que la cerro a mano en el instante exacto.
+ * Lo que importa es la ULTIMA actividad real: el mayor entre lo que escribio
+ * el contacto (`lastInboundAt`) y la ultima respuesta HUMANA que salio
+ * (`lastOutboundAt`, que solo mueve `enviarRespuestaHumana` — el envio
+ * automatico nunca lo toca). `handoffAt` sigue sirviendo de prefiltro barato
+ * en la consulta: nunca puede ser mas reciente que la primera actividad que
+ * abrio el handoff, asi que toda conversacion realmente vencida lo cumple
+ * tambien; lo que cambia es que ya no basta por si solo.
  */
 export async function expirarAtencionesHumanas(ahora = new Date()) {
   const limite = new Date(ahora.getTime() - VENTANA_ATENCION_MS);
-  const vencidas = await prisma.conversation.findMany({
+  const candidatas = await prisma.conversation.findMany({
     where: { state: "HUMAN_HANDOFF", handoffAt: { lte: limite } },
-    select: { id: true, leadId: true },
+    select: { id: true, leadId: true, handoffAt: true, lastInboundAt: true, lastOutboundAt: true },
     take: LOTE_MAXIMO,
   });
 
   let liberadas = 0;
   let cursosReprogramados = 0;
-  for (const conversacion of vencidas) {
+  for (const conversacion of candidatas) {
+    const señales = [conversacion.handoffAt, conversacion.lastInboundAt, conversacion.lastOutboundAt]
+      .filter((fecha): fecha is Date => fecha !== null);
+    const ultimaActividad = señales.reduce((max, fecha) => (fecha > max ? fecha : max));
+    // Actividad dentro de la ventana: la atencion sigue viva, no se toca.
+    if (ultimaActividad > limite) continue;
+
     const reclamada = await prisma.conversation.updateMany({
       where: { id: conversacion.id, state: "HUMAN_HANDOFF" },
       data: { state: "RESOLVED", resolvedAt: ahora, resolvedBy: "automation" },
@@ -66,7 +78,7 @@ export async function expirarAtencionesHumanas(ahora = new Date()) {
       entityType: "Conversation",
       entityId: conversacion.id,
       result: "SUCCESS",
-      metadata: { motivo: "SIN_CIERRE_MANUAL_24H" },
+      metadata: { motivo: "SIN_ACTIVIDAD_24H" },
     });
     if (conversacion.leadId) {
       cursosReprogramados += await recuperarAutomatizacionesDelContacto(conversacion.leadId, ahora);

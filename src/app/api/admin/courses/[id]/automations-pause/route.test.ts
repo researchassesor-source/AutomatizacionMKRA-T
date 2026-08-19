@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   prisma: {
     course: { findUnique: vi.fn(), update: vi.fn() },
+    $transaction: vi.fn(),
+  },
+  tx: {
+    course: { update: vi.fn() },
+    outboundMessage: { updateMany: vi.fn(async () => ({ count: 0 })) },
   },
   writeAudit: vi.fn(async () => undefined),
   requireRole: vi.fn(async () => ({
@@ -35,7 +40,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({ session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" }, error: null });
   mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1", title: "Curso de prueba", automationsPausedAt: null });
-  mocks.prisma.course.update.mockImplementation(async ({ data }: any) => ({ automationsPausedAt: data.automationsPausedAt, automationsPausedBy: data.automationsPausedBy }));
+  mocks.prisma.$transaction.mockImplementation(async (callback: any) => callback(mocks.tx));
+  mocks.tx.course.update.mockImplementation(async ({ data }: any) => ({ automationsPausedAt: data.automationsPausedAt, automationsPausedBy: data.automationsPausedBy }));
+  mocks.tx.outboundMessage.updateMany.mockResolvedValue({ count: 0 });
 });
 
 /**
@@ -49,6 +56,26 @@ describe("PATCH automations-pause", () => {
     const res = await patch("course-1", { paused: true, confirm: true });
     expect(res.status).toBe(200);
     expect(mocks.rescheduleCourseAutomations).not.toHaveBeenCalled();
+  });
+
+  it("pausar pone en cuarentena PROGRAMADO/FALLIDO del curso EN LA MISMA transacción que marca la pausa", async () => {
+    mocks.tx.outboundMessage.updateMany.mockResolvedValue({ count: 4 });
+    const res = await patch("course-1", { paused: true, confirm: true });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.tx.outboundMessage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ enrollment: { courseId: "course-1" }, status: { in: ["PROGRAMADO", "FALLIDO"] } }),
+        data: expect.objectContaining({ status: "OMITIDO", errorCode: "COURSE_AUTOMATIONS_PAUSED", nextAttemptAt: null }),
+      }),
+    );
+    expect(body.quarantined).toBe(4);
+  });
+
+  it("reanudar NO pone nada en cuarentena", async () => {
+    await patch("course-1", { paused: false, confirm: true });
+    expect(mocks.tx.outboundMessage.updateMany).not.toHaveBeenCalled();
   });
 
   it("reanudar reprograma el curso para recuperar lo que quedó omitido por la pausa", async () => {

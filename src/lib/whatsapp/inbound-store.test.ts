@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   prisma: {
     lead: { findMany: vi.fn() },
     enrollment: { findMany: vi.fn() },
-    inboundMessage: { create: vi.fn() },
+    inboundMessage: { create: vi.fn(), findUnique: vi.fn() },
     conversation: { findUnique: vi.fn(), upsert: vi.fn() },
   },
   writeAudit: vi.fn(async () => undefined),
@@ -52,6 +52,7 @@ beforeEach(() => {
   mocks.prisma.lead.findMany.mockResolvedValue([]);
   mocks.prisma.enrollment.findMany.mockResolvedValue([]);
   mocks.prisma.inboundMessage.create.mockResolvedValue({ id: "in-1" });
+  mocks.prisma.inboundMessage.findUnique.mockResolvedValue({ id: "in-1" });
   mocks.prisma.conversation.findUnique.mockResolvedValue(null);
   mocks.prisma.conversation.upsert.mockResolvedValue({});
 });
@@ -117,12 +118,21 @@ describe("resolución del contacto", () => {
 });
 
 describe("idempotencia", () => {
-  it("el mismo wamid repetido no duplica", async () => {
+  it("el mismo wamid repetido no duplica el InboundMessage", async () => {
     mocks.prisma.inboundMessage.create.mockRejectedValueOnce(errorUnico());
     const r = await guardarMensajeEntrante(aviso());
     expect(r).toEqual({ estado: "duplicado" });
-    // Y no se vuelve a tocar la conversación por un reenvío.
-    expect(mocks.prisma.conversation.upsert).not.toHaveBeenCalled();
+  });
+
+  it("un reenvío sobre una conversación YA sana repite el upsert (idempotente) pero no reabre el handoff ni audita de nuevo", async () => {
+    // La conversación del primer intento ya quedó bien: HUMAN_HANDOFF, vinculada.
+    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "HUMAN_HANDOFF", lastInboundAt: OCURRIO, leadId: "lead-1", assignedToId: "admin-1" });
+    mocks.prisma.inboundMessage.create.mockRejectedValueOnce(errorUnico());
+    const r = await guardarMensajeEntrante(aviso());
+    expect(r).toEqual({ estado: "duplicado" });
+    expect(mocks.prisma.conversation.upsert).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.conversation.upsert.mock.calls[0][0].update.handoffAt).toBeUndefined();
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 
   it("cinco reenvíos del mismo webhook dejan un solo mensaje", async () => {
@@ -132,6 +142,50 @@ describe("idempotencia", () => {
     for (let i = 0; i < 5; i++) resultados.push(await guardarMensajeEntrante(aviso()));
     expect(resultados.filter((r) => r.estado === "guardado")).toHaveLength(1);
     expect(resultados.filter((r) => r.estado === "duplicado")).toHaveLength(4);
+    // Un solo InboundMessage de verdad: el resto del lote nunca creó una fila.
+    expect(mocks.prisma.inboundMessage.create).toHaveBeenCalledTimes(5);
+  });
+
+  /**
+   * Hallazgo del release de estabilización: el primer intento podía guardar el
+   * InboundMessage y morir justo antes o durante el upsert de Conversation
+   * (fallo transitorio -> "reintentable"). Como el wamid ya existía, el
+   * reintento de Meta chocaba con P2002 y el código anterior devolvía
+   * "duplicado" de inmediato SIN volver a intentar la Conversation: quedaba
+   * rota para siempre, porque Meta no vuelve a reenviar un wamid que ya
+   * considera entregado.
+   */
+  it("primer intento guarda el mensaje pero la Conversation falla; el reintento (P2002) la repara", async () => {
+    mocks.prisma.lead.findMany.mockResolvedValue([{ id: "lead-1", assignedToId: null }]);
+    mocks.prisma.conversation.upsert.mockRejectedValueOnce(new Error("timeout"));
+
+    const primero = await guardarMensajeEntrante(aviso());
+    expect(primero).toEqual({ estado: "reintentable", codigo: "CONVERSACION_NO_PERSISTIDA" });
+    // El InboundMessage sí quedó guardado en el primer intento.
+    expect(mocks.prisma.inboundMessage.create).toHaveBeenCalledTimes(1);
+
+    // Meta reintenta el mismo wamid: el create ahora choca con P2002.
+    mocks.prisma.inboundMessage.create.mockRejectedValueOnce(errorUnico());
+    mocks.prisma.conversation.upsert.mockResolvedValueOnce({});
+    const segundo = await guardarMensajeEntrante(aviso());
+
+    expect(segundo).toEqual({ estado: "duplicado" });
+    // Conversation reparada: el upsert del segundo intento sí se ejecutó.
+    expect(mocks.prisma.conversation.upsert).toHaveBeenCalledTimes(2);
+    // Handoff correcto: se abrió (no había conversación previa sana).
+    expect(mocks.prisma.conversation.upsert.mock.calls[1][0].update.state).toBe("HUMAN_HANDOFF");
+    expect(mocks.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "WHATSAPP_HANDOFF_STARTED" }));
+    // Cero InboundMessage duplicados: create solo se llamó dos veces (una por
+    // intento), nunca produjo una segunda fila real.
+    expect(mocks.prisma.inboundMessage.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("si el wamid no existe bajo ningún InboundMessage (caso extremo), no reintenta para siempre: se trata como definitivo", async () => {
+    mocks.prisma.inboundMessage.create.mockRejectedValueOnce(errorUnico());
+    mocks.prisma.inboundMessage.findUnique.mockResolvedValueOnce(null);
+    const r = await guardarMensajeEntrante(aviso());
+    expect(r).toEqual({ estado: "duplicado" });
+    expect(mocks.prisma.conversation.upsert).not.toHaveBeenCalled();
   });
 
   it("un fallo de base pide REINTENTO en vez de perder el mensaje", async () => {

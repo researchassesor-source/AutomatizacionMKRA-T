@@ -17,6 +17,21 @@ vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.resc
 import { expirarAtencionesHumanas, recuperarAutomatizacionesDelContacto } from "./handoff-expiry";
 
 const AHORA = new Date("2026-08-19T12:00:00.000Z");
+const HACE_30H = new Date("2026-08-18T06:00:00.000Z");
+const HACE_2H = new Date("2026-08-19T10:00:00.000Z");
+const HACE_1H = new Date("2026-08-19T11:00:00.000Z");
+const HACE_25H = new Date("2026-08-18T11:00:00.000Z");
+
+function conversacion(overrides: Partial<{ id: string; leadId: string | null; handoffAt: Date; lastInboundAt: Date | null; lastOutboundAt: Date | null }> = {}) {
+  return {
+    id: "conv-1",
+    leadId: "lead-1",
+    handoffAt: HACE_30H,
+    lastInboundAt: HACE_30H,
+    lastOutboundAt: null,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -29,15 +44,18 @@ beforeEach(() => {
 /**
  * Sección 38 del release de estabilización: HUMAN_HANDOFF callaba lo
  * comercial de un contacto para siempre si nadie hacía clic en "Cerrar
- * atención". Se libera sola pasadas 24 h desde que se abrió, igual que la
- * ventana de servicio de WhatsApp.
+ * atención". Se libera sola pasadas 24 h de INACTIVIDAD real (no 24 h desde
+ * que se abrió: `handoffAt` no se mueve mientras dura la atención, así que
+ * una conversación con actividad activa hace horas igual tendría un
+ * `handoffAt` viejo — cerrarla solo por eso interrumpiría una atención en
+ * curso).
  */
 describe("expirarAtencionesHumanas", () => {
-  it("consulta solo conversaciones HUMAN_HANDOFF con handoffAt de hace 24h o más, en lotes de 5", async () => {
+  it("consulta conversaciones HUMAN_HANDOFF con handoffAt de hace 24h o más (prefiltro), en lotes de 5", async () => {
     await expirarAtencionesHumanas(AHORA);
     expect(mocks.prisma.conversation.findMany).toHaveBeenCalledWith({
       where: { state: "HUMAN_HANDOFF", handoffAt: { lte: new Date("2026-08-18T12:00:00.000Z") } },
-      select: { id: true, leadId: true },
+      select: { id: true, leadId: true, handoffAt: true, lastInboundAt: true, lastOutboundAt: true },
       take: 5,
     });
   });
@@ -49,8 +67,25 @@ describe("expirarAtencionesHumanas", () => {
     expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 
-  it("una conversación vencida se resuelve, se audita como automática y reprograma los cursos del contacto", async () => {
-    mocks.prisma.conversation.findMany.mockResolvedValue([{ id: "conv-1", leadId: "lead-1" }]);
+  it("handoff de hace 30h pero con inbound hace 2h: sigue HUMAN_HANDOFF, no se toca", async () => {
+    mocks.prisma.conversation.findMany.mockResolvedValue([conversacion({ handoffAt: HACE_30H, lastInboundAt: HACE_2H, lastOutboundAt: null })]);
+    const resultado = await expirarAtencionesHumanas(AHORA);
+    expect(resultado).toEqual({ liberadas: 0, cursosReprogramados: 0 });
+    expect(mocks.prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it("handoff de hace 30h pero con respuesta humana hace 1h: sigue HUMAN_HANDOFF, no se toca", async () => {
+    mocks.prisma.conversation.findMany.mockResolvedValue([conversacion({ handoffAt: HACE_30H, lastInboundAt: HACE_30H, lastOutboundAt: HACE_1H })]);
+    const resultado = await expirarAtencionesHumanas(AHORA);
+    expect(resultado).toEqual({ liberadas: 0, cursosReprogramados: 0 });
+    expect(mocks.prisma.conversation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("sin actividad real en 24h (ni inbound ni respuesta humana reciente): se resuelve, audita y reprograma", async () => {
+    mocks.prisma.conversation.findMany.mockResolvedValue([
+      conversacion({ id: "conv-1", leadId: "lead-1", handoffAt: HACE_30H, lastInboundAt: HACE_25H, lastOutboundAt: null }),
+    ]);
     mocks.prisma.enrollment.findMany.mockResolvedValue([{ courseId: "curso-a" }, { courseId: "curso-b" }]);
 
     const resultado = await expirarAtencionesHumanas(AHORA);
@@ -64,6 +99,7 @@ describe("expirarAtencionesHumanas", () => {
       entityType: "Conversation",
       entityId: "conv-1",
       actorEmail: "automation",
+      metadata: { motivo: "SIN_ACTIVIDAD_24H" },
     }));
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("curso-a", AHORA);
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("curso-b", AHORA);
@@ -71,14 +107,14 @@ describe("expirarAtencionesHumanas", () => {
   });
 
   it("conversación sin contacto vinculado: se libera y audita, pero no hay curso que reprogramar", async () => {
-    mocks.prisma.conversation.findMany.mockResolvedValue([{ id: "conv-1", leadId: null }]);
+    mocks.prisma.conversation.findMany.mockResolvedValue([conversacion({ leadId: null })]);
     const resultado = await expirarAtencionesHumanas(AHORA);
     expect(resultado).toEqual({ liberadas: 1, cursosReprogramados: 0 });
     expect(mocks.prisma.enrollment.findMany).not.toHaveBeenCalled();
   });
 
   it("reclamo optimista: si otra vuelta ya la resolvió (count 0), no se audita ni se reprograma", async () => {
-    mocks.prisma.conversation.findMany.mockResolvedValue([{ id: "conv-1", leadId: "lead-1" }]);
+    mocks.prisma.conversation.findMany.mockResolvedValue([conversacion()]);
     mocks.prisma.conversation.updateMany.mockResolvedValue({ count: 0 });
 
     const resultado = await expirarAtencionesHumanas(AHORA);
@@ -90,8 +126,8 @@ describe("expirarAtencionesHumanas", () => {
 
   it("varias conversaciones vencidas se procesan todas, cada una con su propio reclamo", async () => {
     mocks.prisma.conversation.findMany.mockResolvedValue([
-      { id: "conv-1", leadId: "lead-1" },
-      { id: "conv-2", leadId: "lead-2" },
+      conversacion({ id: "conv-1", leadId: "lead-1" }),
+      conversacion({ id: "conv-2", leadId: "lead-2" }),
     ]);
     mocks.prisma.enrollment.findMany.mockResolvedValue([{ courseId: "curso-a" }]);
 
@@ -99,6 +135,21 @@ describe("expirarAtencionesHumanas", () => {
 
     expect(mocks.prisma.conversation.updateMany).toHaveBeenCalledTimes(2);
     expect(resultado.liberadas).toBe(2);
+  });
+
+  it("de dos candidatas, solo la realmente inactiva se resuelve", async () => {
+    mocks.prisma.conversation.findMany.mockResolvedValue([
+      conversacion({ id: "conv-activa", lastInboundAt: HACE_1H }),
+      conversacion({ id: "conv-abandonada", lastInboundAt: HACE_30H }),
+    ]);
+
+    const resultado = await expirarAtencionesHumanas(AHORA);
+
+    expect(resultado.liberadas).toBe(1);
+    expect(mocks.prisma.conversation.updateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.conversation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "conv-abandonada", state: "HUMAN_HANDOFF" } }),
+    );
   });
 });
 

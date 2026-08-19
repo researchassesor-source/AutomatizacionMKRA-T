@@ -26,6 +26,7 @@ import { buildTemplateComponents, templateBindingOf } from "@/lib/whatsapp/templ
 import { EmailChannel } from "./channels/email";
 import { WhatsAppChannel } from "./channels/whatsapp";
 import type { MessageChannelAdapter, SendResult } from "./channels/types";
+import { REPROGRAMMABLE_STATUSES } from "./queue-safety";
 import { welcomeSequence, type Sequence } from "./sequences";
 
 export const MAX_ATTEMPTS = 5;
@@ -260,7 +261,6 @@ function courseContentSession(
  * despues). Uno ya enviado, fallido de forma definitiva o cancelado nunca se
  * reescribe: solo se conserva como historial.
  */
-const REPROGRAMMABLE_STATUSES = ["PROGRAMADO", "OMITIDO"] as const;
 
 async function upsertAutomationMessage(input: {
   leadId: string;
@@ -778,22 +778,6 @@ export async function rescheduleCourseAutomations(courseId: string, now = new Da
     metadata: totals,
   });
   return totals;
-}
-
-/**
- * Detiene lo pendiente conservando el historial. Se usa al archivar un contacto
- * o al cancelar una inscripcion: los mensajes ya enviados no se tocan.
- */
-export async function cancelPendingMessages(
-  scope: { leadId?: string; enrollmentId?: string },
-  reason: { code: string; message: string },
-) {
-  if (!scope.leadId && !scope.enrollmentId) return { cancelled: 0 };
-  const result = await prisma.outboundMessage.updateMany({
-    where: { ...scope, status: "PROGRAMADO" },
-    data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: reason.code, errorMessage: reason.message },
-  });
-  return { cancelled: result.count };
 }
 
 export async function finalizeCompletedCourseEnrollments(now = new Date()) {

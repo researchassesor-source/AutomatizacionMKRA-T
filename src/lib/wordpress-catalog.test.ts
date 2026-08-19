@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchWordPressCourses,
   isPlaceholderWordPressCourse,
@@ -22,7 +22,7 @@ describe("catálogo WordPress de solo lectura", () => {
 
   it("exige endpoint HTTPS y solo ejecuta GET", async () => {
     vi.stubEnv("WORDPRESS_COURSES_API_URL", "https://ra-training.com/wp-json/wp/v2/cursos?per_page=100");
-    const fetcher = vi.fn(async (_url: URL, _init: RequestInit) => new Response(JSON.stringify([source]), { status: 200, headers: { "x-wp-totalpages": "1" } }));
+    const fetcher = vi.fn(async (_url: URL, _init: RequestInit) => new Response(JSON.stringify([source]), { status: 200, headers: { "x-wp-totalpages": "1", "x-wp-total": "1" } }));
     await expect(fetchWordPressCourses(fetcher as typeof fetch)).resolves.toHaveLength(1);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0]?.[1]?.method).toBe("GET");
@@ -30,7 +30,7 @@ describe("catálogo WordPress de solo lectura", () => {
 
   it("se detiene ante IDs externos duplicados", async () => {
     vi.stubEnv("WORDPRESS_COURSES_API_URL", "https://ra-training.com/wp-json/wp/v2/cursos?per_page=100");
-    const fetcher = vi.fn(async () => new Response(JSON.stringify([source, source]), { status: 200 }));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify([source, source]), { status: 200, headers: { "x-wp-total": "2" } }));
     await expect(fetchWordPressCourses(fetcher as typeof fetch)).rejects.toThrow("DUPLICATE_EXTERNAL_ID");
   });
 
@@ -42,6 +42,62 @@ describe("catálogo WordPress de solo lectura", () => {
   it("rechaza endpoints HTTPS ajenos o de otro tipo de contenido", async () => {
     vi.stubEnv("WORDPRESS_COURSES_API_URL", "https://example.com/wp-json/wp/v2/cursos");
     await expect(fetchWordPressCourses()).rejects.toThrow("WORDPRESS_API_ENDPOINT_NOT_ALLOWED");
+  });
+});
+
+/**
+ * Riesgo confirmado: una respuesta 200 parcial (una pagina que fallo entre
+ * medias, un proxy que corto la lista) no lanzaba ningun error. Sin verificar
+ * X-WP-Total, reconcileCatalogAndAutomations trataria a los cursos que
+ * faltaron como si ya no existieran en el sitio y los marcaria HISTORICAL.
+ */
+describe("integridad del catálogo: X-WP-Total antes de reconciliar nada", () => {
+  function curso(id: number) {
+    return { id, slug: `curso-${id}`, link: `https://ra-training.com/cursos/curso-${id}/`, modified_gmt: "2026-08-03T12:30:00", status: "publish", title: { rendered: `Curso ${id}` } };
+  }
+
+  beforeEach(() => vi.stubEnv("WORDPRESS_COURSES_API_URL", "https://ra-training.com/wp-json/wp/v2/cursos?per_page=100"));
+
+  it("1: X-WP-Total dice 16 pero la página solo trae 8 -> WORDPRESS_API_INCOMPLETE_CATALOG", async () => {
+    const ocho = Array.from({ length: 8 }, (_, i) => curso(i + 1));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(ocho), { status: 200, headers: { "x-wp-totalpages": "1", "x-wp-total": "16" } }));
+    await expect(fetchWordPressCourses(fetcher as typeof fetch)).rejects.toThrow("WORDPRESS_API_INCOMPLETE_CATALOG");
+  });
+
+  it("2a: sin cabecera X-WP-Total -> fail closed", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify([curso(1)]), { status: 200, headers: { "x-wp-totalpages": "1" } }));
+    await expect(fetchWordPressCourses(fetcher as typeof fetch)).rejects.toThrow("WORDPRESS_API_INCOMPLETE_CATALOG");
+  });
+
+  it("2b: X-WP-Total no numérico -> fail closed", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify([curso(1)]), { status: 200, headers: { "x-wp-totalpages": "1", "x-wp-total": "dieciséis" } }));
+    await expect(fetchWordPressCourses(fetcher as typeof fetch)).rejects.toThrow("WORDPRESS_API_INCOMPLETE_CATALOG");
+  });
+
+  it("2c: X-WP-Total cambia entre páginas -> fail closed", async () => {
+    let page = 0;
+    const fetcher = vi.fn(async () => {
+      page++;
+      const total = page === 1 ? "16" : "15";
+      return new Response(JSON.stringify(Array.from({ length: 8 }, (_, i) => curso(page * 100 + i))), { status: 200, headers: { "x-wp-totalpages": "2", "x-wp-total": total } });
+    });
+    await expect(fetchWordPressCourses(fetcher as typeof fetch)).rejects.toThrow("WORDPRESS_API_INCOMPLETE_CATALOG");
+  });
+
+  it("3: X-WP-Total = 0 -> WORDPRESS_API_EMPTY_CATALOG, nunca se interpreta como borrar/historizar todo", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify([]), { status: 200, headers: { "x-wp-totalpages": "1", "x-wp-total": "0" } }));
+    await expect(fetchWordPressCourses(fetcher as typeof fetch)).rejects.toThrow("WORDPRESS_API_EMPTY_CATALOG");
+  });
+
+  it("8: respuesta multi-página completa y consistente se acepta con normalidad", async () => {
+    let page = 0;
+    const fetcher = vi.fn(async () => {
+      page++;
+      const items = page === 1 ? Array.from({ length: 10 }, (_, i) => curso(i + 1)) : Array.from({ length: 6 }, (_, i) => curso(10 + i + 1));
+      return new Response(JSON.stringify(items), { status: 200, headers: { "x-wp-totalpages": "2", "x-wp-total": "16" } });
+    });
+    await expect(fetchWordPressCourses(fetcher as typeof fetch)).resolves.toHaveLength(16);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
 

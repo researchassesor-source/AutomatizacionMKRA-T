@@ -211,6 +211,16 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
   if (user && password) headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
   const courses: WordPressCourse[] = [];
   let totalPages = 1;
+  /**
+   * Total declarado por WordPress (cabecera X-WP-Total), no la cuenta de
+   * paginas. Una respuesta 200 parcial (una pagina que fallo entre medias, un
+   * proxy que corto la lista) puede dejar `errors = 0` con menos cursos de los
+   * que en realidad existen, y reconcileCatalogAndAutomations trataria a los
+   * que faltan como si ya no existieran en el sitio. Verificar que la cuenta
+   * final coincide con lo que el propio WordPress declaro es lo unico que
+   * distingue "esto es todo el catalogo" de "esto es lo que llego".
+   */
+  let expectedTotal: number | null = null;
   for (let page = 1; page <= Math.min(totalPages, 20); page++) {
     endpoint.searchParams.set("per_page", "100");
     endpoint.searchParams.set("page", String(page));
@@ -221,7 +231,22 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
     if (!Array.isArray(payload)) throw new Error("WORDPRESS_API_INVALID_RESPONSE");
     courses.push(...payload.map(normalizeWordPressCourse));
     totalPages = Math.max(1, Number(response.headers.get("x-wp-totalpages")) || 1);
+
+    const totalHeader = response.headers.get("x-wp-total");
+    const total = totalHeader === null ? Number.NaN : Number(totalHeader);
+    // Ausente, no numerico, negativo o distinto entre paginas: no hay forma
+    // segura de saber si el catalogo llego completo, asi que no se asume nada.
+    if (!Number.isInteger(total) || total < 0) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
+    if (expectedTotal === null) expectedTotal = total;
+    else if (expectedTotal !== total) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
   }
+  if (expectedTotal === null) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
+  // Un total de cero NO significa "borrar/historizar todo": es indistinguible
+  // de una fuente rota o mal configurada, y las consecuencias de equivocarse
+  // son demasiado grandes para adivinar.
+  if (expectedTotal === 0) throw new Error("WORDPRESS_API_EMPTY_CATALOG");
+  if (courses.length !== expectedTotal) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
+
   const ids = new Set<string>();
   for (const course of courses) {
     if (ids.has(course.externalId)) throw new Error("WORDPRESS_API_DUPLICATE_EXTERNAL_ID");
@@ -321,6 +346,17 @@ async function synchronizeSourceCourse(source: WordPressCourse, syncedAt: Date) 
   }, { isolationLevel: "Serializable", maxWait: 5_000, timeout: 20_000 });
 }
 
+/**
+ * Un curso solo puede volverse historico automaticamente por ESTA
+ * sincronizacion si de verdad pertenece a esta fuente: sin esto, cualquier
+ * curso manual, interno o de otra fuente que simplemente no aparece en la
+ * respuesta de WordPress (porque nunca debia aparecer) se marcaria como si
+ * hubiera desaparecido del sitio.
+ */
+function isWordPressManagedCourse(course: { externalSource: string | null; externalId: string | null }) {
+  return course.externalSource === SOURCE && Boolean(course.externalId);
+}
+
 async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, conflictCourseIds: Set<string>, syncedAt: Date) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(68294113)::text AS lock_result`;
@@ -333,9 +369,11 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
         acceptsRegistrations: true,
         startsAt: true,
         endsAt: true,
+        externalSource: true,
+        externalId: true,
       },
     });
-    const historicalCourses = courses.filter((course) => !currentCourseIds.has(course.id));
+    const historicalCourses = courses.filter((course) => isWordPressManagedCourse(course) && !currentCourseIds.has(course.id));
     for (const course of historicalCourses) {
       await tx.course.update({
         where: { id: course.id },
@@ -364,6 +402,7 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
             title: true,
             slug: true,
             externalId: true,
+            externalSource: true,
             isPublished: true,
             acceptsRegistrations: true,
             startsAt: true,
@@ -377,7 +416,7 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
       },
     });
     const pausedDetails: PausedRuleDetail[] = activeRules.flatMap((rule) => {
-      const isHistorical = !currentCourseIds.has(rule.course.id);
+      const isHistorical = isWordPressManagedCourse(rule.course) && !currentCourseIds.has(rule.course.id);
       const window = courseAutomationWindow(rule.course, rule.course.sessions);
       const courseState = {
         isPublished: isHistorical ? false : rule.course.isPublished,

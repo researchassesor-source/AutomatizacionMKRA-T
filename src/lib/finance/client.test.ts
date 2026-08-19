@@ -165,3 +165,66 @@ describe("mapeo seguro de errores de Finance", () => {
     expect(request.idempotencyKey).toBe("enrollment-1");
   });
 });
+
+/**
+ * Sección R del release de estabilización: el selector "Configurar Finance"
+ * consulta los Servicios activos servidor-a-servidor. Nunca expone tokens,
+ * usuario/contraseña ni columnas internas de la hoja -- solo id/nombre/modalidad.
+ */
+describe("listActiveFinanceServices", () => {
+  async function freshClientWithFetch(fetchMock: ReturnType<typeof vi.fn>) {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("FINANCE_MODE", "live");
+    vi.stubEnv("FINANCE_API_URL", "https://finance-api.example.test/exec");
+    vi.stubEnv("FINANCE_USER", "integration-user");
+    vi.stubEnv("FINANCE_PASS", "integration-pass");
+    vi.stubGlobal("fetch", fetchMock);
+    return import("./client");
+  }
+
+  it("filtra solo los servicios Activos y devuelve únicamente id/nombre/modalidad", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: [
+          { ID: "SRV-1", Nombre: "Curso Activo", Modalidad: "Virtual", Activo: true, ApiKeyInterna: "no-debe-salir" },
+          { ID: "SRV-2", Nombre: "Curso Inactivo", Modalidad: "Presencial", Activo: false },
+        ],
+      }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    const servicios = await fresh.listActiveFinanceServices();
+    expect(servicios).toEqual([{ id: "SRV-1", nombre: "Curso Activo", modalidad: "Virtual", activo: true }]);
+    expect(JSON.stringify(servicios)).not.toContain("no-debe-salir");
+  });
+
+  it("reconoce Activo como texto ('TRUE'/'Verdadero'), no solo booleano", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: [{ ID: "SRV-1", Nombre: "Curso", Modalidad: "Virtual", Activo: "TRUE" }],
+      }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    const servicios = await fresh.listActiveFinanceServices();
+    expect(servicios).toHaveLength(1);
+  });
+
+  it("una respuesta vacía o mal formada no revienta: lista vacía", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: null }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.listActiveFinanceServices()).resolves.toEqual([]);
+  });
+
+  it("un fallo de Finance se clasifica igual que el resto del cliente, sin filtrar detalle interno", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: "token=secreto en https://interno" }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.listActiveFinanceServices()).rejects.toThrow("FINANCE_REQUEST_FAILED");
+  });
+});

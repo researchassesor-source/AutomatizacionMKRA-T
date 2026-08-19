@@ -198,5 +198,43 @@ export async function verifyCertificate(id: string) {
   return { valido: response.valido === true, data: response.data ?? null };
 }
 
+export type FinanceService = { id: string; nombre: string; modalidad: string; activo: boolean };
+
+/**
+ * Servicios de Finance para el selector "Configurar Finance" (sección R del
+ * release de estabilización).
+ *
+ * Solo lo mínimo útil para elegir: id, nombre y modalidad. Nunca se expone
+ * nada de la fila cruda de la hoja de cálculo (tokens, montos, URLs
+ * privadas) — la respuesta de Finance para `getServicios` puede traer
+ * columnas internas que no le corresponden al CRM.
+ */
+export async function listActiveFinanceServices(): Promise<FinanceService[]> {
+  let response: FinanceResponse<unknown>;
+  try {
+    response = await authedCall<unknown>("getServicios", {});
+  } catch (error) {
+    throw new Error(classifyFinanceError(error instanceof Error ? error.message : undefined));
+  }
+  if (!response.success) throw new Error(classifyFinanceError(response.error));
+  const filas = Array.isArray(response.data) ? (response.data as Record<string, unknown>[]) : [];
+  return filas
+    .filter((fila) => esVerdadero(fila.Activo))
+    .map((fila) => ({
+      id: String(fila.ID ?? ""),
+      nombre: String(fila.Nombre ?? ""),
+      modalidad: String(fila.Modalidad ?? ""),
+      activo: true,
+    }))
+    .filter((servicio) => servicio.id && servicio.nombre);
+}
+
+/** Espejo minimo de `esVerdadero` en Code.gs: la hoja guarda booleanos como texto. */
+function esVerdadero(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const texto = String(value ?? "").trim().toLowerCase();
+  return texto === "true" || texto === "verdadero" || texto === "sí" || texto === "si" || texto === "1";
+}
+
 // No existe una función de emisión en este cliente por diseño. El CRM solo
 // crea inscripciones y consulta el último estado conocido por Finance.

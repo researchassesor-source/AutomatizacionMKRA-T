@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
+import { FinanceServiceModal } from "./FinanceServiceModal";
 
 export type CourseRow = {
   id: string;
@@ -74,6 +75,7 @@ export function CourseManager({
   const [creating, setCreating] = useState(startCreating);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [configurandoFinance, setConfigurandoFinance] = useState(false);
   const current = editing ?? (creating ? ({ id: "", ...emptyCourse } as CourseRow) : null);
 
   useEffect(() => {
@@ -105,7 +107,6 @@ export function CourseManager({
       whatsappGroupUrl: data.get("whatsappGroupUrl"),
       surveyUrl: data.get("surveyUrl"),
       moodleCourseUrl: data.get("moodleCourseUrl"),
-      financeServiceId: data.get("financeServiceId"),
       imageUrl: data.get("imageUrl"),
       price: data.get("price"),
       duration: data.get("duration"),
@@ -209,21 +210,20 @@ export function CourseManager({
             <input name="moodleCourseUrl" aria-label="URL del campus" type="url" defaultValue={current.moodleCourseUrl ?? ""} placeholder="URL del campus (opcional)" />
             <input name="imageUrl" aria-label="URL de imagen" type="url" defaultValue={current.imageUrl ?? ""} placeholder="URL de imagen (opcional)" />
           </div>
-          <div className="form-row">
-            <label className="field">
-              <span>ID de Servicio en Finance <small>(opcional)</small></span>
-              <input
-                name="financeServiceId"
-                aria-label="ID de Servicio en Finance"
-                defaultValue={current.financeServiceId ?? ""}
-                placeholder="Vacío = Finance empareja por nombre del curso"
-              />
-              <small>
-                Vincula este curso a un Servicio exacto en Finance, sin depender del nombre. Déjalo vacío
-                mientras el emparejamiento automático por nombre siga funcionando.
-              </small>
-            </label>
-          </div>
+          {editing ? (
+            <div className="form-row finance-service-status">
+              <span>
+                Finance: {current.financeServiceId
+                  ? <strong className="ok">Vinculado</strong>
+                  : <strong className="pendiente">Pendiente de configurar</strong>}
+              </span>
+              <button type="button" className="btn-sm ghost" onClick={() => setConfigurandoFinance(true)}>
+                Configurar Finance
+              </button>
+            </div>
+          ) : (
+            <p className="muted form-row">Podrás vincular este curso con Finance después de crearlo.</p>
+          )}
           <div className="form-row"><textarea name="description" aria-label="Descripción" defaultValue={current.description ?? ""} placeholder="Descripción" rows={3} /></div>
           <div className="toolbar">
             {[
@@ -266,6 +266,19 @@ export function CourseManager({
         )}
         </div>
       </details>
+      {configurandoFinance && editing ? (
+        <FinanceServiceModal
+          courseId={editing.id}
+          courseTitle={editing.title}
+          currentServiceId={editing.financeServiceId}
+          onClose={() => setConfigurandoFinance(false)}
+          onSaved={(id) => {
+            setEditing((prev) => (prev ? { ...prev, financeServiceId: id } : prev));
+            setConfigurandoFinance(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </>
   );
 }

@@ -1681,6 +1681,16 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .sync-item em { display: block; margin-top: 7px; font-style: normal; font-size: .8rem; color: var(--muted); }
 .sync-group.is-muted .sync-item { opacity: .72; }
 
+/* ═══ CONFIGURAR FINANCE ══════════════════════════════════════════════════ */
+.finance-service-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.finance-service-status strong.ok { color: var(--success); }
+.finance-service-status strong.pendiente { color: var(--warning); }
+.finance-sugerencia { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding: 8px 12px; border: 1px dashed var(--brand-primary); border-radius: 10px; font-size: .85rem; }
+.finance-service-list { max-height: 280px; margin-top: 10px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.finance-service-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: .87rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+.finance-service-row:last-child { border-bottom: 0; }
+.finance-service-row:hover { background: #f8fafc; }
+
 /* ═══ PULIDO GENERAL ══════════════════════════════════════════════════════
    Transiciones cortas y consistentes. Nada dura mas de 180 ms: por encima de
    eso una interfaz de trabajo empieza a sentirse lenta en lugar de suave.

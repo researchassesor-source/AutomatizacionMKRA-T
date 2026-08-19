@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { GESTION, OPERACION } from "@/lib/auth/roles";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
 import { ventanaDe } from "@/lib/whatsapp/conversation-service";
+import { recuperarAutomatizacionesDelContacto } from "@/lib/whatsapp/handoff-expiry";
 
 export const dynamic = "force-dynamic";
 
@@ -208,6 +209,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       entityId: id,
       metadata: { desde: conversacion.state },
     }).catch(() => undefined);
+  }
+
+  /**
+   * Cerrar la atencion no reactivaba sola lo comercial que se habia callado
+   * mientras duro: se quedaba OMITIDO/HUMAN_HANDOFF_ACTIVE para siempre hasta
+   * que algo mas tocara ese curso por otro motivo. El asesor que cierra la
+   * conversacion espera que el contacto vuelva a recibir sus automatizaciones.
+   */
+  if (parsed.data.state === "RESOLVED") {
+    const leadId = data.leadId !== undefined ? (data.leadId as string | null) : conversacion.leadId;
+    if (leadId) await recuperarAutomatizacionesDelContacto(leadId).catch(() => undefined);
   }
 
   return NextResponse.json({ ok: true, changed: true });

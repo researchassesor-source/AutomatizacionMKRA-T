@@ -1690,6 +1690,7 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .finance-service-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: .87rem; border-bottom: 1px solid var(--border); cursor: pointer; }
 .finance-service-row:last-child { border-bottom: 0; }
 .finance-service-row:hover { background: #f8fafc; }
+.finance-bulk-preview { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 
 /* ═══ PULIDO GENERAL ══════════════════════════════════════════════════════
    Transiciones cortas y consistentes. Nada dura mas de 180 ms: por encima de

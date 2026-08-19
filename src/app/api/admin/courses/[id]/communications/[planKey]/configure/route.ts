@@ -1,0 +1,158 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { writeAudit } from "@/lib/audit";
+import { requireRole } from "@/lib/auth/authorization";
+import { nextFixedRuleExecution } from "@/lib/automation-schedule";
+import { CONTENIDO } from "@/lib/auth/roles";
+import { courseAutomationWindow } from "@/lib/course-automation-window";
+import { TIMELINE_STEPS } from "@/lib/course-timeline";
+import { prisma } from "@/lib/db";
+import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { planEntryFor } from "@/lib/nurture/plan-entry";
+
+export const dynamic = "force-dynamic";
+
+const schema = z.object({
+  channels: z.array(z.enum(["EMAIL", "WHATSAPP"])).min(1, "Elige al menos un canal."),
+  /** Si se omite, se usa el desfase del plan estandar de ese paso. */
+  offsetMinutes: z.coerce.number().int().min(0).max(525_600).optional(),
+  confirm: z.literal(true),
+});
+
+function esErrorDeUnicidad(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
+}
+
+/**
+ * Crea las AutomationRule que le faltan a un paso del recorrido.
+ *
+ * El contenido -asunto, cuerpo, plantilla de Meta- sale siempre del plan
+ * estandar (`planEntryFor`), nunca del cliente: asi no hay forma de crear una
+ * regla de WhatsApp con una plantilla que Meta no reconozca. Lo unico que el
+ * administrador elige aqui son los canales y, si quiere, el desfase.
+ *
+ * Cada canal se crea con su propia escritura -sin envolver ambos canales en
+ * una sola transaccion- porque el unique (courseId, channel, planKey) ya
+ * existente es lo que de verdad evita el duplicado en un doble clic: si dos
+ * peticiones compiten por el mismo canal, una gana y la otra recibe un
+ * choque de unicidad que aqui se trata como "ya estaba configurado", no como
+ * error. Con Postgres, meter ese choque dentro de una transaccion compartida
+ * abortaria tambien la escritura del otro canal; separarlas evita ese riesgo
+ * y ademas dej a un fallo real de un canal sin arrastrar al otro, que de
+ * todos modos se puede reintentar porque toda la operacion es idempotente.
+ */
+export async function POST(request: Request, { params }: { params: Promise<{ id: string; planKey: string }> }) {
+  const auth = await requireRole(request, CONTENIDO);
+  if (auth.error) return auth.error;
+
+  const parsed = schema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Petición no válida." }, { status: 422 });
+
+  const { id, planKey } = await params;
+  // Solo los once pasos del recorrido: certification_offer y cualquier otra
+  // clave viven fuera de este flujo.
+  if (!TIMELINE_STEPS.some((step) => step.planKey === planKey)) {
+    return NextResponse.json({ error: "Ese paso no existe.", errorCode: "STEP_UNKNOWN" }, { status: 422 });
+  }
+
+  const canales = [...new Set(parsed.data.channels)];
+  const entradas = canales.map((channel) => ({ channel, entry: planEntryFor(planKey, channel) }));
+  const sinPlan = entradas.find((item) => !item.entry);
+  if (sinPlan) {
+    return NextResponse.json(
+      { error: `Este paso no tiene plan estándar de ${sinPlan.channel === "EMAIL" ? "correo" : "WhatsApp"}.`, errorCode: "CHANNEL_NOT_AVAILABLE" },
+      { status: 422 },
+    );
+  }
+
+  const course = await prisma.course.findUnique({ where: { id }, include: { sessions: { orderBy: { startAt: "asc" } } } });
+  if (!course) return NextResponse.json({ error: "No se encontró el curso." }, { status: 404 });
+
+  const window = courseAutomationWindow(course, course.sessions);
+  const existentes = await prisma.automationRule.findMany({
+    where: { courseId: id, planKey, channel: { in: canales } },
+    select: { id: true, channel: true, status: true },
+  });
+  const porCanal = new Map(existentes.map((rule) => [rule.channel, rule]));
+
+  const created: string[] = [];
+  const revived: string[] = [];
+  const alreadyConfigured: string[] = [];
+
+  for (const { channel, entry } of entradas) {
+    if (!entry) continue; // ya se valido arriba; esta guarda es para TypeScript.
+    const actual = porCanal.get(channel);
+    const offsetMinutes = parsed.data.offsetMinutes ?? entry.offsetMinutes;
+    const nextExecutionAt = nextFixedRuleExecution({ trigger: entry.trigger, offsetMinutes, startsAt: window.startsAt, endsAt: window.endsAt });
+    const data = {
+      name: entry.name,
+      trigger: entry.trigger,
+      offsetMinutes,
+      subject: entry.subject,
+      body: entry.body,
+      status: "ACTIVE" as const,
+      requiresStreamUrl: entry.requiresStreamUrl,
+      enrollmentStatuses: entry.enrollmentStatuses,
+      waTemplateName: entry.waTemplateName,
+      waTemplateLanguage: entry.waTemplateLanguage,
+      waTemplateBodyVars: entry.waTemplateBodyVars ?? undefined,
+      waTemplateUrlVar: entry.waTemplateUrlVar,
+      nextExecutionAt,
+      // Creación y revivir desde ARCHIVED son las dos activaciones reales de
+      // este endpoint: ambas fijan activatedAt fresco.
+      activatedAt: new Date(),
+    };
+
+    if (!actual) {
+      try {
+        await prisma.automationRule.create({ data: { ...data, courseId: id, channel, planKey } });
+        created.push(channel);
+      } catch (error) {
+        if (!esErrorDeUnicidad(error)) throw error;
+        alreadyConfigured.push(channel);
+      }
+      continue;
+    }
+
+    if (actual.status === "ARCHIVED") {
+      // Se habia borrado (con historial) y se vuelve a configurar: recibe
+      // contenido fresco del plan estandar, no lo que tenia antes de archivarse.
+      await prisma.automationRule.update({ where: { id: actual.id }, data: { ...data, planKey } });
+      revived.push(channel);
+      continue;
+    }
+
+    // Ya hay una regla viva para ese canal: no se toca ni se duplica.
+    alreadyConfigured.push(channel);
+  }
+
+  const cambio = created.length > 0 || revived.length > 0;
+  // Igual que en el toggle del paso: si el reschedule falla no se revierte lo
+  // ya guardado, y el error nunca viaja crudo a la auditoria.
+  let reprogramado = false;
+  if (cambio) {
+    try {
+      await rescheduleCourseAutomations(id);
+      reprogramado = true;
+    } catch {
+      await writeAudit({
+        session: auth.session,
+        action: "COURSE_COMMUNICATION_STEP_RESCHEDULE_FAILED",
+        entityType: "Course",
+        entityId: id,
+        result: "FAILURE",
+        metadata: { courseId: id, planKey, enabled: true, error: "RESCHEDULE_FAILED" },
+      }).catch(() => undefined);
+    }
+  }
+
+  await writeAudit({
+    session: auth.session,
+    action: "COURSE_COMMUNICATION_STEP_CONFIGURED",
+    entityType: "Course",
+    entityId: id,
+    metadata: { planKey, created, revived, alreadyConfigured, reprogramado },
+  }).catch(() => undefined);
+
+  return NextResponse.json({ ok: true, planKey, created, revived, alreadyConfigured });
+}

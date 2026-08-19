@@ -128,6 +128,7 @@ export async function POST(request: Request) {
           waTemplateBodyVars: entry.waTemplateBodyVars ?? undefined,
           waTemplateUrlVar: entry.waTemplateUrlVar,
           nextExecutionAt,
+          activatedAt: status === "ACTIVE" ? new Date() : null,
         },
       });
       created++;
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
     // El contenido editado por el administrador no se sobrescribe: solo se
     // reactiva la regla si asi se solicito.
     if (parsed.data.activate && current.status !== "ACTIVE") {
-      await prisma.automationRule.update({ where: { id: current.id }, data: { status: "ACTIVE", nextExecutionAt } });
+      await prisma.automationRule.update({ where: { id: current.id }, data: { status: "ACTIVE", nextExecutionAt, activatedAt: new Date() } });
       activated++;
     }
   }

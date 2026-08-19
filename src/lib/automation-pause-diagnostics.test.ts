@@ -121,7 +121,7 @@ describe("recuperación controlada", () => {
     expect(result.courses).toBe(1);
     expect(result.skipped).toBe(1);
     expect(mocks.prisma.automationRule.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: { in: ["rule-1"] }, status: "PAUSED" }, data: { status: "ACTIVE" } }),
+      expect.objectContaining({ where: { id: { in: ["rule-1"] }, status: "PAUSED" }, data: { status: "ACTIVE", activatedAt: expect.any(Date) } }),
     );
   });
 
@@ -151,11 +151,12 @@ describe("recuperación controlada", () => {
     expect(result.details).toEqual([{ courseId: "course-2", courseTitle: "Desarrollo Profesional en Marketing", ruleIds: ["rule-2"] }]);
   });
 
-  it("solo cambia el estado: conserva textos y configuración", async () => {
+  it("solo cambia el estado y la activación: conserva textos y configuración", async () => {
     mocks.prisma.course.findMany.mockResolvedValue([course()]);
     await recoverPausedAutomations(null);
     const call = mocks.prisma.automationRule.updateMany.mock.calls[0][0];
-    expect(Object.keys(call.data)).toEqual(["status"]);
+    expect(Object.keys(call.data).sort()).toEqual(["activatedAt", "status"]);
+    expect(call.data.activatedAt).toBeInstanceOf(Date);
   });
 
   it("deja auditoría de la recuperación con su causa", async () => {

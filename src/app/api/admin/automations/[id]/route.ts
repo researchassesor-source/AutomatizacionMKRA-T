@@ -35,9 +35,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { confirm: _confirm, ...data } = parsed.data;
   const window = courseAutomationWindow(course, course.sessions);
   const nextExecutionAt = nextFixedRuleExecution({ trigger, offsetMinutes, startsAt: window.startsAt, endsAt: window.endsAt });
-  const rule = await prisma.automationRule.update({ where: { id }, data: { ...data, campaignId, nextExecutionAt } });
-  if (["PAUSED", "ARCHIVED"].includes(rule.status)) {
-    await prisma.outboundMessage.updateMany({ where: { automationRuleId: id, status: "PROGRAMADO" }, data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: "AUTOMATION_DISABLED", errorMessage: "La automatización fue pausada o archivada." } });
+  // Solo una activacion REAL (desde algo que no era ACTIVE) mueve activatedAt.
+  // Reescribir texto u horario de una regla que ya estaba ACTIVE no la toca,
+  // por la misma razon que este campo existe: no volver a colgar el guard de
+  // bienvenida de una edicion cualquiera.
+  const activatingNow = (data.status ?? current.status) === "ACTIVE" && current.status !== "ACTIVE";
+  const rule = await prisma.automationRule.update({
+    where: { id },
+    data: { ...data, campaignId, nextExecutionAt, ...(activatingNow ? { activatedAt: new Date() } : {}) },
+  });
+  if (rule.status === "PAUSED") {
+    // Pausa reversible: OMITIDO, no CANCELADO. Reactivar la regla vuelve a
+    // llamar rescheduleCourseAutomations (mas abajo), que reprograma lo que
+    // siga en el futuro por la misma via que MISSING_STREAM_URL/SCHEDULE_RECONCILING.
+    await prisma.outboundMessage.updateMany({
+      where: { automationRuleId: id, status: "PROGRAMADO" },
+      data: { status: "OMITIDO", errorCode: "RULE_PAUSED", errorMessage: "Este aviso se pausó porque la automatización se pausó. Se reanuda solo si vuelve a activarse, mientras siga en el futuro." },
+    });
+  } else if (rule.status === "ARCHIVED") {
+    // Archivar es un cierre, no una pausa: preserva historial pero no espera
+    // recuperarse solo con un reschedule.
+    await prisma.outboundMessage.updateMany({ where: { automationRuleId: id, status: "PROGRAMADO" }, data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: "AUTOMATION_DISABLED", errorMessage: "La automatización fue archivada." } });
   }
   // Activar o reescribir una regla debe reflejarse de inmediato en las
   // inscripciones vigentes; los mensajes ya enviados no se tocan.

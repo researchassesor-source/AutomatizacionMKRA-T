@@ -167,10 +167,13 @@ describe("editar no reenvía nada", () => {
 
   it("una bienvenida creada o reactivada después de la inscripción no saluda hacia atrás", () => {
     // Es lo que impide que activar una regla reenvie a todo el historico.
-    // Se compara con `updatedAt`, no con `createdAt`: una regla que estuvo
-    // pausada y se reactiva HOY sigue teniendo el `createdAt` de cuando se
-    // creó hace semanas, y solo `updatedAt` refleja que volvió a ACTIVE.
-    expect(motor).toMatch(/rule\.trigger === "ON_REGISTRATION" && enrollment\.createdAt < rule\.updatedAt/);
+    // Se compara con `activatedAt`, no con `updatedAt`: `updatedAt` cambia con
+    // CUALQUIER edicion (texto, horario), asi que corregir un asunto en una
+    // regla ya ACTIVE volveria a colgar la bienvenida de inscripciones
+    // anteriores a esa edicion sin que nadie la hubiera pausado. `activatedAt`
+    // solo se mueve en una activacion real: creacion, o vuelta desde
+    // PAUSED/DRAFT/ARCHIVED.
+    expect(motor).toMatch(/rule\.trigger === "ON_REGISTRATION" && rule\.activatedAt && enrollment\.createdAt < rule\.activatedAt/);
   });
 
   it("desactivar no cancela lo ya enviado", () => {

@@ -1,6 +1,7 @@
-import type { AutomationRule } from "@prisma/client";
+import type { AutomationRule, AutomationTrigger } from "@prisma/client";
 import { calculateAutomationSchedule } from "@/lib/automation-schedule";
 import { courseCompletionMoment, upcomingSessions, type ResolvedCourseSession } from "@/lib/course-sessions";
+import { availableChannelsFor, planEntryFor } from "@/lib/nurture/plan-entry";
 
 export const TIMELINE_STEPS = [
   { planKey: "welcome", when: "Al inscribirse", title: "Confirmacion de inscripcion", detail: "Sale en el momento del registro." },
@@ -31,7 +32,24 @@ export type BuiltStep = {
   active: boolean;
   blockedReason: string | null;
   ruleNames: string[];
+  /** Para configurar un paso que aun no tiene regla: su plan estandar. */
+  defaultTrigger: AutomationTrigger;
+  defaultOffsetMinutes: number;
+  availableChannels: Array<"EMAIL" | "WHATSAPP">;
 };
+
+/**
+ * Plan estandar de un paso del recorrido, para prellenar "Configurar este paso".
+ *
+ * Los once TIMELINE_STEPS tienen, por invariante, plan de correo definido en
+ * DEFAULT_AUTOMATION_PLAN: si algún día dejan de coincidir es un error real de
+ * catalogo, no un caso a silenciar con un valor inventado.
+ */
+function defaultPlanFor(planKey: string): { trigger: AutomationTrigger; offsetMinutes: number } {
+  const entry = planEntryFor(planKey, "EMAIL");
+  if (!entry) throw new Error(`TIMELINE_STEPS declara "${planKey}" pero no tiene plan estandar de correo.`);
+  return { trigger: entry.trigger, offsetMinutes: entry.offsetMinutes };
+}
 
 function blockedReason(
   rules: TimelineRule[],
@@ -87,6 +105,7 @@ export function buildCourseTimeline(input: {
       }
     }
 
+    const defaultPlan = defaultPlanFor(step.planKey);
     return {
       planKey: step.planKey,
       when: step.when,
@@ -97,6 +116,9 @@ export function buildCourseTimeline(input: {
       active,
       blockedReason: blockedReason(rules, proxima, hasSchedule, step.planKey, input.config),
       ruleNames: rules.map((rule) => `${rule.channel === "EMAIL" ? "correo" : "whatsapp"}:${rule.status.toLowerCase()}`),
+      defaultTrigger: defaultPlan.trigger,
+      defaultOffsetMinutes: defaultPlan.offsetMinutes,
+      availableChannels: availableChannelsFor(step.planKey),
     };
   });
 }

@@ -293,10 +293,10 @@ describe("idempotencia tras el arreglo", () => {
     // inscritos: sin este freno todos recibirían de nuevo "tu inscripción fue
     // registrada", porque la bienvenida está exenta del filtro de fechas pasadas.
     //
-    // `updatedAt` acompaña a `createdAt`: en Prisma nacen iguales, así que una
-    // regla recién creada tiene las dos fechas después del registro.
+    // `activatedAt` acompaña a `createdAt`: una regla recién creada como
+    // ACTIVE tiene las dos fechas después del registro.
     const creacion = new Date(REGISTERED_AT.getTime() + 86_400_000);
-    const reciente = { ...planRule("welcome"), createdAt: creacion, updatedAt: creacion };
+    const reciente = { ...planRule("welcome"), createdAt: creacion, activatedAt: creacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reciente] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(messages).toHaveLength(0);
@@ -306,7 +306,7 @@ describe("idempotencia tras el arreglo", () => {
 
   it("una regla anterior a la inscripción sí envía la bienvenida", async () => {
     const creacion = new Date(REGISTERED_AT.getTime() - 86_400_000);
-    const previa = { ...planRule("welcome"), createdAt: creacion, updatedAt: creacion };
+    const previa = { ...planRule("welcome"), createdAt: creacion, activatedAt: creacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [previa] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(result.enqueued).toBe(1);
@@ -320,7 +320,7 @@ describe("idempotencia tras el arreglo", () => {
     // sin esta guarda, reactivarla crearía uno nuevo con fecha retroactiva.
     const creacionRegla = new Date(REGISTERED_AT.getTime() - 30 * 86_400_000);
     const reactivacion = new Date(REGISTERED_AT.getTime() + 5 * 86_400_000);
-    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, updatedAt: reactivacion };
+    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, activatedAt: reactivacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reactivada] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(messages).toHaveLength(0);
@@ -333,7 +333,7 @@ describe("idempotencia tras el arreglo", () => {
     // persona se inscribiera, es una regla activa como cualquier otra.
     const creacionRegla = new Date(REGISTERED_AT.getTime() - 30 * 86_400_000);
     const reactivacion = new Date(REGISTERED_AT.getTime() - 86_400_000);
-    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, updatedAt: reactivacion };
+    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, activatedAt: reactivacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reactivada] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(result.enqueued).toBe(1);

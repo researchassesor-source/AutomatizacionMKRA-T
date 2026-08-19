@@ -25,6 +25,10 @@ type Paso = {
   scheduledAt: string | null;
   active: boolean;
   blockedReason: string | null;
+  /** Plan estandar de este paso, para prellenar "Configurar este paso". */
+  defaultTrigger: Regla["trigger"];
+  defaultOffsetMinutes: number;
+  availableChannels: Array<"EMAIL" | "WHATSAPP">;
 };
 
 type Enlaces = { whatsappGroupUrl: string | null; courseCompleteUrl: string | null; surveyUrl: string | null };
@@ -231,21 +235,42 @@ export function CourseCommunicationsManager({
                     {ocupado === paso.planKey ? "Guardando…" : activo ? "No enviar" : "Enviar"}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className="btn-sm ghost"
-                  aria-label={`Editar: ${paso.title}`}
-                  aria-expanded={editando === paso.planKey}
-                  onClick={() => setEditando(editando === paso.planKey ? null : paso.planKey)}
-                >
-                  Editar
-                </button>
+                {canEdit && sinReglas ? (
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    aria-label={`Configurar este paso: ${paso.title}`}
+                    aria-expanded={editando === paso.planKey}
+                    onClick={() => setEditando(editando === paso.planKey ? null : paso.planKey)}
+                  >
+                    Configurar este paso
+                  </button>
+                ) : null}
+                {!sinReglas ? (
+                  <button
+                    type="button"
+                    className="btn-sm ghost"
+                    aria-label={`Editar: ${paso.title}`}
+                    aria-expanded={editando === paso.planKey}
+                    onClick={() => setEditando(editando === paso.planKey ? null : paso.planKey)}
+                  >
+                    Editar
+                  </button>
+                ) : null}
               </div>
 
               {editando === paso.planKey ? (
                 <div className="comms-step-editor">
                   {sinReglas ? (
-                    <p className="muted">Este paso todavía no tiene una regla configurada. Aplica el plan estándar desde Automatizaciones.</p>
+                    <ConfigurarPasoForm
+                      courseId={courseId}
+                      planKey={paso.planKey}
+                      defaultTrigger={paso.defaultTrigger}
+                      defaultOffsetMinutes={paso.defaultOffsetMinutes}
+                      availableChannels={paso.availableChannels}
+                      canEdit={canEdit}
+                      onAviso={setAviso}
+                    />
                   ) : (
                     delPaso.map((regla) => (
                       <ReglaEditor key={regla.id} regla={regla} canEdit={canEdit} onAviso={setAviso} />
@@ -361,6 +386,112 @@ function ReglaEditor({
       {canEdit ? (
         <button type="button" className="btn-sm" disabled={guardando} onClick={() => void guardar()}>
           {guardando ? "Guardando cambios…" : "Guardar cambios"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+const NOMBRE_CANAL: Record<"EMAIL" | "WHATSAPP", string> = { EMAIL: "Correo", WHATSAPP: "WhatsApp" };
+
+/**
+ * Crea las reglas que le faltan a un paso, sin salir de Comunicaciones.
+ *
+ * El contenido -asunto, cuerpo, plantilla de Meta- lo resuelve el servidor a
+ * partir del plan estandar: aqui solo se eligen canales y, si hace falta,
+ * cuando se envia. Por eso no hay ni un campo de texto libre.
+ */
+function ConfigurarPasoForm({
+  courseId, planKey, defaultTrigger, defaultOffsetMinutes, availableChannels, canEdit, onAviso,
+}: {
+  courseId: string;
+  planKey: string;
+  defaultTrigger: Regla["trigger"];
+  defaultOffsetMinutes: number;
+  availableChannels: Array<"EMAIL" | "WHATSAPP">;
+  canEdit: boolean;
+  onAviso: (aviso: { ok: boolean; texto: string }) => void;
+}) {
+  const inicial = aHumano(defaultOffsetMinutes);
+  const [canales, setCanales] = useState<Record<"EMAIL" | "WHATSAPP", boolean>>({
+    EMAIL: availableChannels.includes("EMAIL"),
+    WHATSAPP: availableChannels.includes("WHATSAPP"),
+  });
+  const [cantidad, setCantidad] = useState(inicial.cantidad);
+  const [unidad, setUnidad] = useState(inicial.unidad);
+  const [guardando, setGuardando] = useState(false);
+  const router = useRouter();
+
+  async function configurar() {
+    if (!canEdit || guardando) return;
+    const elegidos = (Object.keys(canales) as Array<"EMAIL" | "WHATSAPP">).filter((canal) => canales[canal]);
+    if (elegidos.length === 0) {
+      onAviso({ ok: false, texto: "Elige al menos un canal." });
+      return;
+    }
+    setGuardando(true);
+    try {
+      const res = await fetch(`/api/admin/courses/${courseId}/communications/${planKey}/configure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: elegidos, offsetMinutes: aMinutos(cantidad, unidad), confirm: true }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        onAviso({ ok: false, texto: json?.error ?? "No se pudo configurar el paso." });
+        return;
+      }
+      onAviso({ ok: true, texto: "Paso configurado." });
+      // pasos/reglas vienen del servidor: sin esto seguiria mostrando "No
+      // configurado" con el mismo formulario en vez del recorrido ya armado.
+      router.refresh();
+    } catch {
+      onAviso({ ok: false, texto: "No se pudo configurar el paso." });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div className="comms-rule">
+      <p className="muted">Se crea con el contenido estándar del plan. Después puedes editarlo o dejar de enviarlo como cualquier otro paso.</p>
+
+      <div className="form-row">
+        {availableChannels.map((canal) => (
+          <label key={canal}>
+            <input
+              type="checkbox"
+              checked={canales[canal]}
+              disabled={!canEdit}
+              onChange={(event) => setCanales((v) => ({ ...v, [canal]: event.target.checked }))}
+            />{" "}
+            {NOMBRE_CANAL[canal]}
+          </label>
+        ))}
+      </div>
+
+      <div className="form-row">
+        <label htmlFor={`config-cant-${planKey}`}>Cuándo</label>
+        <input
+          id={`config-cant-${planKey}`}
+          type="number"
+          min={0}
+          value={cantidad}
+          disabled={!canEdit}
+          onChange={(event) => setCantidad(Number(event.target.value))}
+        />
+        <label className="sr-only" htmlFor={`config-uni-${planKey}`}>Unidad</label>
+        <select id={`config-uni-${planKey}`} value={unidad} disabled={!canEdit} onChange={(event) => setUnidad(event.target.value as typeof unidad)}>
+          <option value="minutos">minutos</option>
+          <option value="horas">horas</option>
+          <option value="dias">días</option>
+        </select>
+        <span className="muted">{RELACION[defaultTrigger]}</span>
+      </div>
+
+      {canEdit ? (
+        <button type="button" className="btn-sm" disabled={guardando} onClick={() => void configurar()}>
+          {guardando ? "Configurando…" : "Configurar este paso"}
         </button>
       ) : null}
     </div>

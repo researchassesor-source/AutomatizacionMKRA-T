@@ -599,8 +599,15 @@ export async function scheduleEnrollmentAutomations(
      * `updatedAt` cubre el segundo caso porque el toggle de un paso lo mueve
      * al reactivar. Nunca es anterior a `createdAt`, asi que esta guarda solo
      * puede volverse MAS estricta que antes, jamas menos.
+     *
+     * `activatedAt` en vez de `updatedAt`: editar el texto o el horario de una
+     * regla ya ACTIVE no lo mueve, asi que una correccion de copy no vuelve a
+     * silenciar la bienvenida de inscripciones anteriores a esa edicion. Solo
+     * una activacion real (creacion, o retorno desde PAUSED/DRAFT/ARCHIVED) lo
+     * actualiza. Si por algun motivo faltara (dato viejo sin backfill), no
+     * bloquea: es mas seguro dejar salir una bienvenida de mas que perder una.
      */
-    if (rule.trigger === "ON_REGISTRATION" && enrollment.createdAt < rule.updatedAt) { skipped++; continue; }
+    if (rule.trigger === "ON_REGISTRATION" && rule.activatedAt && enrollment.createdAt < rule.activatedAt) { skipped++; continue; }
     const toAddress = rule.channel === "EMAIL" ? enrollment.lead.email : enrollment.lead.phone;
     if (!toAddress) { skipped++; continue; }
 

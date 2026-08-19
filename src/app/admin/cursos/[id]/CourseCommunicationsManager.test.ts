@@ -160,9 +160,66 @@ describe("refresh de estado del servidor tras guardar", () => {
     expect(idxRefresh).toBeGreaterThan(idxAvisoOk);
   });
 
-  it("ambos componentes usan su propio useRouter, sin compartir estado entre ellos", () => {
-    expect((fuente.match(/const router = useRouter\(\);/g) ?? []).length).toBe(2);
+  it("los tres componentes que refrescan usan su propio useRouter, sin compartir estado entre ellos", () => {
+    expect((fuente.match(/const router = useRouter\(\);/g) ?? []).length).toBe(3);
     expect(fuente).toContain('import { useRouter } from "next/navigation";');
+  });
+});
+
+describe("configurar un paso que aún no tiene reglas", () => {
+  it("sin reglas se ofrece Configurar este paso, nunca el interruptor Enviar/No enviar", () => {
+    expect(fuente).toMatch(/canEdit && sinReglas \?/);
+    expect(fuente).toMatch(/Configurar este paso/);
+    // El interruptor real sigue exigiendo !sinReglas: no hay forma de que un
+    // paso sin reglas muestre "Enviar" como si ya estuviera armado.
+    expect(fuente).toMatch(/canEdit && !sinReglas \?/);
+  });
+
+  it("Editar solo aparece cuando ya existe alguna regla", () => {
+    expect(fuente).toMatch(/\{!sinReglas \? \(\s*<button[\s\S]{0,120}Editar/);
+  });
+
+  it("el area expandida usa ConfigurarPasoForm sin reglas, y ReglaEditor con reglas", () => {
+    const inicio = fuente.indexOf('{editando === paso.planKey ? (\n                <div className="comms-step-editor">');
+    const bloque = fuente.slice(inicio, fuente.indexOf("</li>", inicio));
+    expect(bloque).toMatch(/sinReglas \? \(\s*<ConfigurarPasoForm/);
+    expect(bloque).toContain("delPaso.map((regla) => (");
+  });
+
+  it("ConfigurarPasoForm llama al endpoint /configure con confirm:true y los canales elegidos", () => {
+    const inicio = fuente.indexOf("async function configurar()");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("\n  return (\n    <div className=\"comms-rule\">", inicio));
+    expect(cuerpo).toMatch(/\/api\/admin\/courses\/\$\{courseId\}\/communications\/\$\{planKey\}\/configure/);
+    expect(cuerpo).toMatch(/method: "POST"/);
+    expect(cuerpo).toMatch(/channels: elegidos, offsetMinutes: aMinutos\(cantidad, unidad\), confirm: true/);
+  });
+
+  it("exige al menos un canal antes de enviar la petición", () => {
+    const inicio = fuente.indexOf("async function configurar()");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("\n  return (\n    <div className=\"comms-rule\">", inicio));
+    expect(cuerpo).toMatch(/if \(elegidos\.length === 0\)/);
+    expect(cuerpo).toMatch(/texto: "Elige al menos un canal\."/);
+  });
+
+  it("refresca el estado del servidor tras configurar con éxito, antes de limpiar el aviso", () => {
+    const inicio = fuente.indexOf("async function configurar()");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("\n  return (\n    <div className=\"comms-rule\">", inicio));
+    const idxAvisoOk = cuerpo.indexOf('onAviso({ ok: true, texto: "Paso configurado." });');
+    const idxRefresh = cuerpo.indexOf("router.refresh()");
+    expect(idxAvisoOk).toBeGreaterThan(-1);
+    expect(idxRefresh).toBeGreaterThan(idxAvisoOk);
+  });
+
+  it("los checkboxes de canal solo ofrecen los canales disponibles del paso, nunca uno inventado", () => {
+    expect(fuente).toMatch(/availableChannels\.map\(\(canal\) =>/);
+    expect(fuente).not.toMatch(/canales\.SMS/);
+  });
+
+  it("configurar exige canEdit igual que el resto del panel", () => {
+    const inicio = fuente.indexOf("function ConfigurarPasoForm(");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("async function configurar()", inicio));
+    expect(fuente).toMatch(/if \(!canEdit \|\| guardando\) return;\n {4}const elegidos/);
+    expect(cuerpo).toContain("canEdit: boolean;");
   });
 });
 
@@ -172,10 +229,15 @@ describe("sin permiso, todo queda en solo lectura", () => {
     expect(fuente).toMatch(/if \(!canEdit \|\| guardando\) return;/);
   });
 
+  it("un paso sin reglas y sin permiso no ofrece ni Configurar ni Editar", () => {
+    expect(fuente).toMatch(/\{canEdit && sinReglas \?/);
+  });
+
   it("el backend vuelve a exigir el rol aunque la pantalla ya lo oculte", () => {
     const endpoints = [
       join(process.cwd(), "src/app/api/admin/courses/[id]/communications/[planKey]/route.ts"),
       join(process.cwd(), "src/app/api/admin/courses/[id]/communication-links/route.ts"),
+      join(process.cwd(), "src/app/api/admin/courses/[id]/communications/[planKey]/configure/route.ts"),
     ];
     for (const ruta of endpoints) {
       const contenido = readFileSync(ruta, "utf8");

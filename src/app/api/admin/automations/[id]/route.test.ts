@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
     automationRule: { findUnique: vi.fn(), update: vi.fn() },
     course: { findUnique: vi.fn() },
     campaign: { findUnique: vi.fn() },
-    outboundMessage: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    outboundMessage: { updateMany: vi.fn(async (_args: any) => ({ count: 0 })) },
+    $transaction: vi.fn((callback: any) => callback(mocks.prisma)),
   },
   rescheduleCourseAutomations: vi.fn(async () => ({ enrollments: 0, enqueued: 0, updated: 0, omitted: 0, cancelled: 0, batches: 1, truncated: false })),
   writeAudit: vi.fn(async () => undefined),
@@ -91,21 +92,27 @@ describe("PATCH automations/[id]: activatedAt solo se mueve en una activación r
 });
 
 describe("PATCH automations/[id]: pausa reversible vs archivado definitivo", () => {
-  it("pasar a PAUSED pone los mensajes PROGRAMADO en OMITIDO/RULE_PAUSED, no CANCELADO", async () => {
+  it("pasar a PAUSED pone los mensajes PROGRAMADO/FALLIDO en OMITIDO/RULE_PAUSED, no CANCELADO, ANTES de guardar", async () => {
+    const orden: string[] = [];
+    mocks.prisma.outboundMessage.updateMany.mockImplementation(async () => { orden.push("cuarentena"); return { count: 0 }; });
+    mocks.prisma.automationRule.update.mockImplementation(async ({ data }: any) => { orden.push("guardar"); return { ...RULE_BASE, ...data }; });
     mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
+
     await PATCH(request({ ...RULE_BASE, status: "PAUSED", confirm: true }), params());
+
+    expect(orden).toEqual(["cuarentena", "guardar"]);
     expect(mocks.prisma.outboundMessage.updateMany).toHaveBeenCalledWith({
-      where: { automationRuleId: "rule-1", status: "PROGRAMADO" },
-      data: { status: "OMITIDO", errorCode: "RULE_PAUSED", errorMessage: expect.any(String) },
+      where: { automationRuleId: "rule-1", status: { in: ["PROGRAMADO", "FALLIDO"] } },
+      data: expect.objectContaining({ status: "OMITIDO", errorCode: "RULE_PAUSED", nextAttemptAt: null }),
     });
   });
 
-  it("pasar a ARCHIVED sí cancela los PROGRAMADO (cierre, no pausa)", async () => {
+  it("pasar a ARCHIVED sí cancela PROGRAMADO/OMITIDO/FALLIDO (cierre, no pausa)", async () => {
     mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
     await PATCH(request({ ...RULE_BASE, status: "ARCHIVED", confirm: true }), params());
     expect(mocks.prisma.outboundMessage.updateMany).toHaveBeenCalledWith({
-      where: { automationRuleId: "rule-1", status: "PROGRAMADO" },
-      data: { status: "CANCELADO", cancelledAt: expect.any(Date), errorCode: "AUTOMATION_DISABLED", errorMessage: expect.any(String) },
+      where: { automationRuleId: "rule-1", status: { in: ["PROGRAMADO", "OMITIDO", "FALLIDO"] } },
+      data: expect.objectContaining({ status: "CANCELADO", errorCode: "AUTOMATION_DISABLED" }),
     });
   });
 
@@ -118,5 +125,46 @@ describe("PATCH automations/[id]: pausa reversible vs archivado definitivo", () 
     mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
     await PATCH(request({ ...RULE_BASE, status: "PAUSED", confirm: true }), params());
     expect(mocks.rescheduleCourseAutomations).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Sección I del release de estabilización: editar el cuerpo, horario, canal
+ * o gate de enlace de una regla que sigue ACTIVE no tenía ninguna protección.
+ * A diferencia de course/link/session, sendMessage no vuelve a comprobar el
+ * contenido de la regla al enviar: la cuarentena aquí es la única defensa.
+ */
+describe("PATCH automations/[id]: editar contenido de una regla ACTIVE pone en cuarentena antes de guardar", () => {
+  it("cambiar el body pone en cuarentena (SCHEDULE_RECONCILING), ANTES de guardar", async () => {
+    const orden: string[] = [];
+    mocks.prisma.outboundMessage.updateMany.mockImplementation(async () => { orden.push("cuarentena"); return { count: 5 }; });
+    mocks.prisma.automationRule.update.mockImplementation(async ({ data }: any) => { orden.push("guardar"); return { ...RULE_BASE, ...data }; });
+    mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
+
+    await PATCH(request({ ...RULE_BASE, body: "Hola {{nombre}}, texto corregido", confirm: true }), params());
+
+    expect(orden).toEqual(["cuarentena", "guardar"]);
+    expect(mocks.prisma.outboundMessage.updateMany).toHaveBeenCalledWith({
+      where: { automationRuleId: "rule-1", status: { in: ["PROGRAMADO", "FALLIDO"] } },
+      data: expect.objectContaining({ status: "OMITIDO", errorCode: "SCHEDULE_RECONCILING" }),
+    });
+  });
+
+  it("cambiar el offsetMinutes también dispara la cuarentena", async () => {
+    mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
+    await PATCH(request({ ...RULE_BASE, offsetMinutes: 120, confirm: true }), params());
+    expect(mocks.prisma.outboundMessage.updateMany).toHaveBeenCalled();
+  });
+
+  it("solo el asunto sin cambio real (mismo texto) NO dispara cuarentena", async () => {
+    mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
+    await PATCH(request({ ...RULE_BASE, confirm: true }), params());
+    expect(mocks.prisma.outboundMessage.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("una regla que NO está (ni queda) ACTIVE no dispara la cuarentena por SCHEDULE_RECONCILING", async () => {
+    mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "DRAFT" });
+    await PATCH(request({ ...RULE_BASE, status: "DRAFT", body: "Texto nuevo, distinto del original", confirm: true }), params());
+    expect(mocks.prisma.outboundMessage.updateMany).not.toHaveBeenCalled();
   });
 });

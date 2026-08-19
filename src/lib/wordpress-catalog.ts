@@ -4,6 +4,7 @@ import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { writeAudit } from "@/lib/audit";
 import type { AdminSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 const SOURCE = "wordpress";
 const RUN_LOCK_TIMEOUT_MINUTES = 15;
@@ -454,15 +455,16 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
         where: { id: { in: pauseRuleIds } },
         data: { status: "PAUSED", nextExecutionAt: null },
       });
-      await tx.outboundMessage.updateMany({
-        where: { automationRuleId: { in: pauseRuleIds }, status: "PROGRAMADO" },
-        data: {
-          status: "CANCELADO",
-          cancelledAt: syncedAt,
-          errorCode: "COURSE_NOT_ELIGIBLE",
-          errorMessage: "La automatización se pausó porque el curso no está vigente o no tiene fecha o plantilla válida.",
-        },
-      });
+      // La regla queda PAUSED (no ARCHIVED): es reversible por diseño, así que
+      // sus mensajes van a OMITIDO, no a CANCELADO. De lo contrario, si un
+      // administrador reactivara la regla a mano después de que el curso
+      // volviera a estar vigente, rescheduleCourseAutomations no podría
+      // recuperar nada -- CANCELADO no es reprogramable.
+      await quarantineRecoverableMessages(
+        tx,
+        { automationRuleId: { in: pauseRuleIds } },
+        { errorCode: "COURSE_NOT_ELIGIBLE", errorMessage: "La automatización se pausó porque el curso no está vigente o no tiene fecha o plantilla válida." },
+      );
       // Deja rastro por regla y motivo: sin esto no se puede distinguir después
       // una pausa correcta de una provocada por un error de la sincronización.
       await tx.auditLog.create({

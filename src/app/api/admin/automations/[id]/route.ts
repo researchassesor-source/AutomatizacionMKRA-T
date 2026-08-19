@@ -7,9 +7,18 @@ import { requireRole } from "@/lib/auth/authorization";
 import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { prisma } from "@/lib/db";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { cancelIrreversibleMessages, quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 import { CONTENIDO, GESTION } from "@/lib/auth/roles";
 
 const updateSchema = automationRuleFields.partial().extend({ confirm: z.literal(true) });
+
+/**
+ * Campos cuyo cambio puede dejar un mensaje ya renderizado (cuerpo, momento,
+ * canal, o el gate de enlace) desactualizado frente a lo que la regla dice
+ * ahora. `enrollmentStatuses` entra también: cambia a quién le corresponde
+ * el aviso, no solo el texto.
+ */
+const CAMPOS_QUE_AFECTAN_CONTENIDO = ["body", "subject", "trigger", "offsetMinutes", "requiresStreamUrl", "channel", "enrollmentStatuses"] as const;
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(request, CONTENIDO);
@@ -39,27 +48,57 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // Reescribir texto u horario de una regla que ya estaba ACTIVE no la toca,
   // por la misma razon que este campo existe: no volver a colgar el guard de
   // bienvenida de una edicion cualquiera.
-  const activatingNow = (data.status ?? current.status) === "ACTIVE" && current.status !== "ACTIVE";
-  const rule = await prisma.automationRule.update({
-    where: { id },
-    data: { ...data, campaignId, nextExecutionAt, ...(activatingNow ? { activatedAt: new Date() } : {}) },
-  });
-  if (rule.status === "PAUSED") {
-    // Pausa reversible: OMITIDO, no CANCELADO. Reactivar la regla vuelve a
-    // llamar rescheduleCourseAutomations (mas abajo), que reprograma lo que
-    // siga en el futuro por la misma via que MISSING_STREAM_URL/SCHEDULE_RECONCILING.
-    await prisma.outboundMessage.updateMany({
-      where: { automationRuleId: id, status: "PROGRAMADO" },
-      data: { status: "OMITIDO", errorCode: "RULE_PAUSED", errorMessage: "Este aviso se pausó porque la automatización se pausó. Se reanuda solo si vuelve a activarse, mientras siga en el futuro." },
+  const finalStatus = data.status ?? current.status;
+  const activatingNow = finalStatus === "ACTIVE" && current.status !== "ACTIVE";
+  const contentChanged = CAMPOS_QUE_AFECTAN_CONTENIDO.some(
+    (campo) => data[campo] !== undefined && JSON.stringify(data[campo]) !== JSON.stringify(current[campo]),
+  );
+
+  /**
+   * Cuarentena ANTES de guardar, en la misma transacción.
+   *
+   * A diferencia de course/link/session, aquí no hay un cerrojo de último
+   * momento en sendMessage (no vuelve a comprobar el estado ni el contenido
+   * de la regla al enviar): esta cuarentena es la ÚNICA protección contra que
+   * un mensaje ya PROGRAMADO salga con el texto, horario, canal o gate de
+   * enlace VIEJOS justo mientras se guarda la edición.
+   */
+  const rule = await prisma.$transaction(async (tx) => {
+    if (finalStatus === "PAUSED") {
+      // Pausa reversible: OMITIDO, no CANCELADO. Reactivar la regla vuelve a
+      // llamar rescheduleCourseAutomations (mas abajo), que reprograma lo que
+      // siga en el futuro por la misma via que MISSING_STREAM_URL/SCHEDULE_RECONCILING.
+      await quarantineRecoverableMessages(
+        tx,
+        { automationRuleId: id },
+        { errorCode: "RULE_PAUSED", errorMessage: "Este aviso se pausó porque la automatización se pausó. Se reanuda solo si vuelve a activarse, mientras siga en el futuro." },
+      );
+    } else if (finalStatus === "ARCHIVED") {
+      // Archivar es un cierre, no una pausa: preserva historial pero no espera
+      // recuperarse solo con un reschedule.
+      await cancelIrreversibleMessages(
+        tx,
+        { automationRuleId: id },
+        { errorCode: "AUTOMATION_DISABLED", errorMessage: "La automatización fue archivada." },
+      );
+    } else if (finalStatus === "ACTIVE" && contentChanged) {
+      // Sigue (o queda) ACTIVE, pero cambió lo que decide qué sale y cuándo:
+      // se recalcula, no se cancela.
+      await quarantineRecoverableMessages(
+        tx,
+        { automationRuleId: id },
+        { errorCode: "SCHEDULE_RECONCILING", errorMessage: "Esta automatización cambió y este aviso está esperando ser recalculado." },
+      );
+    }
+    return tx.automationRule.update({
+      where: { id },
+      data: { ...data, campaignId, nextExecutionAt, ...(activatingNow ? { activatedAt: new Date() } : {}) },
     });
-  } else if (rule.status === "ARCHIVED") {
-    // Archivar es un cierre, no una pausa: preserva historial pero no espera
-    // recuperarse solo con un reschedule.
-    await prisma.outboundMessage.updateMany({ where: { automationRuleId: id, status: "PROGRAMADO" }, data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: "AUTOMATION_DISABLED", errorMessage: "La automatización fue archivada." } });
-  }
+  });
+
   // Activar o reescribir una regla debe reflejarse de inmediato en las
   // inscripciones vigentes; los mensajes ya enviados no se tocan.
-  const rescheduled = rule.status === "ACTIVE" ? await rescheduleCourseAutomations(rule.courseId) : null;
+  const rescheduled = rule.status === "ACTIVE" ? await rescheduleCourseAutomations(rule.courseId).catch(() => null) : null;
   await writeAudit({ session: auth.session, action: "AUTOMATION_RULE_UPDATED", entityType: "AutomationRule", entityId: id, metadata: { status: rule.status, nextExecutionAt: rule.nextExecutionAt?.toISOString(), rescheduled: rescheduled?.enrollments ?? 0 } });
   return NextResponse.json({ ok: true, rule, rescheduled });
 }
@@ -73,7 +112,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const current = await prisma.automationRule.findUnique({ where: { id }, include: { _count: { select: { messages: true } } } });
   if (!current) return NextResponse.json({ error: "No se encontró la automatización." }, { status: 404 });
   await prisma.$transaction(async (tx) => {
-    await tx.outboundMessage.updateMany({ where: { automationRuleId: id, status: "PROGRAMADO" }, data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: "AUTOMATION_DELETED", errorMessage: "La regla fue eliminada por un administrador." } });
+    await cancelIrreversibleMessages(tx, { automationRuleId: id }, { errorCode: "AUTOMATION_DELETED", errorMessage: "La regla fue eliminada por un administrador." });
     if (current._count.messages === 0) await tx.automationRule.delete({ where: { id } });
     else await tx.automationRule.update({ where: { id }, data: { status: "ARCHIVED" } });
   });

@@ -8,6 +8,7 @@ import { reprogramarOfertaAutomatica } from "@/lib/commerce/offer-campaign";
 import { prisma } from "@/lib/db";
 import { proponerCalendario } from "@/lib/course-schedule-parser";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { cancelIrreversibleMessages, quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -154,25 +155,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
       if (plan.toRemove.length > 0) {
         const removedIds = plan.toRemove.map((session) => session.id);
-        const cancelled = await tx.outboundMessage.updateMany({
-          where: { courseSessionId: { in: removedIds }, status: { in: ["PROGRAMADO", "OMITIDO"] } },
-          data: { status: "CANCELADO", cancelledAt: new Date(), errorCode: "SESSION_REMOVED", errorMessage: "La sesión asociada dejó de existir." },
-        });
-        cancelledMessages = cancelled.count;
+        cancelledMessages = await cancelIrreversibleMessages(
+          tx,
+          { courseSessionId: { in: removedIds } },
+          { errorCode: "SESSION_REMOVED", errorMessage: "La sesión asociada dejó de existir." },
+        );
         await tx.courseSession.deleteMany({ where: { id: { in: removedIds } } });
       }
       if (plan.toUpdate.length > 0) {
         const updatedIds = plan.toUpdate.map((session) => session.id);
-        const quarantined = await tx.outboundMessage.updateMany({
-          where: { courseSessionId: { in: updatedIds }, status: { in: ["PROGRAMADO", "OMITIDO"] } },
-          data: {
-            status: "OMITIDO",
-            errorCode: "SCHEDULE_RECONCILING",
-            errorMessage: "El calendario cambió y este aviso está esperando ser recalculado.",
-            nextAttemptAt: null,
-          },
-        });
-        quarantinedMessages = quarantined.count;
+        quarantinedMessages = await quarantineRecoverableMessages(
+          tx,
+          { courseSessionId: { in: updatedIds } },
+          { errorCode: "SCHEDULE_RECONCILING", errorMessage: "El calendario cambió y este aviso está esperando ser recalculado." },
+        );
         for (const update of plan.toUpdate) {
           await tx.courseSession.update({ where: { id: update.id }, data: { startAt: update.startAt, endAt: update.endAt } });
         }

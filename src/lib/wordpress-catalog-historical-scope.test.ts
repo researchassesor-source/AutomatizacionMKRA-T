@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
     $queryRaw: vi.fn(async () => undefined),
     course: { findMany: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn(), update: vi.fn() },
     automationRule: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn(async () => 0) },
-    outboundMessage: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    outboundMessage: { updateMany: vi.fn(async (_args: any) => ({ count: 0 })) },
     auditLog: { create: vi.fn(async () => undefined) },
   },
   writeAudit: vi.fn(async () => undefined),
@@ -190,6 +190,30 @@ describe("4/5/6/7: HISTORICAL solo alcanza a cursos realmente gestionados por Wo
     expect(ruleManual?.status).toBe("ACTIVE");
     expect(ruleMoodle?.status).toBe("ACTIVE");
     expect(ruleWpMissing?.status).toBe("PAUSED");
+  });
+
+  /**
+   * La regla queda PAUSED (reversible), no ARCHIVED. Sus mensajes pendientes
+   * deben quedar OMITIDO (reprogramable), no CANCELADO: si alguien reactiva la
+   * regla a mano después de que el curso volviera a estar vigente,
+   * rescheduleCourseAutomations necesita poder recuperarlos.
+   */
+  it("los mensajes pendientes de la regla pausada por el sync quedan OMITIDO, no CANCELADO", async () => {
+    courses = [
+      baseCourse({ id: "course-wp-present", externalSource: "wordpress", externalId: "100" }),
+      baseCourse({ id: "course-wp-missing", externalSource: "wordpress", externalId: "200" }),
+    ];
+    rules = [ruleFor("rule-wp-missing", courses[1])];
+    // Catálogo no vacío (trae "100"): "200" está genuinamente ausente, no es
+    // un catálogo vacío que dispararía el guardián fail-closed aparte.
+    const fetcher = fetcherFor([wpSource("100")]);
+
+    await synchronizeWordPressCatalog(session, fetcher);
+
+    expect(mocks.tx.outboundMessage.updateMany).toHaveBeenCalledWith({
+      where: { automationRuleId: { in: ["rule-wp-missing"] }, status: { in: ["PROGRAMADO", "FALLIDO"] } },
+      data: expect.objectContaining({ status: "OMITIDO", errorCode: "COURSE_NOT_ELIGIBLE", nextAttemptAt: null }),
+    });
   });
 });
 

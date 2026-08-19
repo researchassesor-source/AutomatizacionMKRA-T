@@ -77,13 +77,13 @@ describe("apagar un paso", () => {
     expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it("pausa (no cancela) solo los mensajes PROGRAMADO de esas reglas, no el historial", async () => {
+  it("pausa (no cancela) solo los mensajes PROGRAMADO/FALLIDO de esas reglas, no el historial", async () => {
     await peticion("course-1", "reminder_24h", { enabled: false, confirm: true });
     // Recuperable, no CANCELADO: rescheduleCourseAutomations puede reprogramar
     // un OMITIDO cuyo momento siga en el futuro si el paso se reactiva.
     expect(mocks.prisma.outboundMessage.updateMany).toHaveBeenCalledWith({
-      where: { automationRuleId: { in: ["rule-email", "rule-wa"] }, status: "PROGRAMADO" },
-      data: { status: "OMITIDO", errorCode: "RULE_PAUSED", errorMessage: expect.any(String) },
+      where: { automationRuleId: { in: ["rule-email", "rule-wa"] }, status: { in: ["PROGRAMADO", "FALLIDO"] } },
+      data: expect.objectContaining({ status: "OMITIDO", errorCode: "RULE_PAUSED", errorMessage: expect.any(String) }),
     });
   });
 

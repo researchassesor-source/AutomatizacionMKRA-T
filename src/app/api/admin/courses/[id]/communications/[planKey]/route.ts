@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { TIMELINE_STEPS } from "@/lib/course-timeline";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -71,14 +72,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
        * que no hace falta un recovery aparte aqui. Solo lo que aun no ha
        * salido: lo enviado es historial y no se toca.
        */
-      await tx.outboundMessage.updateMany({
-        where: { automationRuleId: { in: ids }, status: "PROGRAMADO" },
-        data: {
-          status: "OMITIDO",
-          errorCode: "RULE_PAUSED",
-          errorMessage: "Este aviso se pausó porque el paso se desactivó. Se reanuda solo si vuelves a activarlo, mientras siga en el futuro.",
-        },
-      });
+      await quarantineRecoverableMessages(
+        tx,
+        { automationRuleId: { in: ids } },
+        { errorCode: "RULE_PAUSED", errorMessage: "Este aviso se pausó porque el paso se desactivó. Se reanuda solo si vuelves a activarlo, mientras siga en el futuro." },
+      );
     }
   });
 

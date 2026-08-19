@@ -13,6 +13,7 @@
     "smoke:catalog": "tsx --env-file=.env scripts/course-catalog-smoke.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "core:gate": "npm run typecheck && npm run lint && npx prisma validate && npm test && npm run build",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

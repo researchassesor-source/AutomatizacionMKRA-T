@@ -2,6 +2,7 @@ import { finalizeCompletedCourseEnrollments, processScheduledMessages } from "@/
 import { processScheduledPosts } from "@/lib/social/orchestrator";
 import { procesarCampanasVencidas } from "@/lib/commerce/offer-campaign";
 import { expirarAtencionesHumanas } from "@/lib/whatsapp/handoff-expiry";
+import { recuperarCodigosTecnicosAtascados } from "@/lib/nurture/technical-recovery";
 
 /**
  * Reloj maestro: un solo despertar para los dos subsistemas.
@@ -38,6 +39,7 @@ export type ResultadoTick = {
   cierres: ResultadoSubsistema;
   ofertas: ResultadoSubsistema;
   atenciones: ResultadoSubsistema;
+  recuperacionTecnica: ResultadoSubsistema;
 };
 
 /** Un fallo inesperado no puede tumbar el reloj entero ni el otro subsistema. */
@@ -142,6 +144,20 @@ async function ejecutarAtenciones(ahora: Date): Promise<ResultadoSubsistema> {
 }
 
 /**
+ * Códigos técnicos (SCHEDULE_RECONCILING) atascados en OMITIDO.
+ *
+ * Es la red por debajo del recalculo puntual que ya dispara cada endpoint
+ * que cuarentena: si ESA llamada fallara y nadie mas la reintentara, el
+ * mensaje se quedaria ahi para siempre. NUNCA toca codigos que dependen de
+ * una condicion de negocio (handoff, pausa, contacto archivado/excluido):
+ * esos exigen que alguien resuelva su condicion primero.
+ */
+async function ejecutarRecuperacionTecnica(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await recuperarCodigosTecnicosAtascados(ahora);
+  return { estado: "ok", resumen: { cursosRecuperados: resumen.cursos } };
+}
+
+/**
  * Ejecuta los subsistemas y devuelve que paso en cada uno.
  *
  * `ok` es cierto solo si ninguno lanzo una excepcion. Un subsistema bloqueado
@@ -158,6 +174,7 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
   // crea pueda ya enviarlas en lugar de esperar al siguiente.
   const ofertas = await aislar("ofertas", () => ejecutarOfertas(ahora));
   const atenciones = await aislar("atenciones", () => ejecutarAtenciones(ahora));
+  const recuperacionTecnica = await aislar("recuperacionTecnica", () => ejecutarRecuperacionTecnica(ahora));
   const [social, comunicaciones] = await Promise.all([
     aislar("social", () => ejecutarSocial(ahora)),
     aislar("comunicaciones", () => ejecutarComunicaciones(ahora)),
@@ -165,7 +182,7 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
 
   return {
     ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error"
-      && ofertas.estado !== "error" && atenciones.estado !== "error",
+      && ofertas.estado !== "error" && atenciones.estado !== "error" && recuperacionTecnica.estado !== "error",
     ejecutadoEn: ahora.toISOString(),
     duracionMs: Date.now() - inicio,
     social,
@@ -173,5 +190,6 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
     cierres,
     ofertas,
     atenciones,
+    recuperacionTecnica,
   };
 }

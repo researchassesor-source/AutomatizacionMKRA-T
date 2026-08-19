@@ -947,8 +947,8 @@ export async function sendMessage(messageId: string) {
     include: {
       lead: true,
       // Para volver a comprobar el derecho justo antes de enviar.
-      enrollment: { include: { course: { select: { isFree: true, automationsPausedAt: true } }, purchases: { select: { status: true } } } },
-      automationRule: { select: { planKey: true } },
+      enrollment: { include: { course: { select: { isFree: true, isPublished: true, automationsPausedAt: true } }, purchases: { select: { status: true } } } },
+      automationRule: { select: { planKey: true, status: true } },
     },
   });
   if (!message) return { ok: false, error: "Mensaje no encontrado." };
@@ -987,6 +987,43 @@ export async function sendMessage(messageId: string) {
       await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "COURSE_AUTOMATIONS_PAUSED" } });
       return { ok: true, skipped: true };
     }
+    /**
+     * Curso despublicado DESPUES de programar este mensaje.
+     *
+     * Es la otra mitad de `courseAcceptsAutomations` (la pausa es la primera):
+     * despublicar es la señal de que la actividad no va. El programador ya lo
+     * excluye para mensajes nuevos; esto protege lo que ya estaba en cola.
+     */
+    if (!message.enrollment.course.isPublished) {
+      await prisma.outboundMessage.update({
+        where: { id: message.id },
+        data: { status: "OMITIDO", errorCode: "COURSE_UNPUBLISHED", errorMessage: "No se envió: el curso ya no está publicado.", nextAttemptAt: null },
+      });
+      await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "COURSE_UNPUBLISHED" } });
+      return { ok: true, skipped: true };
+    }
+  }
+  /**
+   * La regla dejó de estar ACTIVE DESPUES de programar este mensaje.
+   *
+   * Pausar/archivar una regla ya pone sus PROGRAMADO en cuarentena en el
+   * mismo momento (ver automations/[id] PATCH), pero esto es la unica otra
+   * defensa si algun camino futuro cambiara el estado sin pasar por ahi: el
+   * mismo codigo que ya usa esa cuarentena, para que el rastro sea identico
+   * sin importar cual de las dos capas lo detuvo.
+   */
+  if (message.automationRuleId && message.automationRule?.status && message.automationRule.status !== "ACTIVE") {
+    const inactiva = message.automationRule.status === "ARCHIVED"
+      ? { code: "AUTOMATION_DISABLED", message: "No se envió: la automatización fue archivada.", cancel: true }
+      : { code: "RULE_PAUSED", message: "No se envió: la automatización está pausada.", cancel: false };
+    await prisma.outboundMessage.update({
+      where: { id: message.id },
+      data: inactiva.cancel
+        ? { status: "CANCELADO", cancelledAt: now, errorCode: inactiva.code, errorMessage: inactiva.message }
+        : { status: "OMITIDO", errorCode: inactiva.code, errorMessage: inactiva.message, nextAttemptAt: null },
+    });
+    await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: inactiva.code } });
+    return { ok: true, skipped: true };
   }
   /**
    * Atencion humana abierta DESPUES de programar el mensaje.
@@ -1018,6 +1055,18 @@ export async function sendMessage(messageId: string) {
   if (!isAutomationEligibleContact(message.lead.classification, message.lead.consent)) {
     await prisma.outboundMessage.update({ where: { id: message.id }, data: { status: "OMITIDO", errorCode: "CONTACT_EXCLUDED", errorMessage: "Contacto de prueba, demostración, sin clasificar o sin consentimiento." } });
     await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "CONTACT_EXCLUDED", classification: message.lead.classification, consent: message.lead.consent } });
+    return { ok: true, skipped: true };
+  }
+  /**
+   * Contacto archivado DESPUES de programar el mensaje.
+   *
+   * Archivar ya pone sus PROGRAMADO en cuarentena en el mismo momento (ver
+   * leads/[id] PATCH); esto es la segunda defensa, con el mismo código que
+   * usa esa cuarentena.
+   */
+  if (message.lead.isArchived) {
+    await prisma.outboundMessage.update({ where: { id: message.id }, data: { status: "OMITIDO", errorCode: "CONTACT_ARCHIVED", errorMessage: "No se envió: el contacto está archivado.", nextAttemptAt: null } });
+    await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "CONTACT_ARCHIVED" } });
     return { ok: true, skipped: true };
   }
   if (window.state === "simulation") {

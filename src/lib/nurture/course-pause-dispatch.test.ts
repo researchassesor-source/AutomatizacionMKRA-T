@@ -35,7 +35,7 @@ function message(overrides: Record<string, any> = {}) {
     automationRule: { planKey: "welcome" },
     enrollment: {
       status: "INSCRITO",
-      course: { isFree: true, automationsPausedAt: null },
+      course: { isFree: true, isPublished: true, automationsPausedAt: null },
       purchases: [],
     },
     ...overrides,

@@ -18,6 +18,7 @@ const procesarComunicaciones = vi.fn();
 const cerrarInscripciones = vi.fn();
 const procesarOfertas = vi.fn();
 const procesarAtenciones = vi.fn();
+const procesarRecuperacionTecnica = vi.fn();
 
 vi.mock("@/lib/social/orchestrator", () => ({
   processScheduledPosts: (...args: unknown[]) => procesarPublicaciones(...args),
@@ -28,6 +29,9 @@ vi.mock("@/lib/commerce/offer-campaign", () => ({
 }));
 vi.mock("@/lib/whatsapp/handoff-expiry", () => ({
   expirarAtencionesHumanas: (...args: unknown[]) => procesarAtenciones(...args),
+}));
+vi.mock("@/lib/nurture/technical-recovery", () => ({
+  recuperarCodigosTecnicosAtascados: (...args: unknown[]) => procesarRecuperacionTecnica(...args),
 }));
 
 vi.mock("@/lib/nurture/engine", () => ({
@@ -62,6 +66,7 @@ beforeEach(() => {
   cerrarInscripciones.mockReset().mockResolvedValue({ completed: 0, cancelled: 0 });
   procesarOfertas.mockReset().mockResolvedValue({ campanas: 0, encolados: 0 });
   procesarAtenciones.mockReset().mockResolvedValue({ liberadas: 0, cursosReprogramados: 0 });
+  procesarRecuperacionTecnica.mockReset().mockResolvedValue({ cursos: 0 });
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -236,6 +241,31 @@ describe("atenciones humanas abandonadas", () => {
     const { GET } = await import("./tick/route");
     const cuerpo = await (await GET(conBearer())).json();
     expect(cuerpo.atenciones).toMatchObject({ estado: "error" });
+    expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
+    errores.mockRestore();
+  });
+});
+
+describe("recuperación técnica (códigos como SCHEDULE_RECONCILING atascados)", () => {
+  it("se procesa en cada tick", async () => {
+    const { GET } = await import("./tick/route");
+    await GET(conBearer());
+    expect(procesarRecuperacionTecnica).toHaveBeenCalledTimes(1);
+  });
+
+  it("informa de los cursos recuperados", async () => {
+    procesarRecuperacionTecnica.mockResolvedValue({ cursos: 3 });
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.recuperacionTecnica).toMatchObject({ estado: "ok", resumen: { cursosRecuperados: 3 } });
+  });
+
+  it("si falla, el despacho sigue ejecutandose", async () => {
+    procesarRecuperacionTecnica.mockRejectedValue(new Error("base caída"));
+    const errores = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.recuperacionTecnica).toMatchObject({ estado: "error" });
     expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
     errores.mockRestore();
   });

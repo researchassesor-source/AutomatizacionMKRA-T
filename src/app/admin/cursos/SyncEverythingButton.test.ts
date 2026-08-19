@@ -3,107 +3,90 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Hallazgo original de producción: el botón mandaba `{ confirm: true }` al
- * sync de WordPress (422 silencioso), y además solo consultaba fechas para
- * cursos SIN ninguna sesión — un cambio de fecha en WordPress sobre un curso
- * que YA tenía sesiones nunca se detectaba.
+ * Sección K/L del release de estabilización: el flujo anterior encadenaba
+ * "sincronizar catálogo" -> refrescar la lista EN EL NAVEGADOR -> un GET por
+ * curso sobre esa lista ya vieja. Un curso nuevo, descubierto por el mismo
+ * sync, quedaba fuera de la lectura de fechas hasta un segundo clic. Ahora
+ * todo el trabajo ocurre en un solo viaje de servidor (/catalog/analyze), y
+ * "Aplicar todos los cambios seguros" es una única confirmación global
+ * (/catalog/apply-all), nunca curso por curso.
  */
 const source = readFileSync(join(process.cwd(), "src/app/admin/cursos/SyncEverythingButton.tsx"), "utf8");
-const routeSource = readFileSync(
-  join(process.cwd(), "src/app/api/admin/courses/catalog/sync/route.ts"),
-  "utf8",
-);
+const analyzeRouteSource = readFileSync(join(process.cwd(), "src/app/api/admin/courses/catalog/analyze/route.ts"), "utf8");
+const applyAllRouteSource = readFileSync(join(process.cwd(), "src/app/api/admin/courses/catalog/apply-all/route.ts"), "utf8");
 
-describe("payload de sincronización de catálogo", () => {
-  it("manda exactamente el literal que exige el endpoint", () => {
-    const llamadaSync = source.slice(source.indexOf('fetch("/api/admin/courses/catalog/sync"'), source.indexOf(".catch(() => null);"));
-    expect(llamadaSync).toContain('body: JSON.stringify({ confirm: "SYNC_WORDPRESS_READ_ONLY" })');
-    expect(llamadaSync).not.toContain("confirm: true");
+describe("un solo viaje de servidor (no más N+1 desde el navegador)", () => {
+  it("no queda ningún bucle de fetch por curso en el cliente", () => {
+    // El patrón que causaba el incidente: iterar cursos y hacer un fetch por
+    // cada uno desde el navegador. Con el orquestador ya no hace falta.
+    expect(source).not.toMatch(/for\s*\([^)]*\)\s*\{[^}]*fetch\(/s);
+    expect(source).not.toContain("courses.entries()");
   });
 
-  it("el literal coincide con lo que la ruta de sync realmente exige", () => {
-    expect(routeSource).toContain('z.literal("SYNC_WORDPRESS_READ_ONLY")');
+  it("analiza con una sola llamada a /catalog/analyze", () => {
+    expect(source).toContain('fetch("/api/admin/courses/catalog/analyze"');
+    const llamada = source.slice(source.indexOf('fetch("/api/admin/courses/catalog/analyze"'), source.indexOf(".catch(() => null);"));
+    expect(llamada).toContain('body: JSON.stringify({ confirm: "SYNC_WORDPRESS_READ_ONLY" })');
   });
 
-  it("un error de catálogo no crea nada automáticamente: solo avisa y sigue leyendo", () => {
-    const trasSync = source.slice(source.indexOf("if (sync && !sync.ok)"), source.indexOf("const encontradas: Propuesta[]"));
-    expect(trasSync).not.toMatch(/method:\s*"POST"/);
+  it("el literal que manda coincide con lo que la ruta de análisis exige", () => {
+    expect(analyzeRouteSource).toContain('z.literal("SYNC_WORDPRESS_READ_ONLY")');
+  });
+});
+
+describe("el modal global muestra los cuatro totales exigidos", () => {
+  it("sin cambios, con nuevas fechas, nuevos y sin fecha", () => {
+    expect(source).toContain("sin cambios");
+    expect(source).toContain("con nuevas fechas");
+    expect(source).toContain("nuevo{totals.newCourse === 1");
+    expect(source).toContain("sin fecha");
+  });
+
+  it("nada se crea ni se modifica hasta confirmar", () => {
     expect(source).toContain("Nada se crea ni se modifica hasta que confirmes");
   });
 });
 
-describe("detección de cambios de calendario (hallazgo: sesiones existentes nunca se comparaban)", () => {
-  it("consulta schedule-proposal para TODOS los cursos recibidos, no solo los que no tienen sesiones", () => {
-    // La causa del incidente era exactamente este filtro; no debe volver.
-    expect(source).not.toContain("course.sessionsCount === 0");
-    expect(source).toContain("for (const [indice, course] of courses.entries())");
+describe("aplicar todos los cambios seguros: una sola confirmación global", () => {
+  it("manda el literal APPLY_ALL_SAFE_CHANGES a /catalog/apply-all, con la lista completa de items", () => {
+    const inicio = source.indexOf('fetch("/api/admin/courses/catalog/apply-all"');
+    expect(inicio).toBeGreaterThan(-1);
+    const fin = source.indexOf(").catch(() => null);", inicio);
+    const llamada = source.slice(inicio, fin);
+    expect(llamada).toContain('confirm: "APPLY_ALL_SAFE_CHANGES"');
+    expect(llamada).toContain("aplicables.map(");
   });
 
-  it("un calendario que ya coincide (CALENDARIO_IGUAL) no genera ninguna fila", () => {
-    expect(source).toContain('if (status === "CALENDARIO_IGUAL") continue;');
+  it("el literal coincide con lo que la ruta de aplicación global exige", () => {
+    expect(applyAllRouteSource).toContain('z.literal("APPLY_ALL_SAFE_CHANGES")');
   });
 
-  it("clasifica con el status que devuelve el servidor, con reserva por compatibilidad", () => {
-    expect(source).toContain('const status: CalendarStatus = result.status ?? (result.ok ? "SIN_CALENDARIO_CRM" : "ERROR");');
-  });
-});
-
-describe("confirmación explícita de un cambio de calendario", () => {
-  it("muestra el calendario actual y el propuesto antes de aplicar nada", () => {
-    expect(source).toContain("Las fechas publicadas cambiaron");
-    expect(source).toContain("Actual en CRM:");
-    expect(source).toContain("Publicado en la web:");
-    expect(source).toContain("listaFechas(item.existingSessions)");
-    expect(source).toContain("listaFechas(item.sessions)");
+  it("no hay un botón de confirmación por curso individual: solo el checkbox de exclusión y el botón global", () => {
+    expect(source).not.toContain("Actualizar calendario");
+    expect(source).not.toMatch(/onClick=\{.*courseId.*aplicar/);
+    expect(source).toContain("Aplicar todos los cambios seguros");
   });
 
-  it("explica que solo se recalculan los mensajes pendientes y que lo enviado se conserva", () => {
-    expect(source).toContain("se recalcularán únicamente los mensajes pendientes");
-    expect(source).toContain("Los mensajes ya enviados se conservarán como historial");
-  });
-
-  it("ofrece exactamente los dos botones esperados, por curso", () => {
-    expect(source).toContain("Mantener fechas actuales");
-    expect(source).toContain("Actualizar calendario");
-  });
-
-  it("«Mantener fechas actuales» no llama a ningún endpoint: solo descarta la propuesta local", () => {
-    const fn = source.slice(source.indexOf("function mantenerFechas"), source.indexOf("function mantenerFechas") + 200);
-    expect(fn).not.toContain("fetch(");
-    expect(fn).not.toContain("aplicar(");
-    expect(source).toContain("onClick={() => mantenerFechas(item.courseId)}");
-  });
-
-  it("«Actualizar calendario» manda el literal APPLY_WORDPRESS_SCHEDULE junto con la revisión vista en el GET", () => {
-    const cuerpo = source.slice(source.indexOf("body: JSON.stringify({"), source.indexOf("}),\n    });"));
-    expect(cuerpo).toContain('confirm: "APPLY_WORDPRESS_SCHEDULE"');
-    expect(cuerpo).toContain("calendarRevision: propuesta.calendarRevision");
-    expect(cuerpo).not.toContain("confirm: true");
-    expect(source).toContain("onClick={() => actualizarCalendario(item)}");
-  });
-
-  it("el botón de aplicar se deshabilita mientras esa fila está en curso, sin bloquear las demás", () => {
-    expect(source).toContain("disabled={procesando.has(item.courseId)}");
+  it("un curso excluido con el checkbox no entra en la lista que se manda a aplicar", () => {
+    expect(source).toContain("excluidos.has(item.courseId)");
+    expect(source).toContain(".filter((item) => !excluidos.has(item.courseId))");
   });
 });
 
-describe("concurrencia: la ruta puede rechazar un calendario desactualizado o quedar a medio recalcular", () => {
-  it("guarda la calendarRevision recibida del GET en cada propuesta", () => {
-    expect(source).toContain("calendarRevision: result.calendarRevision");
+describe("un curso desactualizado (REVISION_MISMATCH) queda visible para reintentar, no se pierde en silencio", () => {
+  it("distingue el motivo de desactualización de un fallo genérico", () => {
+    expect(source).toContain("REVISION_MISMATCH");
+    expect(source).toContain("cambió mientras revisabas");
   });
 
-  it("un 409 (calendario cambió mientras se revisaba) nunca se confunde con un fallo genérico", () => {
-    expect(source).toContain('if (response.status === 409) return "conflicto";');
-    expect(source).toContain("El calendario cambió mientras lo revisabas. Sincroniza de nuevo antes de aplicarlo.");
+  it("los cursos con revisión desactualizada permanecen en pantalla tras aplicar", () => {
+    expect(source).toContain("stale.includes(item.courseId)");
   });
+});
 
-  it("calendarUpdated:true + messagesSafe:true nunca se muestra como \"no se aplicó ningún cambio\"", () => {
-    const ramaRecalculo = source.slice(source.indexOf('resultado === "recalculo_pendiente"'), source.indexOf("} else {"));
-    expect(ramaRecalculo).not.toContain("No se aplicó ningún cambio");
-    expect(source).toContain("El calendario se actualizó, pero los recordatorios quedaron detenidos de forma segura. Reintenta para completar el recálculo.");
-  });
-
-  it("«no se aplicó ningún cambio» solo aparece en la rama de error genérico real", () => {
-    expect(source).toContain('detail: "No se aplicó ningún cambio. Puedes intentarlo de nuevo."');
+describe("resiliencia: un fallo de red al analizar no dice nada falso", () => {
+  it("un análisis fallido avisa y vuelve a idle, sin dejar el modal a medias", () => {
+    const rama = source.slice(source.indexOf("if (!response || !response.ok)"), source.indexOf("const body = await response.json();"));
+    expect(rama).toContain('setFase("idle")');
   });
 });

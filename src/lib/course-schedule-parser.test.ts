@@ -117,3 +117,67 @@ describe("propuesta completa", () => {
     expect(resultado.motivo).toContain("no publica el campo");
   });
 });
+
+/**
+ * Sección M del release de estabilización.
+ *
+ * HTML capturado en vivo de ra-training.com (2026-08-19) contra tres cursos
+ * reales distintos, no inventado: el diseño `dato__etiqueta`/`dato__valor`
+ * legacy ya no existe en ningún curso publicado. El nuevo bloque es
+ * `tk-dates` con un `<h3>` como etiqueta. Ningún curso real disponible en ese
+ * momento tenía fecha publicada todavía (todos mostraban "Próximamente"), así
+ * que el caso de fechas múltiples bajo este diseño se prueba con una
+ * variante estructuralmente fiel al HTML real (misma jerarquía de clases),
+ * no con una fecha real observada — se documenta así a propósito, para no
+ * dar a entender más certeza de la que hay.
+ */
+const FICHA_ACTUAL_PROXIMAMENTE = `<div class="tk-line"></div>
+					<div class="tk-dates">
+						<div class="dt-head"><span class="ic"><svg viewBox="0 0 24 24"></svg></span><h3>INICIO DEL CURSO</h3></div>
+						<div class="dt-card">
+							<div class="dt-days">
+								<div class="dt-day"><b style="font-size:17px;font-family:'Poppins',sans-serif">Próximamente</b></div>						</div>
+
+						</div>
+					</div>
+					<div class="tk-cta">
+						<span class="tk-cta-tag">Tu próximo paso</span>
+						<h3 class="tk-cta-h">Empieza hoy</h3>
+					</div>`;
+
+describe("diseño actual del sitio (tk-dates / INICIO DEL CURSO)", () => {
+  it("lee «Próximamente» del HTML real capturado en vivo, con la etiqueta correcta", () => {
+    expect(extraerCampos(FICHA_ACTUAL_PROXIMAMENTE)).toEqual({ inicio: "Próximamente" });
+  });
+
+  it("proponerCalendario sobre el HTML real actual explica que no hay fecha, sin fallar en silencio", () => {
+    const resultado = proponerCalendario(FICHA_ACTUAL_PROXIMAMENTE, AHORA);
+    expect(resultado.ok).toBe(false);
+    if (resultado.ok) return;
+    expect(resultado.motivo).toContain("todavía no anuncia fechas");
+    expect(resultado.fuenteInicio).toBe("Próximamente");
+  });
+
+  it("el diseño actual no publica horario en ningún lugar: nunca se inventa una hora", () => {
+    expect(extraerCampos(FICHA_ACTUAL_PROXIMAMENTE).horario).toBeUndefined();
+  });
+
+  it("si el diseño actual sí llega a publicar una fecha con el mismo formato que el legacy, se lee igual", () => {
+    // Variante estructuralmente fiel (misma jerarquía tk-dates/dt-head/h3/
+    // dt-card/dt-days/dt-day) con un valor de fecha en vez de "Próximamente".
+    // No es una fecha observada en producción: ver el comentario del describe.
+    const conFecha = FICHA_ACTUAL_PROXIMAMENTE.replace("Próximamente", "11, 12 y 13 de Agosto");
+    expect(extraerCampos(conFecha).inicio).toBe("11, 12 y 13 de Agosto");
+    expect(parsearFechas(extraerCampos(conFecha).inicio ?? "", AHORA)).toMatchObject({ days: [11, 12, 13], month: 7 });
+  });
+
+  it("el diseño legacy manda si ambos aparecen en la misma página (transición gradual del sitio)", () => {
+    const mixto = ficha("20 de agosto", "Martes 7:30-9:00 pm") + FICHA_ACTUAL_PROXIMAMENTE;
+    expect(extraerCampos(mixto).inicio).toBe("20 de agosto");
+  });
+
+  it("un bloque tk-dates sin la marca de cierre tk-cta no arrastra el resto de la página", () => {
+    const incompleto = '<div class="tk-dates"><div class="dt-head"><h3>INICIO DEL CURSO</h3></div><div class="dt-card">roto';
+    expect(extraerCampos(incompleto).inicio).toBeUndefined();
+  });
+});

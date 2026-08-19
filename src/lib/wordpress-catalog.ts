@@ -518,6 +518,10 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
     let conflicts = 0;
     let ignored = 0;
     let errors = 0;
+    // IDs (no solo el conteo) de lo creado en ESTA vuelta: el orquestador de
+    // sync los necesita para distinguir "curso nuevo" de "cambio de fecha" en
+    // el mismo barrido, sin adivinar por createdAt.
+    const createdCourseIds: string[] = [];
     const currentCourseIds = new Set<string>();
     const conflictCourseIds = new Set<string>();
     const conflictItems: ConflictItem[] = [];
@@ -527,7 +531,7 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
     for (const source of sourceCourses) {
       try {
         const result = await synchronizeSourceCourse(source, syncedAt);
-        if (result.outcome === "created") created++;
+        if (result.outcome === "created") { created++; createdCourseIds.push(result.courseId); }
         if (result.outcome === "updated") updated++;
         if (result.outcome === "unchanged") unchanged++;
         if (result.outcome === "ignored") {
@@ -604,7 +608,7 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
       result: errors ? "FAILURE" : "SUCCESS",
       metadata: { discovered: sourceCourses.length, created, updated, unchanged, ignored, conflicts, errors, ...reconciliation, readOnlySource: true },
     });
-    return { runId: run.id, discovered: sourceCourses.length, created, updated, unchanged, ignored, ignoredItems, conflicts, errors, ...reconciliation };
+    return { runId: run.id, discovered: sourceCourses.length, created, createdCourseIds, updated, unchanged, ignored, ignoredItems, conflicts, errors, ...reconciliation };
   } catch (error) {
     const code = safeWordPressErrorCode(error);
     await prisma.catalogSyncRun.update({ where: { id: run.id }, data: { status: "ERROR", errors: 1, error: code, completedAt: new Date() } });

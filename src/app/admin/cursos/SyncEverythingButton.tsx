@@ -4,26 +4,23 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useFeedback } from "../Feedback";
 
-type Curso = { id: string; title: string; enrollments: number; sessionsCount: number };
-
-type CalendarStatus = "SIN_CALENDARIO_CRM" | "CALENDARIO_IGUAL" | "CALENDARIO_CAMBIADO" | "SIN_FECHA_EN_WORDPRESS" | "ERROR";
-
+type ItemStatus = "NEW_COURSE" | "SCHEDULE_CHANGED" | "NO_SCHEDULE_SOURCE" | "ERROR";
 type SesionJSON = { startAt: string; endAt: string | null };
+type ExistingSessionJSON = { startAt: string; endAt: string | null };
 
-type Propuesta = {
+type DiffItem = {
   courseId: string;
   courseTitle: string;
-  enrollments: number;
-  status: CalendarStatus;
+  status: ItemStatus;
   motivo?: string;
   fuenteInicio?: string | null;
   sessions?: SesionJSON[];
-  existingSessions?: SesionJSON[];
-  /** Huella del calendario tal como se vio en el GET; la ruta la exige al confirmar. */
-  calendarRevision?: string;
+  existingSessions: ExistingSessionJSON[];
+  calendarRevision: string;
+  enrollments: number;
 };
 
-type ResultadoAplicar = "ok" | "conflicto" | "recalculo_pendiente" | "error";
+type Totals = { unchanged: number; newCourse: number; scheduleChanged: number; noScheduleSource: number; error: number };
 
 const formatoFecha = new Intl.DateTimeFormat("es-EC", { day: "numeric", month: "short", timeZone: "America/Guayaquil" });
 const formatoHora = new Intl.DateTimeFormat("es-EC", { timeStyle: "short", timeZone: "America/Guayaquil" });
@@ -33,240 +30,164 @@ function listaFechas(sesiones: SesionJSON[] | undefined) {
 }
 
 /**
- * Un solo boton para poner el catalogo al dia.
+ * Un solo botón, un solo viaje de servidor, una sola confirmación.
  *
- * Antes eran dos pasos separados: sincronizar con WordPress y, curso por
- * curso, traer las fechas. Son la misma intencion —"que el CRM refleje lo que
- * dice la web"— asi que van juntas.
- *
- * Lo que no cambia: las fechas siguen sin crearse ni actualizarse solas. Se
- * leen todas de una vez y se muestran juntas para confirmarlas, porque
- * programar (o reprogramar) el dia equivocado manda recordatorios reales a
- * personas reales. Antes solo se miraban los cursos SIN ninguna sesion, asi
- * que un cambio de fecha en WordPress sobre un curso que ya tenia sesiones
- * nunca se detectaba: el CRM seguia calculando mensajes sobre la fecha vieja.
- * Ahora se consultan todos los cursos publicados y se distingue cuando el
- * calendario cambio de cuando ya coincide.
+ * Antes: sincronizar catálogo -> refrescar la lista EN EL NAVEGADOR -> un GET
+ * por curso sobre esa lista ya vieja -> un curso nuevo, descubierto por el
+ * mismo sync, quedaba fuera hasta un segundo clic. Ahora todo el trabajo
+ * (sincronizar, descubrir nuevos, leer TODOS los calendarios) ocurre en el
+ * servidor dentro de una sola llamada a /catalog/analyze (sección K del
+ * release de estabilización), y "Aplicar todos los cambios seguros" manda
+ * exactamente lo que se mostró a /catalog/apply-all en una sola confirmación
+ * global (sección L) — nunca curso por curso.
  */
-export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Curso[]; canSyncCatalog: boolean }) {
+export function SyncEverythingButton({ canSyncCatalog }: { canSyncCatalog: boolean }) {
   const router = useRouter();
   const { toast } = useFeedback();
-  const [fase, setFase] = useState<"idle" | "trabajando" | "revisando">("idle");
-  const [paso, setPaso] = useState("");
-  const [propuestas, setPropuestas] = useState<Propuesta[]>([]);
-  const [procesando, setProcesando] = useState<Set<string>>(new Set());
+  const [fase, setFase] = useState<"idle" | "analizando" | "revisando" | "aplicando">("idle");
+  const [totals, setTotals] = useState<Totals | null>(null);
+  const [items, setItems] = useState<DiffItem[]>([]);
+  const [excluidos, setExcluidos] = useState<Set<string>>(new Set());
 
-  async function actualizar() {
-    setFase("trabajando");
+  async function analizar() {
+    setFase("analizando");
+    const response = await fetch("/api/admin/courses/catalog/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "SYNC_WORDPRESS_READ_ONLY" }),
+    }).catch(() => null);
 
-    if (canSyncCatalog) {
-      setPaso("Sincronizando el catálogo con la web…");
-      const sync = await fetch("/api/admin/courses/catalog/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: "SYNC_WORDPRESS_READ_ONLY" }),
-      }).catch(() => null);
-      if (sync && !sync.ok) {
-        const detalle = await sync.json().catch(() => ({}));
-        toast({ tone: "warning", title: "El catálogo no se pudo sincronizar", detail: detalle.error ?? "Se continúa con las fechas." });
-      }
+    if (!response || !response.ok) {
+      const detalle = await response?.json().catch(() => ({}));
+      toast({ tone: "warning", title: "No se pudo sincronizar con la web", detail: detalle?.error ?? "Inténtalo de nuevo en un momento." });
+      setFase("idle");
+      return;
     }
-
-    const encontradas: Propuesta[] = [];
-    for (const [indice, course] of courses.entries()) {
-      setPaso(`Leyendo fechas (${indice + 1} de ${courses.length})…`);
-      try {
-        const response = await fetch(`/api/admin/courses/${course.id}/schedule-proposal`, { cache: "no-store" });
-        const result = await response.json();
-        const status: CalendarStatus = result.status ?? (result.ok ? "SIN_CALENDARIO_CRM" : "ERROR");
-        // Sin ruido: si el calendario ya coincide, no hay nada que revisar.
-        if (status === "CALENDARIO_IGUAL") continue;
-        encontradas.push({
-          courseId: course.id,
-          courseTitle: course.title,
-          enrollments: course.enrollments,
-          status,
-          motivo: result.motivo,
-          fuenteInicio: result.fuenteInicio,
-          sessions: result.sessions,
-          existingSessions: result.existingSessions,
-          calendarRevision: result.calendarRevision,
-        });
-      } catch {
-        encontradas.push({ courseId: course.id, courseTitle: course.title, enrollments: course.enrollments, status: "ERROR", motivo: "No se pudo abrir la página del curso." });
-      }
-    }
-
-    setPropuestas(encontradas);
+    const body = await response.json();
+    setTotals(body.totals);
+    setItems(body.items ?? []);
+    setExcluidos(new Set());
     setFase("revisando");
     router.refresh();
   }
 
-  /** Aplica un calendario YA CONFIRMADO. Nunca se llama sin que alguien haya pulsado un botón explícito. */
-  async function aplicar(propuesta: Propuesta): Promise<ResultadoAplicar> {
-    const response = await fetch(`/api/admin/courses/${propuesta.courseId}/schedule-proposal`, {
+  const nuevos = items.filter((item) => item.status === "NEW_COURSE");
+  const cambiados = items.filter((item) => item.status === "SCHEDULE_CHANGED");
+  const sinFecha = items.filter((item) => item.status === "NO_SCHEDULE_SOURCE" || item.status === "ERROR");
+  const aplicables = [...nuevos, ...cambiados].filter((item) => !excluidos.has(item.courseId));
+
+  function alternarExclusion(courseId: string) {
+    setExcluidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(courseId)) next.delete(courseId);
+      else next.add(courseId);
+      return next;
+    });
+  }
+
+  async function aplicarTodos() {
+    if (aplicables.length === 0) return;
+    setFase("aplicando");
+    const response = await fetch("/api/admin/courses/catalog/apply-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        confirm: "APPLY_WORDPRESS_SCHEDULE",
-        calendarRevision: propuesta.calendarRevision,
-        sessions: propuesta.sessions ?? [],
+        confirm: "APPLY_ALL_SAFE_CHANGES",
+        items: aplicables.map((item) => ({ courseId: item.courseId, calendarRevision: item.calendarRevision, sessions: item.sessions ?? [] })),
       }),
-    });
-    if (response.ok) return "ok";
-    if (response.status === 409) return "conflicto";
-    const detalle = await response.json().catch(() => ({}));
-    if (detalle.calendarUpdated && detalle.messagesSafe) return "recalculo_pendiente";
-    return "error";
-  }
+    }).catch(() => null);
 
-  /** Grupo de cursos sin ninguna sesión previa: confirmación en bloque, como antes. */
-  async function confirmarNuevas() {
-    setFase("trabajando");
-    let cursos = 0;
-    let sesiones = 0;
-    let conAviso = 0;
-    for (const propuesta of nuevas) {
-      setPaso(`Programando ${propuesta.courseTitle}…`);
-      const resultado = await aplicar(propuesta);
-      if (resultado === "ok") {
-        cursos++;
-        sesiones += propuesta.sessions?.length ?? 0;
-      } else if (resultado === "conflicto" || resultado === "recalculo_pendiente") {
-        conAviso++;
-      }
+    if (!response || !response.ok) {
+      toast({ tone: "warning", title: "No se pudo aplicar los cambios", detail: "Inténtalo de nuevo." });
+      setFase("revisando");
+      return;
     }
-    setPropuestas((prev) => prev.filter((p) => p.status !== "SIN_CALENDARIO_CRM"));
-    setFase("revisando");
+    const body = await response.json();
+    const stale: string[] = (body.resultados ?? []).filter((r: { ok: boolean; code?: string }) => !r.ok && r.code === "REVISION_MISMATCH").map((r: { courseId: string }) => r.courseId);
     toast({
-      tone: cursos > 0 ? "success" : "warning",
-      title: cursos > 0 ? `${sesiones} sesiones programadas en ${cursos} curso${cursos === 1 ? "" : "s"}` : "No se programó ninguna sesión",
-      detail: cursos > 0
-        ? "Los recordatorios ya se calcularon para quienes están inscritos."
-        : conAviso > 0
-          ? "Sincroniza de nuevo: el calendario de algún curso cambió mientras lo revisabas."
-          : undefined,
+      tone: body.fallidos > 0 || body.desactualizados > 0 ? "warning" : "success",
+      title: `${body.aplicados} curso${body.aplicados === 1 ? "" : "s"} actualizado${body.aplicados === 1 ? "" : "s"}`,
+      detail: body.desactualizados > 0
+        ? `${body.desactualizados} curso${body.desactualizados === 1 ? "" : "s"} cambió mientras revisabas; vuelve a sincronizarlo${body.desactualizados === 1 ? "" : "s"}.`
+        : body.fallidos > 0
+          ? `${body.fallidos} curso${body.fallidos === 1 ? "" : "s"} no se pudo actualizar. Puedes reintentarlo.`
+          : "Los recordatorios ya se recalcularon para quienes están inscritos.",
     });
+    // Los que quedaron desactualizados o fallidos siguen en pantalla para reintentar; el resto se retira.
+    setItems((prev) => prev.filter((item) => stale.includes(item.courseId) || item.status === "NO_SCHEDULE_SOURCE" || item.status === "ERROR" || excluidos.has(item.courseId)));
+    setFase(items.some((item) => stale.includes(item.courseId)) ? "revisando" : "idle");
     router.refresh();
   }
 
-  /** Cambio de calendario de UN curso, decidido individualmente. */
-  async function actualizarCalendario(propuesta: Propuesta) {
-    setProcesando((prev) => new Set(prev).add(propuesta.courseId));
-    try {
-      const resultado = await aplicar(propuesta);
-      if (resultado === "ok") {
-        setPropuestas((prev) => prev.filter((p) => p.courseId !== propuesta.courseId));
-        toast({
-          tone: "success",
-          title: `Calendario de "${propuesta.courseTitle}" actualizado`,
-          detail: "Se recalcularon únicamente los mensajes pendientes. Los ya enviados se conservan como historial.",
-        });
-        router.refresh();
-      } else if (resultado === "conflicto") {
-        toast({
-          tone: "warning",
-          title: `"${propuesta.courseTitle}": el calendario cambió mientras lo revisabas`,
-          detail: "El calendario cambió mientras lo revisabas. Sincroniza de nuevo antes de aplicarlo.",
-        });
-      } else if (resultado === "recalculo_pendiente") {
-        // El calendario SÍ cambió: nunca decir "no se aplicó ningún cambio" aquí.
-        setPropuestas((prev) => prev.filter((p) => p.courseId !== propuesta.courseId));
-        toast({
-          tone: "warning",
-          title: `"${propuesta.courseTitle}": calendario actualizado, recálculo pendiente`,
-          detail: "El calendario se actualizó, pero los recordatorios quedaron detenidos de forma segura. Reintenta para completar el recálculo.",
-        });
-        router.refresh();
-      } else {
-        toast({ tone: "warning", title: `No se pudo actualizar "${propuesta.courseTitle}"`, detail: "No se aplicó ningún cambio. Puedes intentarlo de nuevo." });
-      }
-    } finally {
-      setProcesando((prev) => {
-        const next = new Set(prev);
-        next.delete(propuesta.courseId);
-        return next;
-      });
-    }
-  }
-
-  function mantenerFechas(courseId: string) {
-    setPropuestas((prev) => prev.filter((p) => p.courseId !== courseId));
-  }
-
-  const nuevas = propuestas.filter((item) => item.status === "SIN_CALENDARIO_CRM" && item.sessions?.length);
-  const cambiadas = propuestas.filter((item) => item.status === "CALENDARIO_CAMBIADO");
-  const sinFechas = propuestas.filter((item) => item.status === "SIN_FECHA_EN_WORDPRESS" || item.status === "ERROR");
+  if (!canSyncCatalog) return null;
 
   return (
     <>
-      <button type="button" className="btn-sm" onClick={actualizar} disabled={fase === "trabajando"}>
-        {fase === "trabajando" ? "Sincronizando…" : "Sincronizar con la web"}
+      <button type="button" className="btn-sm" onClick={analizar} disabled={fase === "analizando"}>
+        {fase === "analizando" ? "Sincronizando…" : "Sincronizar con la web"}
       </button>
 
-      {fase === "trabajando" && paso ? (
+      {fase === "analizando" ? (
         <div className="dialog-backdrop" role="presentation">
           <div className="dialog" role="status" aria-live="polite">
-            <h2>Actualizando</h2>
-            <p>{paso}</p>
+            <h2>Sincronizando</h2>
+            <p>Leyendo el catálogo y el calendario de cada curso…</p>
             <div className="progress-bar" aria-hidden="true"><span /></div>
           </div>
         </div>
       ) : null}
 
-      {fase === "revisando" ? (
+      {(fase === "revisando" || fase === "aplicando") && totals ? (
         <div className="dialog-backdrop" role="presentation">
           <div className="dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="sync-titulo">
             <h2 id="sync-titulo">Esto encontré en la web</h2>
-            <p>Revísalo antes de aplicar. Nada se crea ni se modifica hasta que confirmes.</p>
+            <p className="sync-resumen">
+              <strong>{totals.unchanged}</strong> sin cambios · <strong>{totals.scheduleChanged}</strong> con nuevas fechas ·{" "}
+              <strong>{totals.newCourse}</strong> nuevo{totals.newCourse === 1 ? "" : "s"} · <strong>{totals.noScheduleSource + totals.error}</strong> sin fecha
+            </p>
+            <p className="muted">Revísalo antes de aplicar. Nada se crea ni se modifica hasta que confirmes.</p>
 
-            {cambiadas.length > 0 ? (
+            {cambiados.length > 0 ? (
               <div className="sync-group">
                 <h3>Las fechas publicadas cambiaron</h3>
-                {cambiadas.map((item) => (
-                  <div className="sync-item" key={item.courseId}>
-                    <strong>{item.courseTitle}</strong>
-                    <p className="muted">Actual en CRM:</p>
-                    <ul>{listaFechas(item.existingSessions).map((linea) => <li key={linea}>{linea}</li>)}</ul>
-                    <p className="muted">Publicado en la web:</p>
-                    <ul>{listaFechas(item.sessions).map((linea) => <li key={linea}>{linea}</li>)}</ul>
-                    {item.enrollments > 0 ? (
-                      <em>
-                        Hay {item.enrollments} inscrito{item.enrollments === 1 ? "" : "s"}. Al aplicar el cambio se recalcularán únicamente los mensajes pendientes.
-                        Los mensajes ya enviados se conservarán como historial.
-                      </em>
-                    ) : null}
-                    <div className="dialog-actions">
-                      <button type="button" className="btn-sm ghost" disabled={procesando.has(item.courseId)} onClick={() => mantenerFechas(item.courseId)}>
-                        Mantener fechas actuales
-                      </button>
-                      <button type="button" className="btn-sm" disabled={procesando.has(item.courseId)} onClick={() => actualizarCalendario(item)}>
-                        {procesando.has(item.courseId) ? "Actualizando…" : "Actualizar calendario"}
-                      </button>
+                {cambiados.map((item) => (
+                  <label className="sync-item" key={item.courseId}>
+                    <input type="checkbox" checked={!excluidos.has(item.courseId)} onChange={() => alternarExclusion(item.courseId)} disabled={fase === "aplicando"} />
+                    <div>
+                      <strong>{item.courseTitle}</strong>
+                      <p className="muted">Actual en CRM:</p>
+                      <ul>{listaFechas(item.existingSessions).map((linea) => <li key={linea}>{linea}</li>)}</ul>
+                      <p className="muted">Publicado en la web:</p>
+                      <ul>{listaFechas(item.sessions).map((linea) => <li key={linea}>{linea}</li>)}</ul>
+                      {item.enrollments > 0 ? (
+                        <em>Hay {item.enrollments} inscrito{item.enrollments === 1 ? "" : "s"}. Se recalcularán únicamente los mensajes pendientes.</em>
+                      ) : null}
                     </div>
-                  </div>
+                  </label>
                 ))}
               </div>
             ) : null}
 
-            {nuevas.length > 0 ? (
+            {nuevos.length > 0 ? (
               <div className="sync-group">
-                <h3>Con fechas publicadas</h3>
-                {nuevas.map((item) => (
-                  <div className="sync-item" key={item.courseId}>
-                    <strong>{item.courseTitle}</strong>
-                    <small>{item.fuenteInicio}</small>
-                    <ul>{listaFechas(item.sessions).map((linea) => <li key={linea}>{linea}</li>)}</ul>
-                    {item.enrollments > 0 ? <em>{item.enrollments} inscrito{item.enrollments === 1 ? "" : "s"} recibirán sus recordatorios</em> : null}
-                  </div>
+                <h3>Cursos nuevos, con fecha publicada</h3>
+                {nuevos.map((item) => (
+                  <label className="sync-item" key={item.courseId}>
+                    <input type="checkbox" checked={!excluidos.has(item.courseId)} onChange={() => alternarExclusion(item.courseId)} disabled={fase === "aplicando"} />
+                    <div>
+                      <strong>{item.courseTitle}</strong>
+                      <small>{item.fuenteInicio}</small>
+                      <ul>{listaFechas(item.sessions).map((linea) => <li key={linea}>{linea}</li>)}</ul>
+                    </div>
+                  </label>
                 ))}
               </div>
             ) : null}
 
-            {sinFechas.length > 0 ? (
+            {sinFecha.length > 0 ? (
               <div className="sync-group is-muted">
                 <h3>Sin fecha todavía</h3>
-                {sinFechas.map((item) => (
+                {sinFecha.map((item) => (
                   <div className="sync-item" key={item.courseId}>
                     <strong>{item.courseTitle}</strong>
                     <small>{item.motivo}</small>
@@ -275,15 +196,15 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
               </div>
             ) : null}
 
-            {cambiadas.length === 0 && nuevas.length === 0 && sinFechas.length === 0 ? (
-              <p className="muted">Todos los calendarios ya coinciden con lo publicado.</p>
-            ) : null}
+            {items.length === 0 ? <p className="muted">Todos los calendarios ya coinciden con lo publicado.</p> : null}
 
             <div className="dialog-actions">
-              <button type="button" className="btn-sm ghost" onClick={() => { setFase("idle"); setPropuestas([]); }}>Cerrar</button>
-              {nuevas.length > 0 ? (
-                <button type="button" className="btn-sm" onClick={confirmarNuevas}>
-                  Programar {nuevas.reduce((total, item) => total + (item.sessions?.length ?? 0), 0)} sesiones
+              <button type="button" className="btn-sm ghost" onClick={() => { setFase("idle"); setTotals(null); setItems([]); }} disabled={fase === "aplicando"}>
+                Cerrar
+              </button>
+              {aplicables.length > 0 ? (
+                <button type="button" className="btn-sm" onClick={aplicarTodos} disabled={fase === "aplicando"}>
+                  {fase === "aplicando" ? "Aplicando…" : `Aplicar todos los cambios seguros (${aplicables.length})`}
                 </button>
               ) : null}
             </div>

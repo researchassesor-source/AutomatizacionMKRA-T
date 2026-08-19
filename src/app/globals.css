@@ -2355,10 +2355,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 --------------------------------------------------------------------------- */
 .inbox-shell {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
   min-height: 60vh;
+  position: relative;
 }
 .inbox-list { display: flex; flex-direction: column; gap: .5rem; max-height: 70vh; overflow-y: auto; }
 .inbox-filters { display: flex; flex-wrap: wrap; gap: .25rem; }
@@ -2387,7 +2388,37 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .bubble-meta, .bubble-kind { margin: 0; font-size: .8rem; opacity: .75; }
 .inbox-composer { display: flex; flex-direction: column; gap: .5rem; }
 .inbox-composer textarea { width: 100%; resize: vertical; }
-.inbox-info { display: flex; flex-direction: column; gap: .4rem; }
+/**
+ * "Información" es un drawer que realmente abre y cierra, no una tercera
+ * columna que ya estaba siempre a la vista (con eso el botón parecía no
+ * hacer nada en escritorio). Vive fuera del flujo del grid, superpuesto,
+ * igual en escritorio y en móvil: no depende del ancho de pantalla.
+ */
+.inbox-info {
+  display: none;
+  flex-direction: column;
+  gap: .4rem;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 100vw);
+  padding: 1.25rem;
+  background: var(--surface, #fff);
+  border-left: 1px solid var(--border, #e5e7eb);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, .12);
+  overflow-y: auto;
+  z-index: 40;
+}
+.inbox-shell.shows-info .inbox-info { display: flex; }
+.inbox-info-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .32);
+  z-index: 39;
+}
+.inbox-shell.shows-info .inbox-info-backdrop { display: block; }
 .inbox-enrollments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -2397,11 +2428,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 900px) {
   /* Una columna cada vez: lista, y al elegir, conversación. */
   .inbox-shell { grid-template-columns: 1fr; }
-  .inbox-shell .inbox-chat, .inbox-shell .inbox-info { display: none; }
+  .inbox-shell .inbox-chat { display: none; }
   .inbox-shell.has-selection .inbox-list { display: none; }
   .inbox-shell.has-selection .inbox-chat { display: flex; }
-  .inbox-shell.shows-info .inbox-chat { display: none; }
-  .inbox-shell.shows-info .inbox-info { display: flex; }
+  .inbox-info { width: 100vw; }
   .inbox-back { display: inline-flex; }
   .inbox-list { max-height: none; }
   .bubble { max-width: 92%; }

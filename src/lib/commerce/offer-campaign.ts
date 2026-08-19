@@ -107,6 +107,49 @@ export async function sincronizarDestinatarios(campaignId: string) {
   return { total: inscripciones.length, nuevos: creados.count };
 }
 
+/**
+ * Recalcula `automaticScheduledAt` cuando el calendario del curso cambió.
+ *
+ * Sin esto, la oferta institucional automática se quedaba con la fecha
+ * calculada el día que se creó la campaña, aunque WordPress moviera después
+ * el calendario del curso. Deliberadamente conservador: no crea campañas, no
+ * reabre una ya COMPLETED ni toca RUNNING (ya está siendo procesada), y solo
+ * escribe si la fecha calculada realmente cambió.
+ */
+export async function reprogramarOfertaAutomatica(courseId: string, actor?: { email?: string | null } | null) {
+  const campana = await prisma.certificationOfferCampaign.findUnique({ where: { courseId } });
+  if (campana?.audienceMode !== "AUTOMATIC_COMMERCE") return null;
+  if (campana.status !== "SCHEDULED" && campana.status !== "DRAFT") return null;
+
+  const curso = await prisma.course.findUnique({
+    where: { id: courseId },
+    include: { sessions: { orderBy: { startAt: "asc" } } },
+  });
+  if (!curso) return null;
+
+  const nuevaFecha = calcularEnvioAutomatico(resolveCourseSessions(curso, curso.sessions), curso.institutionalOfferDelayHours);
+  const sinCambio = (nuevaFecha?.getTime() ?? null) === (campana.automaticScheduledAt?.getTime() ?? null);
+  if (sinCambio) return null;
+
+  const actualizada = await prisma.certificationOfferCampaign.update({
+    where: { id: campana.id },
+    data: { automaticScheduledAt: nuevaFecha, status: nuevaFecha ? "SCHEDULED" : "DRAFT" },
+  });
+  await writeAudit({
+    actorEmail: actor?.email ?? "automation",
+    action: "CERT_OFFER_CAMPAIGN_RESCHEDULED",
+    entityType: "CertificationOfferCampaign",
+    entityId: campana.id,
+    result: "SUCCESS",
+    metadata: {
+      courseId,
+      before: campana.automaticScheduledAt?.toISOString() ?? null,
+      after: nuevaFecha?.toISOString() ?? null,
+    },
+  });
+  return actualizada;
+}
+
 /** Estado comercial de Finance para un conjunto de inscripciones, por lotes. */
 async function consultarFinance(enrollmentIds: readonly string[]): Promise<Map<string, FinanceCommercialState> | null> {
   const mapa = new Map<string, FinanceCommercialState>();

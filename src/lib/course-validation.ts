@@ -77,6 +77,12 @@ export const courseInputSchema = z.object({
     .optional()
     .or(z.literal(""))
     .refine((value) => !value || isTrustedMoodleUrl(value), "La URL de Moodle no es válida."),
+  /**
+   * Vínculo estable con el Servicio de Finance (no el nombre del curso).
+   * Vacío = todavía sin vincular: Finance sigue cayendo al contrato heredado
+   * por nombre normalizado hasta que alguien lo configure aquí.
+   */
+  financeServiceId: z.string().trim().max(120).optional().or(z.literal("")),
   imageUrl: z.string().trim().url().max(1000).optional().or(z.literal("")),
   price: z.union([z.number().nonnegative().max(100000), z.string().trim()]).optional().transform((value, context) => {
     if (value === undefined || value === "") return null;
@@ -115,6 +121,7 @@ export function courseData(input: z.infer<typeof courseInputSchema>) {
     institutionalOfferUrl: input.institutionalOfferUrl || null,
     upgradeOfferUrl: input.upgradeOfferUrl || null,
     moodleCourseUrl: input.moodleCourseUrl || null,
+    financeServiceId: input.financeServiceId || null,
     imageUrl: input.imageUrl || null,
     duration: input.duration || null,
     modality: input.modality || null,

@@ -4,6 +4,7 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { calendarRevisionOf, compareCourseSchedule, planScheduleReconciliation, type ReconciliationPlan } from "@/lib/course-schedule-reconciliation";
+import { reprogramarOfertaAutomatica } from "@/lib/commerce/offer-campaign";
 import { prisma } from "@/lib/db";
 import { proponerCalendario } from "@/lib/course-schedule-parser";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
@@ -213,6 +214,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }, { status: 503 });
     }
   }
+
+  // Recalcula la fecha de la oferta institucional automática si el curso
+  // tiene una campaña vigente. No bloquea la respuesta: el calendario y los
+  // recordatorios ya quedaron a salvo arriba, y esto es una capa comercial
+  // aparte que puede reintentarse por su cuenta.
+  await reprogramarOfertaAutomatica(id, auth.session).catch(() => undefined);
 
   return NextResponse.json({
     ok: true,

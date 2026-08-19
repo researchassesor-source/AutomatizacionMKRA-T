@@ -5,6 +5,7 @@ const input = {
   crmEnrollmentId: "enrollment-1",
   crmContactId: "contact-1",
   crmCourseId: "course-1",
+  financeServiceId: null as string | null,
   courseTitle: "IA para Apoyo en Tareas Académicas",
   courseSlug: "ia-apoyo-tareas-estudiantiles",
   modality: "Virtual en vivo",
@@ -44,6 +45,17 @@ describe("contrato CRM a Finance", () => {
     expect(payload).not.toHaveProperty("paymentMethod");
     expect(payload).not.toHaveProperty("paymentConfirmed");
     expect(payload).not.toHaveProperty("receipt");
+  });
+
+  it("sin financeServiceId (curso no vinculado), el payload no envía el campo: Finance cae al nombre", () => {
+    const payload = buildFinanceInscripcionPayload(input);
+    expect(payload.financeServiceId).toBeUndefined();
+    expect(payload.servicioNombre).toBe(input.courseTitle);
+  });
+
+  it("con financeServiceId (curso vinculado), el payload lo incluye tal cual", () => {
+    const payload = buildFinanceInscripcionPayload({ ...input, financeServiceId: "svc-123" });
+    expect(payload.financeServiceId).toBe("svc-123");
   });
 
   it("centraliza el enlace administrativo sin confundirlo con verificación", () => {

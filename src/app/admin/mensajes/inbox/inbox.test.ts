@@ -256,6 +256,45 @@ describe("estados vacíos y navegación", () => {
   });
 });
 
+/**
+ * Hallazgo del release de estabilización: "Información" ya conmutaba
+ * `panelInfo`, pero en escritorio el panel era una tercera columna del grid
+ * siempre visible -el botón parecía no hacer nada-. Ahora es un drawer
+ * superpuesto, igual en cualquier ancho de pantalla.
+ */
+describe("Información es un drawer real, no una columna permanente", () => {
+  const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+
+  it("el grid de escritorio ya no reserva una tercera columna fija para el panel", () => {
+    expect(css).toContain(".inbox-shell {");
+    expect(css).not.toMatch(/grid-template-columns:\s*minmax\(240px,\s*320px\)\s*minmax\(0,\s*1fr\)\s*minmax\(240px,\s*300px\)/);
+  });
+
+  it(".inbox-info está oculto por defecto y solo aparece con shows-info", () => {
+    const bloque = css.slice(css.indexOf(".inbox-info {"), css.indexOf(".inbox-info {") + 400);
+    expect(bloque).toMatch(/display:\s*none/);
+    expect(bloque).toMatch(/position:\s*fixed/);
+    expect(css).toContain(".inbox-shell.shows-info .inbox-info { display: flex; }");
+  });
+
+  it("esa regla no depende de un @media: abre igual en escritorio y en móvil", () => {
+    // Ancla en el bloque del inbox: el archivo tiene otros @media 900px
+    // ajenos, buscar el primero del archivo entero daría un falso negativo.
+    const inicioInbox = css.indexOf(".inbox-shell {");
+    const mediaDelInbox = css.indexOf("@media (max-width: 900px)", inicioInbox);
+    const regla = css.indexOf(".inbox-shell.shows-info .inbox-info { display: flex; }", inicioInbox);
+    expect(regla).toBeGreaterThan(-1);
+    expect(mediaDelInbox).toBeGreaterThan(-1);
+    expect(regla).toBeLessThan(mediaDelInbox);
+  });
+
+  it("un fondo clicable cierra el panel sin necesitar el botón de nuevo", () => {
+    expect(inbox).toContain('className="inbox-info-backdrop"');
+    expect(inbox).toContain("onClick={() => setPanelInfo(false)}");
+    expect(css).toContain(".inbox-shell.shows-info .inbox-info-backdrop { display: block; }");
+  });
+});
+
 describe("gestión de la conversación", () => {
   it("permite vincular, asignar y cerrar o reabrir la atención", () => {
     expect(inbox).toContain('actualizarConversacion({ leadId }');

@@ -518,6 +518,7 @@ export function WhatsAppInbox() {
         </div>
 
         {/* ---------------- información ---------------- */}
+        {panelInfo ? <div className="inbox-info-backdrop" aria-hidden="true" onClick={() => setPanelInfo(false)} /> : null}
         {detalle ? (
           <aside className="inbox-info" aria-label="Información del contacto">
             <h3>Contacto</h3>

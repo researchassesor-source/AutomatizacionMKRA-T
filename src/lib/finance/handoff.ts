@@ -31,6 +31,7 @@ export function buildFinanceEnrollmentInput(enrollment: EnrollmentForFinance): F
     crmEnrollmentId: enrollment.id,
     crmContactId: enrollment.leadId,
     crmCourseId: enrollment.courseId,
+    financeServiceId: enrollment.course.financeServiceId,
     courseTitle: enrollment.course.title,
     courseSlug: enrollment.course.slug,
     modality,

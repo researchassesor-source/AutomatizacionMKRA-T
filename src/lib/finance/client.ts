@@ -106,6 +106,12 @@ export type FinanceEnrollmentInput = {
   crmEnrollmentId: string;
   crmContactId: string;
   crmCourseId: string;
+  /**
+   * Vínculo estable con el Servicio de Finance (Course.financeServiceId).
+   * `null` cuando el curso todavía no está vinculado: Finance cae al
+   * contrato heredado por nombre normalizado (servicioNombre).
+   */
+  financeServiceId: string | null;
   courseTitle: string;
   courseSlug: string;
   modality: string;
@@ -128,6 +134,9 @@ export function buildFinanceInscripcionPayload(input: FinanceEnrollmentInput) {
     crmEnrollmentId: input.crmEnrollmentId,
     crmContactId: input.crmContactId,
     crmCourseId: input.crmCourseId,
+    // Ausente (no "") cuando el curso no está vinculado, para que Finance
+    // pueda distinguir "sin vínculo" de "vínculo vacío" y caer al nombre.
+    financeServiceId: input.financeServiceId ?? undefined,
     courseTitle: input.courseTitle,
     courseSlug: input.courseSlug,
     modality: input.modality,

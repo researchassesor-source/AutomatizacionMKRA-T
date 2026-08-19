@@ -17,6 +17,7 @@ export type CourseRow = {
   whatsappGroupUrl: string | null;
   surveyUrl: string | null;
   moodleCourseUrl: string | null;
+  financeServiceId: string | null;
   imageUrl: string | null;
   price: number | null;
   duration: string | null;
@@ -42,6 +43,7 @@ const emptyCourse: Omit<CourseRow, "id"> = {
   whatsappGroupUrl: "",
   surveyUrl: "",
   moodleCourseUrl: "",
+  financeServiceId: "",
   imageUrl: "",
   price: null,
   duration: "",
@@ -103,6 +105,7 @@ export function CourseManager({
       whatsappGroupUrl: data.get("whatsappGroupUrl"),
       surveyUrl: data.get("surveyUrl"),
       moodleCourseUrl: data.get("moodleCourseUrl"),
+      financeServiceId: data.get("financeServiceId"),
       imageUrl: data.get("imageUrl"),
       price: data.get("price"),
       duration: data.get("duration"),
@@ -152,6 +155,7 @@ export function CourseManager({
           whatsappGroupUrl: course.whatsappGroupUrl ?? "",
           surveyUrl: course.surveyUrl ?? "",
           moodleCourseUrl: course.moodleCourseUrl ?? "",
+          financeServiceId: course.financeServiceId ?? "",
           imageUrl: course.imageUrl ?? "",
           price: course.price ?? "",
           duration: course.duration ?? "",
@@ -204,6 +208,21 @@ export function CourseManager({
             <input name="surveyUrl" aria-label="URL de encuesta" type="url" defaultValue={current.surveyUrl ?? ""} placeholder="URL de encuesta final (opcional)" />
             <input name="moodleCourseUrl" aria-label="URL del campus" type="url" defaultValue={current.moodleCourseUrl ?? ""} placeholder="URL del campus (opcional)" />
             <input name="imageUrl" aria-label="URL de imagen" type="url" defaultValue={current.imageUrl ?? ""} placeholder="URL de imagen (opcional)" />
+          </div>
+          <div className="form-row">
+            <label className="field">
+              <span>ID de Servicio en Finance <small>(opcional)</small></span>
+              <input
+                name="financeServiceId"
+                aria-label="ID de Servicio en Finance"
+                defaultValue={current.financeServiceId ?? ""}
+                placeholder="Vacío = Finance empareja por nombre del curso"
+              />
+              <small>
+                Vincula este curso a un Servicio exacto en Finance, sin depender del nombre. Déjalo vacío
+                mientras el emparejamiento automático por nombre siga funcionando.
+              </small>
+            </label>
           </div>
           <div className="form-row"><textarea name="description" aria-label="Descripción" defaultValue={current.description ?? ""} placeholder="Descripción" rows={3} /></div>
           <div className="toolbar">

@@ -54,6 +54,8 @@ function safeFinanceError(error: unknown): string {
   if (code === "FINANCE_COURSE_MODALITY_MISSING") return "El curso no tiene modalidad configurada.";
   if (code === "FINANCE_COURSE_DATES_MISSING") return "El curso no tiene fechas configuradas.";
   if (code === "FINANCE_NOT_AVAILABLE") return "Finance no está disponible para confirmar la inscripción.";
+  if (code === "FINANCE_SERVICE_NOT_CONFIGURED") return "Este curso no está configurado como un servicio activo en Finance.";
+  if (code === "FINANCE_AUTH_FAILED") return "Finance no está disponible en este momento.";
   return "Finance no pudo procesar la inscripción.";
 }
 

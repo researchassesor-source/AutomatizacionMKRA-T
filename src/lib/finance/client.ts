@@ -149,12 +149,35 @@ export function buildFinanceInscripcionPayload(input: FinanceEnrollmentInput) {
   };
 };
 
+/**
+ * Errores funcionales que Finance devuelve en texto libre y que el CRM ya
+ * reconoce. Cualquier otro texto se trata como desconocido: nunca se propaga
+ * tal cual hacia la interfaz, para no filtrar detalles internos de Finance
+ * (tokens, URLs, mensajes de Apps Script) a quien opera el CRM.
+ */
+const KNOWN_FINANCE_ERRORS: Record<string, string> = {
+  "Servicio de Finance no configurado para este curso.": "FINANCE_SERVICE_NOT_CONFIGURED",
+  "Finance rechazó la autenticación.": "FINANCE_AUTH_FAILED",
+};
+
+function classifyFinanceError(rawError: string | undefined): string {
+  if (rawError && KNOWN_FINANCE_ERRORS[rawError]) return KNOWN_FINANCE_ERRORS[rawError];
+  return "FINANCE_REQUEST_FAILED";
+}
+
 export async function createInscripcion(input: FinanceEnrollmentInput): Promise<{ id: string }> {
-  const response = await authedCall<unknown>("addInscripcion", {
-    idempotencyKey: input.crmEnrollmentId,
-    inscripcion: buildFinanceInscripcionPayload(input),
-  });
-  if (!response.success) throw new Error("Finance no pudo crear la inscripción.");
+  let response: FinanceResponse<unknown>;
+  try {
+    response = await authedCall<unknown>("addInscripcion", {
+      idempotencyKey: input.crmEnrollmentId,
+      inscripcion: buildFinanceInscripcionPayload(input),
+    });
+  } catch (error) {
+    // La autenticación (login) puede fallar antes de llegar a addInscripcion;
+    // pasa por el mismo mapeo para que ambos caminos terminen en el mismo código.
+    throw new Error(classifyFinanceError(error instanceof Error ? error.message : undefined));
+  }
+  if (!response.success) throw new Error(classifyFinanceError(response.error));
   const data = response.data as { id?: string; ID?: string } | undefined;
   const id = response.id ?? data?.id ?? data?.ID;
   if (!id) throw new Error("Finance no devolvió una referencia.");

@@ -47,7 +47,7 @@ export function SyncEverythingButton({ courses, canSyncCatalog }: { courses: Cur
       const sync = await fetch("/api/admin/courses/catalog/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: true }),
+        body: JSON.stringify({ confirm: "SYNC_WORDPRESS_READ_ONLY" }),
       }).catch(() => null);
       if (sync && !sync.ok) {
         const detalle = await sync.json().catch(() => ({}));

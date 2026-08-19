@@ -110,6 +110,14 @@ describe("confirmación CRM a Finance", () => {
     expect(identities).toEqual(["enrollment-1", "enrollment-1"]);
   });
 
+  it("un FINANCE_SERVICE_NOT_CONFIGURED de Finance guarda el motivo específico, no el genérico", async () => {
+    mocks.createInscripcion.mockRejectedValueOnce(new Error("FINANCE_SERVICE_NOT_CONFIGURED"));
+    await expect(confirmEnrollmentWithFinance("enrollment-1")).rejects.toThrow("FINANCE_SERVICE_NOT_CONFIGURED");
+    expect(mocks.prisma.enrollment.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: { financeStatus: "ERROR", lastHandoffError: "Este curso no está configurado como un servicio activo en Finance." },
+    }));
+  });
+
   it("no duplica un Enrollment ya enviado y reconcilia un estado histórico", async () => {
     mocks.prisma.enrollment.findUnique.mockResolvedValue({
       ...structuredClone(enrollment),

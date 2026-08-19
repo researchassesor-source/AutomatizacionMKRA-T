@@ -76,3 +76,80 @@ describe("contrato CRM a Finance", () => {
     expect(request).not.toHaveProperty("payload");
   });
 });
+
+/**
+ * Hallazgo de producción: createInscripcion destruía response.error y siempre
+ * lanzaba el mismo mensaje genérico. El CRM nunca podía distinguir "este curso
+ * no tiene servicio en Finance" de un fallo transitorio.
+ *
+ * Cada prueba resetea el módulo: `cachedToken` es estado de módulo con 20h de
+ * TTL y, sin esto, un login exitoso de una prueba anterior lo dejaría en caché
+ * y la secuencia de fetch mockeada aquí (login + addInscripcion) no calzaría.
+ */
+describe("mapeo seguro de errores de Finance", () => {
+  async function freshClientWithFetch(fetchMock: ReturnType<typeof vi.fn>) {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("FINANCE_MODE", "live");
+    vi.stubEnv("FINANCE_API_URL", "https://finance-api.example.test/exec");
+    vi.stubEnv("FINANCE_USER", "integration-user");
+    vi.stubEnv("FINANCE_PASS", "integration-pass");
+    vi.stubGlobal("fetch", fetchMock);
+    return import("./client");
+  }
+
+  it("'Servicio de Finance no configurado para este curso.' => FINANCE_SERVICE_NOT_CONFIGURED", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: "Servicio de Finance no configurado para este curso." }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_SERVICE_NOT_CONFIGURED");
+  });
+
+  it("'Finance rechazó la autenticación.' => FINANCE_AUTH_FAILED", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: "Finance rechazó la autenticación." }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_AUTH_FAILED");
+  });
+
+  it("un fallo de login también se clasifica, no solo el de addInscripcion", async () => {
+    // getServiceToken lanza antes de llegar a addInscripcion: un solo fetch.
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ success: false }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_AUTH_FAILED");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("un error desconocido de Finance cae en FINANCE_REQUEST_FAILED sin filtrar nada", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: false,
+        error: "token=sk_live_secreto123 en https://finance-internal.example.test/exec falló con stack Error: at line 42",
+      }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    let caught: unknown;
+    try {
+      await fresh.createInscripcion(input);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    expect(message).toBe("FINANCE_REQUEST_FAILED");
+    expect(message).not.toMatch(/secreto|token=|https:|stack|Error: at/i);
+  });
+
+  it("el envío exitoso y la idempotencia no cambian", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, id: "FIN-TEST-002" }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).resolves.toEqual({ id: "FIN-TEST-002" });
+    const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(request.idempotencyKey).toBe("enrollment-1");
+  });
+});

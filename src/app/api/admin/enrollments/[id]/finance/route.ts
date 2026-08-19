@@ -36,6 +36,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (code === "FINANCE_NOT_AVAILABLE") {
       return NextResponse.json({ error: "Finance no está disponible en este momento." }, { status: 503 });
     }
+    if (code === "FINANCE_SERVICE_NOT_CONFIGURED") {
+      return NextResponse.json({ error: "Este curso no está configurado como un servicio activo en Finance." }, { status: 422 });
+    }
+    if (code === "FINANCE_AUTH_FAILED") {
+      return NextResponse.json({ error: "Finance no está disponible en este momento." }, { status: 503 });
+    }
     return NextResponse.json({ error: "No se pudo enviar la inscripción a Finance." }, { status: 502 });
   }
 }

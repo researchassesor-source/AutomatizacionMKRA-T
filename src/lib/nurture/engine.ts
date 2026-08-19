@@ -963,7 +963,7 @@ export async function sendMessage(messageId: string) {
     include: {
       lead: true,
       // Para volver a comprobar el derecho justo antes de enviar.
-      enrollment: { include: { course: { select: { isFree: true } }, purchases: { select: { status: true } } } },
+      enrollment: { include: { course: { select: { isFree: true, automationsPausedAt: true } }, purchases: { select: { status: true } } } },
       automationRule: { select: { planKey: true } },
     },
   });
@@ -984,6 +984,23 @@ export async function sendMessage(messageId: string) {
         data: { status: "OMITIDO", errorCode: "COURSE_NOT_ENTITLED", errorMessage: `No se envió: ${acceso.etiqueta.toLowerCase()}.`, nextAttemptAt: null },
       });
       await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "COURSE_NOT_ENTITLED", motivo: acceso.motivo } });
+      return { ok: true, skipped: true };
+    }
+    /**
+     * Curso pausado DESPUES de programar este mensaje.
+     *
+     * El programador ya excluye los cursos pausados (`courseAcceptsAutomations`),
+     * pero eso no toca lo que ya estaba en PROGRAMADO: sin este cerrojo, pausar
+     * un curso no detenia lo que ya estaba en cola, contradiciendo lo que
+     * promete el propio endpoint de pausa ("dejan de... salir mientras dure la
+     * pausa"). OMITIDO y no CANCELADO: reanudar el curso lo recupera solo.
+     */
+    if (message.enrollment.course.automationsPausedAt) {
+      await prisma.outboundMessage.update({
+        where: { id: message.id },
+        data: { status: "OMITIDO", errorCode: "COURSE_AUTOMATIONS_PAUSED", errorMessage: "No se envió: las automatizaciones de este curso están en pausa.", nextAttemptAt: null },
+      });
+      await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "COURSE_AUTOMATIONS_PAUSED" } });
       return { ok: true, skipped: true };
     }
   }

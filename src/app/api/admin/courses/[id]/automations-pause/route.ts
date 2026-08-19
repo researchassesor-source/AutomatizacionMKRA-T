@@ -4,6 +4,7 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
+import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     result: "SUCCESS",
     metadata: { curso: curso.title },
   });
+
+  /**
+   * Reanudar: lo que se quedo OMITIDO/COURSE_AUTOMATIONS_PAUSED (el cerrojo de
+   * ultimo momento en sendMessage) necesita que alguien lo vuelva a evaluar.
+   * Sin este llamado se quedaria pausado para siempre aunque el curso ya no lo
+   * estuviera.
+   */
+  if (!parsed.data.paused) {
+    await rescheduleCourseAutomations(id).catch(() => undefined);
+  }
 
   return NextResponse.json({
     ok: true,

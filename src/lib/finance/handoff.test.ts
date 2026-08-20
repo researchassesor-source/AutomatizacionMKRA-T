@@ -166,3 +166,32 @@ describe("confirmación CRM a Finance", () => {
     expect(mocks.createInscripcion).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * financeServiceId (release de estabilización, secciones R/S): el vínculo
+ * con Finance es por ID guardado en el curso, no por su nombre. Un cambio de
+ * título nunca puede alterar qué servicio de Finance recibe la inscripción.
+ */
+describe("financeServiceId viaja estable, independiente del título del curso", () => {
+  it("el ID se envía tal cual está guardado, no se deriva del título del curso", async () => {
+    mocks.prisma.enrollment.findUnique.mockResolvedValue({
+      ...structuredClone(enrollment),
+      course: { ...structuredClone(enrollment.course), financeServiceId: "SRV-42", title: "Curso Renombrado Después de Vincularse a Finance" },
+    });
+    await confirmEnrollmentWithFinance("enrollment-1");
+    const payload = mocks.createInscripcion.mock.calls[0][0];
+    // El ID no guarda ninguna relación textual con el título: si viajara
+    // derivado del nombre, un cambio de título lo habría alterado también.
+    expect(payload.financeServiceId).toBe("SRV-42");
+    expect(payload.courseTitle).toBe("Curso Renombrado Después de Vincularse a Finance");
+  });
+
+  it("sin vínculo guardado, viaja null explícito: nunca se inventa un ID a partir del nombre", async () => {
+    mocks.prisma.enrollment.findUnique.mockResolvedValue({
+      ...structuredClone(enrollment),
+      course: { ...structuredClone(enrollment.course), financeServiceId: null },
+    });
+    await confirmEnrollmentWithFinance("enrollment-1");
+    expect(mocks.createInscripcion).toHaveBeenCalledWith(expect.objectContaining({ financeServiceId: null }));
+  });
+});

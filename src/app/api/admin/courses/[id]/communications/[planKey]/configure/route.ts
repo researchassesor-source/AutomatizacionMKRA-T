@@ -33,15 +33,22 @@ function esErrorDeUnicidad(error: unknown): boolean {
  * mostraba como completa y encenderla no creaba el WhatsApp que faltaba -el
  * cliente solo llamaba aqui cuando no habia ninguna regla en absoluto-. Este
  * endpoint es idempotente por canal: si ya esta ACTIVE no lo toca, si esta
- * PAUSED lo reanuda sin pisar su contenido, si esta ARCHIVED o no existe lo
- * (re)crea con el plan estandar.
+ * PAUSED o DRAFT lo activa sin pisar su contenido, si esta ARCHIVED o no
+ * existe lo (re)crea con el plan estandar.
  *
  * El contenido -asunto, cuerpo, plantilla de Meta- sale siempre del plan
  * estandar (`planEntryFor`), nunca del cliente: asi no hay forma de crear una
  * regla de WhatsApp con una plantilla que Meta no reconozca. Lo unico que el
  * administrador elige aqui son los canales y, si quiere, el desfase. Una
- * regla PAUSED que ya tenia contenido editado se reanuda tal cual: solo se
- * pisa el contenido cuando se crea desde cero o se revive desde ARCHIVED.
+ * regla PAUSED o DRAFT que ya tenia contenido editado se activa tal cual:
+ * solo se pisa el contenido cuando se crea desde cero o se revive desde
+ * ARCHIVED. Ultimo blocker del hotfix: un DRAFT quedaba en `alreadyConfigured`
+ * sin activarse nunca -distinto de PAUSED, que si tenia su propia rama-,
+ * asi que una tarjeta a medias con un canal en DRAFT no se completaba jamas
+ * por mas clics que se le dieran. Ademas, a diferencia de PAUSED (que
+ * siempre tuvo una plantilla valida porque estuvo activo alguna vez), un
+ * DRAFT de WhatsApp puede no tener plantilla en absoluto: se completa SOLO
+ * lo que falte con el binding canonico, sin reemplazar uno ya configurado.
  *
  * Cada canal se crea con su propia escritura -sin envolver ambos canales en
  * una sola transaccion- porque el unique (courseId, channel, planKey) ya
@@ -83,13 +90,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const window = courseAutomationWindow(course, course.sessions);
   const existentes = await prisma.automationRule.findMany({
     where: { courseId: id, planKey, channel: { in: canales } },
-    select: { id: true, channel: true, status: true },
+    select: { id: true, channel: true, status: true, waTemplateName: true, waTemplateLanguage: true, waTemplateBodyVars: true, waTemplateUrlVar: true },
   });
   const porCanal = new Map(existentes.map((rule) => [rule.channel, rule]));
 
   const created: string[] = [];
   const revived: string[] = [];
   const reactivated: string[] = [];
+  const activated: string[] = [];
   const alreadyConfigured: string[] = [];
 
   for (const { channel, entry } of entradas) {
@@ -150,6 +158,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       continue;
     }
 
+    if (actual.status === "DRAFT") {
+      /**
+       * Ultimo blocker del hotfix: un DRAFT nunca estuvo activo, asi que -a
+       * diferencia de PAUSED- no hay garantia de que ya tenga una plantilla
+       * de WhatsApp valida. Se activa igual (sin pisar asunto/cuerpo/desfase
+       * existentes), pero antes se completa SOLO lo que falte del binding de
+       * plantilla con el canonico -nunca se reemplaza uno ya configurado-,
+       * para que la regla quede realmente utilizable por Meta y no solo
+       * "activa" de nombre. Para EMAIL no hay plantilla que completar.
+       */
+      const plantillaFaltante = channel === "WHATSAPP"
+        ? {
+            waTemplateName: actual.waTemplateName?.trim() ? undefined : (entry.waTemplateName ?? undefined),
+            waTemplateLanguage: actual.waTemplateLanguage?.trim() ? undefined : (entry.waTemplateLanguage ?? undefined),
+            waTemplateBodyVars: actual.waTemplateBodyVars != null ? undefined : (entry.waTemplateBodyVars ?? undefined),
+            waTemplateUrlVar: actual.waTemplateUrlVar?.trim() ? undefined : (entry.waTemplateUrlVar ?? undefined),
+          }
+        : {};
+      await prisma.automationRule.update({
+        where: { id: actual.id },
+        data: { status: "ACTIVE", activatedAt: new Date(), ...plantillaFaltante },
+      });
+      activated.push(channel);
+      continue;
+    }
+
     // Ya hay una regla viva y activa para ese canal: no se toca ni se duplica.
     alreadyConfigured.push(channel);
   }
@@ -170,8 +204,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     action: "COURSE_COMMUNICATION_STEP_CONFIGURED",
     entityType: "Course",
     entityId: id,
-    metadata: { planKey, created, revived, reactivated, alreadyConfigured, reprogramado: reconciled?.ok ?? false },
+    metadata: { planKey, created, revived, reactivated, activated, alreadyConfigured, reprogramado: reconciled?.ok ?? false },
   }).catch(() => undefined);
 
-  return NextResponse.json({ ok: true, planKey, created, revived, reactivated, alreadyConfigured, pending: reconciled ? !reconciled.ok : false });
+  return NextResponse.json({ ok: true, planKey, created, revived, reactivated, activated, alreadyConfigured, pending: reconciled ? !reconciled.ok : false });
 }

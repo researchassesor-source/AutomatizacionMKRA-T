@@ -51,6 +51,9 @@ function defaultPlanFor(planKey: string): { trigger: AutomationTrigger; offsetMi
   return { trigger: entry.trigger, offsetMinutes: entry.offsetMinutes };
 }
 
+/** Nombre legible de un canal, para un mensaje corto sin jerga tecnica. */
+const NOMBRE_CANAL: Record<"EMAIL" | "WHATSAPP", string> = { EMAIL: "el correo", WHATSAPP: "WhatsApp" };
+
 function blockedReason(
   rules: TimelineRule[],
   reference: ResolvedCourseSession | null,
@@ -59,6 +62,16 @@ function blockedReason(
   config?: { whatsappGroupUrl?: string | null; courseCompleteUrl?: string | null; surveyUrl?: string | null },
 ): string | null {
   if (rules.length === 0) return "Este aviso no esta configurado para el curso.";
+  /**
+   * Un paso puede tener regla de correo y de WhatsApp: si solo uno de los dos
+   * canales disponibles esta ACTIVE, el paso esta a medias, aunque
+   * `rules.length` ya no sea cero. Antes esto no se distinguia y una tarjeta
+   * con un solo canal activo se mostraba como "Se enviara" igual que una
+   * completa -el bug real de la seccion C del cierre de produccion.
+   */
+  const activos = new Set(rules.filter((rule) => rule.status === "ACTIVE").map((rule) => rule.channel));
+  const faltantes = availableChannelsFor(planKey).filter((channel) => !activos.has(channel));
+  if (faltantes.length > 0) return `Falta activar ${faltantes.map((channel) => NOMBRE_CANAL[channel]).join(" y ")}.`;
   if (planKey !== "welcome" && planKey !== "whatsapp_group" && !hasSchedule) return "El curso no tiene fecha, asi que no se puede calcular cuando enviarlo.";
   const necesitaEnlace = rules.some((rule) => rule.requiresStreamUrl);
   if (necesitaEnlace && !reference?.streamUrl) return "Falta el enlace de la reunion de esta sesion.";

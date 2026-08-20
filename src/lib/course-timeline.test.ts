@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildCourseTimeline, TIMELINE_STEPS } from "./course-timeline";
+import { buildCourseTimeline, TIMELINE_STEPS, type TimelineRule } from "./course-timeline";
+
+function regla(overrides: Partial<TimelineRule> & Pick<TimelineRule, "planKey" | "channel">): TimelineRule {
+  return {
+    id: `${overrides.planKey}-${overrides.channel}`,
+    name: "Regla de prueba",
+    status: "ACTIVE",
+    trigger: "ON_REGISTRATION",
+    offsetMinutes: 0,
+    requiresStreamUrl: false,
+    waTemplateName: overrides.channel === "WHATSAPP" ? "plantilla_aprobada" : null,
+    ...overrides,
+  };
+}
 
 describe("buildCourseTimeline: plan estandar de cada paso", () => {
   const steps = buildCourseTimeline({ rules: [], sessions: [] });
@@ -29,5 +42,68 @@ describe("buildCourseTimeline: plan estandar de cada paso", () => {
     expect(whatsappGroup?.active).toBe(false);
     expect(whatsappGroup?.channels).toEqual([]);
     expect(whatsappGroup?.availableChannels).toEqual(expect.arrayContaining(["EMAIL", "WHATSAPP"]));
+  });
+});
+
+/**
+ * Sección C del cierre de producción: un paso con un solo canal ACTIVE (de
+ * dos disponibles) es un paso a medias, no uno completo. Antes `blockedReason`
+ * solo miraba `rules.length === 0`, así que en cuanto existía UNA regla
+ * (aunque fuera de un solo canal) el paso se mostraba como "Se enviará" sin
+ * avisar que faltaba el otro -el bug real que reportó el usuario para
+ * `welcome`: correo ACTIVE, WhatsApp inexistente-.
+ */
+describe("buildCourseTimeline: un solo canal activo es un paso a medias", () => {
+  it("solo correo ACTIVE (WhatsApp nunca configurado): activo, pero con motivo explícito", () => {
+    const steps = buildCourseTimeline({ rules: [regla({ planKey: "welcome", channel: "EMAIL" })], sessions: [] });
+    const welcome = steps.find((s) => s.planKey === "welcome");
+    expect(welcome?.active).toBe(true);
+    expect(welcome?.channels).toEqual(["EMAIL"]);
+    expect(welcome?.blockedReason).toBe("Falta activar WhatsApp.");
+  });
+
+  it("solo WhatsApp ACTIVE (correo nunca configurado): mismo aviso, canal contrario", () => {
+    const steps = buildCourseTimeline({ rules: [regla({ planKey: "welcome", channel: "WHATSAPP" })], sessions: [] });
+    const welcome = steps.find((s) => s.planKey === "welcome");
+    expect(welcome?.active).toBe(true);
+    expect(welcome?.blockedReason).toBe("Falta activar el correo.");
+  });
+
+  it("correo ACTIVE y WhatsApp PAUSED: sigue a medias, no basta con que la regla exista", () => {
+    const steps = buildCourseTimeline({
+      rules: [
+        regla({ planKey: "welcome", channel: "EMAIL", status: "ACTIVE" }),
+        regla({ planKey: "welcome", channel: "WHATSAPP", status: "PAUSED" }),
+      ],
+      sessions: [],
+    });
+    const welcome = steps.find((s) => s.planKey === "welcome");
+    expect(welcome?.blockedReason).toBe("Falta activar WhatsApp.");
+  });
+
+  it("ambos canales ACTIVE: sin motivo de bloqueo por canales (el paso queda completo)", () => {
+    const steps = buildCourseTimeline({
+      rules: [
+        regla({ planKey: "welcome", channel: "EMAIL", status: "ACTIVE" }),
+        regla({ planKey: "welcome", channel: "WHATSAPP", status: "ACTIVE" }),
+      ],
+      sessions: [],
+    });
+    const welcome = steps.find((s) => s.planKey === "welcome");
+    expect(welcome?.blockedReason).toBeNull();
+  });
+
+  it("ARCHIVED no cuenta como canal disponible: un correo archivado y WhatsApp activo sigue pidiendo el correo", () => {
+    const steps = buildCourseTimeline({
+      rules: [
+        regla({ planKey: "welcome", channel: "EMAIL", status: "ARCHIVED" }),
+        regla({ planKey: "welcome", channel: "WHATSAPP", status: "ACTIVE" }),
+      ],
+      sessions: [],
+    });
+    const welcome = steps.find((s) => s.planKey === "welcome");
+    // ARCHIVED se filtra antes de llegar a `rules` (ver buildCourseTimeline),
+    // así que este paso se ve con una sola regla viva: WhatsApp.
+    expect(welcome?.blockedReason).toBe("Falta activar el correo.");
   });
 });

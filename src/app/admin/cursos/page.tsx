@@ -14,7 +14,7 @@ import { WordPressCatalogSync, type SyncMetadata } from "./WordPressCatalogSync"
 
 export const dynamic = "force-dynamic";
 
-export default async function CoursesPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; category?: string; new?: string }> }) {
+export default async function CoursesPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; category?: string; new?: string; configurarFinance?: string }> }) {
   const filters = await searchParams;
   const session = await currentAdminSession();
   const view = await resolveViewMode(session.role);
@@ -101,7 +101,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         </> : null}
       </section>
 
-      <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} />
+      <CourseManager courses={rows} canEdit={canEdit} startCreating={filters.new === "true"} closeHref={closeHref} openFinanceForCourseId={filters.configurarFinance ?? null} />
       <section className="panel">
         <h2>Cursos publicados</h2>
         <CourseCards canEdit={canEdit} courses={scheduledCourses.map((course) => {

@@ -1,22 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   admiteTextoLibre,
-  automatizacionPermitida,
   debeAbrirHandoff,
   describirVentana,
-  esMomentoOperativo,
-  reanudarDesde,
   VENTANA_ATENCION_MS,
   whatsappCustomerServiceWindow,
 } from "./conversation";
-import { WHATSAPP_AUTOMATION_PLAN } from "@/lib/nurture/default-automations-whatsapp";
 
 /**
  * Ventana de atencion y handoff.
  *
- * Dos riesgos distintos y opuestos. Dejar salir texto libre fuera de plazo
- * termina en un rechazo de Meta; callar un mensaje operativo deja a alguien sin
- * el enlace de su sesion. Por eso lo comercial se silencia y lo operativo no.
+ * La ventana real de Meta para texto libre humano. Lo que sale o no sale
+ * durante una atención humana ya no se decide aquí: ver el comentario de
+ * cabecera de `conversation.ts` — HUMAN_HANDOFF no calla automatizaciones.
  */
 const AHORA = new Date("2026-08-20T15:00:00.000Z");
 const haceHoras = (h: number) => new Date(AHORA.getTime() - h * 3_600_000);
@@ -63,57 +59,6 @@ describe("ventana de 24 horas", () => {
   });
 });
 
-describe("qué se calla durante una atención humana", () => {
-  const OPERATIVOS = ["reminder_24h", "reminder_2h", "reminder_15m", "session_live", "late_access", "thank_you"];
-  const COMERCIALES = ["welcome", "whatsapp_group", "course_complete", "course_follow_up", "survey"];
-
-  it("los avisos de acceso al curso siguen saliendo", () => {
-    // Perder el enlace de la sesión es un daño concreto; el asesor no compite
-    // con un recordatorio, porque no vende nada.
-    for (const planKey of OPERATIVOS) {
-      expect(automatizacionPermitida("HUMAN_HANDOFF", planKey), planKey).toBe(true);
-      expect(esMomentoOperativo(planKey), planKey).toBe(true);
-    }
-  });
-
-  it("los comerciales y conversacionales se callan", () => {
-    for (const planKey of COMERCIALES) {
-      expect(automatizacionPermitida("HUMAN_HANDOFF", planKey), planKey).toBe(false);
-    }
-  });
-
-  it("los once momentos del plan están clasificados: ninguno queda sin decidir", () => {
-    // Si mañana se añade un momento y nadie lo clasifica, esta prueba lo caza
-    // antes de que salga encima de un asesor.
-    const clasificados = new Set([...OPERATIVOS, ...COMERCIALES]);
-    for (const entry of WHATSAPP_AUTOMATION_PLAN) {
-      expect(clasificados.has(entry.planKey), `${entry.planKey} sin clasificar`).toBe(true);
-    }
-  });
-
-  it("sin handoff no se calla nada", () => {
-    for (const estado of ["AUTOMATION", "RESOLVED"] as const) {
-      for (const planKey of [...OPERATIVOS, ...COMERCIALES]) {
-        expect(automatizacionPermitida(estado, planKey), `${estado}/${planKey}`).toBe(true);
-      }
-    }
-  });
-
-  it("una conversación sin estado conocido no bloquea nada", () => {
-    // Quien nunca escribió no tiene fila de conversación: no puede quedarse sin
-    // sus mensajes por no haber hablado.
-    expect(automatizacionPermitida(null, "course_follow_up")).toBe(true);
-    expect(automatizacionPermitida(undefined, "welcome")).toBe(true);
-  });
-
-  it("un planKey desconocido se trata como comercial durante el handoff", () => {
-    // Falla hacia el lado que solo cuesta una molestia, no una clase perdida:
-    // en duda, no se habla encima del asesor.
-    expect(automatizacionPermitida("HUMAN_HANDOFF", "algo_nuevo")).toBe(false);
-    expect(automatizacionPermitida("HUMAN_HANDOFF", null)).toBe(false);
-  });
-});
-
 describe("apertura y cierre de la atención", () => {
   it("un entrante abre handoff desde automatización", () => {
     expect(debeAbrirHandoff("AUTOMATION")).toBe(true);
@@ -130,13 +75,5 @@ describe("apertura y cierre de la atención", () => {
 
   it("una conversación nueva abre handoff", () => {
     expect(debeAbrirHandoff(null)).toBe(true);
-  });
-
-  it("al cerrar, lo comercial se reanuda desde el cierre y nunca hacia atrás", () => {
-    // Reanudar y recibir de golpe el seguimiento de anteayer convertiría el
-    // cierre en una descarga de mensajes viejos.
-    const cierre = new Date("2026-08-20T18:00:00.000Z");
-    expect(reanudarDesde(cierre).toISOString()).toBe(cierre.toISOString());
-    expect(reanudarDesde(cierre).getTime()).toBeGreaterThanOrEqual(cierre.getTime());
   });
 });

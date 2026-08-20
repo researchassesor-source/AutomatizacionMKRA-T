@@ -140,6 +140,46 @@ describe("activar / desactivar una tarjeta", () => {
   });
 });
 
+/**
+ * Sección C del cierre de producción: seleccionar una tarjeta decide el
+ * camino por si el paso está COMPLETO (todos sus canales disponibles ya
+ * ACTIVE), no por si tiene o no alguna regla. Antes `sinReglas` (una regla ya
+ * basta) mandaba al PATCH de simple alternar, que nunca crea el canal que
+ * falta; una tarjeta con un solo canal de dos se quedaba a medias para
+ * siempre.
+ */
+describe("seleccionar una tarjeta completa sus canales, no solo alterna lo que ya existe", () => {
+  it("el clic decide el camino por 'completo' (todos los canales ACTIVE), no por 'sinReglas'", () => {
+    expect(fuente).toContain("const completo = paso.availableChannels.every((canal) => paso.channels.includes(canal));");
+    expect(fuente).toContain("onClick: () => void alternarPaso(paso, completo),");
+    expect(fuente).not.toContain("onClick: () => void alternarPaso(paso, sinReglas),");
+  });
+
+  it("sinReglas sigue existiendo, pero solo para mostrar el botón Editar", () => {
+    expect(fuente).toContain("onEditar: sinReglas ? undefined : () => setEditando(paso.planKey),");
+  });
+
+  it("alternarPaso solo llama a PATCH (apagar) cuando el paso YA estaba completo", () => {
+    const inicio = fuente.indexOf("async function alternarPaso");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("async function alternarOferta"));
+    expect(cuerpo).toContain("if (!completo) {");
+    expect(cuerpo).toContain("body: JSON.stringify({ enabled: false, confirm: true })");
+    // Nunca alterna a `true`: encender pasa siempre por /configure con los
+    // canales completos, nunca por un simple `enabled: true`.
+    expect(cuerpo).not.toContain("enabled: !activo");
+    expect(cuerpo).not.toContain("enabled: true");
+  });
+
+  it("completar una tarjeta a medias pide SIEMPRE el conjunto completo de canales, no solo el que falta", () => {
+    // El endpoint /configure ya es idempotente por canal (lo ACTIVE no se
+    // toca), así que pedir availableChannels completo es seguro incluso
+    // cuando solo falta uno.
+    const inicio = fuente.indexOf("async function alternarPaso");
+    const cuerpo = fuente.slice(inicio, fuente.indexOf("async function alternarOferta"));
+    expect(cuerpo).toContain("channels: paso.availableChannels");
+  });
+});
+
 describe("datos para los mensajes: modal compacto por fila, no un formulario compartido", () => {
   it("cada fila abre su propio modal, no uno gigante para las tres a la vez", () => {
     expect(fuente).toMatch(/const \[modal, setModal\] = useState</);

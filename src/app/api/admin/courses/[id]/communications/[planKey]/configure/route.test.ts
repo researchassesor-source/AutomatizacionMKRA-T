@@ -194,6 +194,55 @@ describe("idempotencia", () => {
     expect(json.revived).toEqual(["WHATSAPP"]);
   });
 
+  /**
+   * Sección C del cierre de producción: el caso real reportado. `welcome`
+   * tenía correo ACTIVE y NUNCA una regla de WhatsApp -- seleccionar la
+   * tarjeta debía crear el canal que faltaba, no limitarse a alternar lo que
+   * ya existía.
+   */
+  it("un paso a medias (correo ACTIVE, WhatsApp inexistente): crea solo el canal que falta, no toca el que ya está bien", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{ id: "rule-email", channel: "EMAIL", status: "ACTIVE" }]);
+    const res = await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.created).toEqual(["WHATSAPP"]);
+    expect(json.alreadyConfigured).toEqual(["EMAIL"]);
+    expect(mocks.prisma.automationRule.create).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.automationRule.create.mock.calls[0][0].data.channel).toBe("WHATSAPP");
+    // El correo ya ACTIVE no recibe ningún update: su contenido (posiblemente
+    // editado) no se pisa solo porque el otro canal se está completando.
+    expect(mocks.prisma.automationRule.update).not.toHaveBeenCalled();
+  });
+
+  it("un canal PAUSED se reanuda sin pisar su contenido, y cuenta aparte de 'creado' o 'revivido'", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{ id: "rule-paused", channel: "WHATSAPP", status: "PAUSED" }]);
+    const res = await peticion("course-1", "welcome", { channels: ["WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.reactivated).toEqual(["WHATSAPP"]);
+    expect(json.created).toEqual([]);
+    expect(json.revived).toEqual([]);
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledWith({
+      where: { id: "rule-paused" },
+      data: { status: "ACTIVE", activatedAt: expect.any(Date) },
+    });
+    // Reanudar es SOLO el estado: nunca escribe asunto, cuerpo, plantilla ni offset.
+    const dataEscrita = mocks.prisma.automationRule.update.mock.calls[0][0].data;
+    expect(Object.keys(dataEscrita).sort()).toEqual(["activatedAt", "status"]);
+  });
+
+  it("correo ACTIVE, WhatsApp PAUSED: pedir ambos canales crea nada, solo reanuda WhatsApp", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-email", channel: "EMAIL", status: "ACTIVE" },
+      { id: "rule-wa", channel: "WHATSAPP", status: "PAUSED" },
+    ]);
+    const res = await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.alreadyConfigured).toEqual(["EMAIL"]);
+    expect(json.reactivated).toEqual(["WHATSAPP"]);
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledTimes(1);
+  });
+
   it("dos peticiones concurrentes por el mismo canal: la segunda choca contra el unique y se trata como ya configurada, no como error", async () => {
     const choqueUnico = Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
     mocks.prisma.automationRule.create.mockRejectedValueOnce(choqueUnico);

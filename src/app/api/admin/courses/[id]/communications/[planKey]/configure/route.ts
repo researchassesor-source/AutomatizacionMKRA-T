@@ -24,12 +24,24 @@ function esErrorDeUnicidad(error: unknown): boolean {
 }
 
 /**
- * Crea las AutomationRule que le faltan a un paso del recorrido.
+ * Crea, revive o reanuda las AutomationRule que le faltan a un paso del
+ * recorrido, canal por canal.
+ *
+ * Seccion C del cierre de produccion: seleccionar la tarjeta de un paso
+ * significa "que salgan TODOS sus canales disponibles", no solo el que ya
+ * existiera. Antes, si solo habia una regla de correo activa, la tarjeta se
+ * mostraba como completa y encenderla no creaba el WhatsApp que faltaba -el
+ * cliente solo llamaba aqui cuando no habia ninguna regla en absoluto-. Este
+ * endpoint es idempotente por canal: si ya esta ACTIVE no lo toca, si esta
+ * PAUSED lo reanuda sin pisar su contenido, si esta ARCHIVED o no existe lo
+ * (re)crea con el plan estandar.
  *
  * El contenido -asunto, cuerpo, plantilla de Meta- sale siempre del plan
  * estandar (`planEntryFor`), nunca del cliente: asi no hay forma de crear una
  * regla de WhatsApp con una plantilla que Meta no reconozca. Lo unico que el
- * administrador elige aqui son los canales y, si quiere, el desfase.
+ * administrador elige aqui son los canales y, si quiere, el desfase. Una
+ * regla PAUSED que ya tenia contenido editado se reanuda tal cual: solo se
+ * pisa el contenido cuando se crea desde cero o se revive desde ARCHIVED.
  *
  * Cada canal se crea con su propia escritura -sin envolver ambos canales en
  * una sola transaccion- porque el unique (courseId, channel, planKey) ya
@@ -77,6 +89,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const created: string[] = [];
   const revived: string[] = [];
+  const reactivated: string[] = [];
   const alreadyConfigured: string[] = [];
 
   for (const { channel, entry } of entradas) {
@@ -122,7 +135,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       continue;
     }
 
-    // Ya hay una regla viva para ese canal: no se toca ni se duplica.
+    if (actual.status === "PAUSED") {
+      /**
+       * Reanuda el canal sin tocar su contenido: una tarjeta a medias (un
+       * canal ACTIVE, el otro PAUSED en vez de inexistente) tambien cuenta
+       * como "falta configurar" -ver blockedReason en course-timeline.ts- y
+       * seleccionarla debe encender lo que falta, igual que si no existiera.
+       * Pero a diferencia de crear o revivir, aqui SI hubo una configuracion
+       * previa (asunto, cuerpo, plantilla, desfase): no se pisa con el plan
+       * estandar, solo se reanuda.
+       */
+      await prisma.automationRule.update({ where: { id: actual.id }, data: { status: "ACTIVE", activatedAt: new Date() } });
+      reactivated.push(channel);
+      continue;
+    }
+
+    // Ya hay una regla viva y activa para ese canal: no se toca ni se duplica.
     alreadyConfigured.push(channel);
   }
 
@@ -142,8 +170,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     action: "COURSE_COMMUNICATION_STEP_CONFIGURED",
     entityType: "Course",
     entityId: id,
-    metadata: { planKey, created, revived, alreadyConfigured, reprogramado: reconciled?.ok ?? false },
+    metadata: { planKey, created, revived, reactivated, alreadyConfigured, reprogramado: reconciled?.ok ?? false },
   }).catch(() => undefined);
 
-  return NextResponse.json({ ok: true, planKey, created, revived, alreadyConfigured, pending: reconciled ? !reconciled.ok : false });
+  return NextResponse.json({ ok: true, planKey, created, revived, reactivated, alreadyConfigured, pending: reconciled ? !reconciled.ok : false });
 }

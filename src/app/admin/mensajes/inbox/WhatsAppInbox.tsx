@@ -437,8 +437,7 @@ export function WhatsAppInbox() {
 
               {detalle.conversation.state === "HUMAN_HANDOFF" ? (
                 <p className="muted inbox-note">
-                  Durante la atención humana, los mensajes comerciales automáticos se pausan para este contacto.
-                  Los recordatorios operativos continúan.
+                  Las automatizaciones de este contacto siguen su curso mientras dure la atención: atender aquí no pausa ningún mensaje.
                 </p>
               ) : null}
 
@@ -610,8 +609,8 @@ export function WhatsAppInbox() {
             <p className="muted">{ventana ? textoDeVentana(ventana) : ""}</p>
             <div className="form-row">
               {detalle.conversation.state === "HUMAN_HANDOFF" ? (
-                <button type="button" className="btn-sm" onClick={() => void actualizarConversacion({ state: "RESOLVED" }, "Atención cerrada.")}>
-                  Cerrar atención
+                <button type="button" className="btn-sm" onClick={() => void actualizarConversacion({ state: "RESOLVED" }, "Atención finalizada.")}>
+                  Finalizar atención
                 </button>
               ) : (
                 <button type="button" className="btn-sm ghost" onClick={() => void actualizarConversacion({ state: "HUMAN_HANDOFF" }, "Atención reabierta.")}>

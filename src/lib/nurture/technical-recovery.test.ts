@@ -26,12 +26,17 @@ beforeEach(() => {
  * bajo el recálculo puntual que cada endpoint ya dispara al cuarentenar. Si
  * esa llamada puntual fallara sin que nadie más la reintentara, el mensaje se
  * quedaría OMITIDO para siempre sin este barrido.
+ *
+ * Cierre de producción: HUMAN_HANDOFF_ACTIVE se suma a la lista. Ya no es una
+ * condición de negocio (ese gate se eliminó, ver `conversation.ts`) — un
+ * mensaje con ese código es un residuo de mensajes cuarentenados antes del
+ * cambio, y recalcularlo es tan seguro como cualquier otro código técnico.
  */
 describe("recuperarCodigosTecnicosAtascados", () => {
-  it("consulta solo OMITIDO con un código técnico conocido", async () => {
+  it("consulta OMITIDO con los códigos técnicos conocidos", async () => {
     await recuperarCodigosTecnicosAtascados(AHORA);
     expect(mocks.prisma.outboundMessage.findMany).toHaveBeenCalledWith({
-      where: { status: "OMITIDO", errorCode: { in: ["SCHEDULE_RECONCILING"] } },
+      where: { status: "OMITIDO", errorCode: { in: ["SCHEDULE_RECONCILING", "HUMAN_HANDOFF_ACTIVE"] } },
       select: { enrollment: { select: { courseId: true } } },
       distinct: ["enrollmentId"],
       take: 200,
@@ -85,11 +90,18 @@ describe("recuperarCodigosTecnicosAtascados", () => {
     expect(resultado.cursos).toBe(2);
   });
 
-  it("nunca incluye códigos de condición de negocio en la consulta", async () => {
+  it("nunca incluye códigos de condición de negocio que siguen vigentes", async () => {
     await recuperarCodigosTecnicosAtascados(AHORA);
     const { where } = mocks.prisma.outboundMessage.findMany.mock.calls[0][0];
-    for (const negocio of ["HUMAN_HANDOFF_ACTIVE", "COURSE_AUTOMATIONS_PAUSED", "RULE_PAUSED", "CONTACT_ARCHIVED", "CONTACT_EXCLUDED", "COURSE_NOT_ELIGIBLE"]) {
+    for (const negocio of ["COURSE_AUTOMATIONS_PAUSED", "RULE_PAUSED", "CONTACT_ARCHIVED", "CONTACT_EXCLUDED", "COURSE_NOT_ELIGIBLE"]) {
       expect(where.errorCode.in).not.toContain(negocio);
     }
+  });
+
+  it("recupera mensajes viejos que quedaron OMITIDO/HUMAN_HANDOFF_ACTIVE antes del cierre de producción", async () => {
+    mocks.prisma.outboundMessage.findMany.mockResolvedValue([{ enrollment: { courseId: "curso-viejo" } }]);
+    const resultado = await recuperarCodigosTecnicosAtascados(AHORA);
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("curso-viejo", AHORA);
+    expect(resultado).toEqual({ cursos: 1 });
   });
 });

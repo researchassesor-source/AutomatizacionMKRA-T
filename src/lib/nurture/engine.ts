@@ -1,7 +1,6 @@
 import { Prisma, type MessageChannel } from "@prisma/client";
 import { automationRuleCanRun, courseAcceptsAutomations } from "@/lib/automation-eligibility";
 import { courseAccessEligibility, ESTADO_PAGO_VERIFICADO, momentoAplicaAlCurso } from "@/lib/commerce/course-entitlement";
-import { automatizacionPermitida, esMomentoOperativo } from "@/lib/whatsapp/conversation";
 import { calculateAutomationSchedule, ECUADOR_TIME_ZONE, supportsEnrollmentStatus } from "@/lib/automation-schedule";
 import {
   courseCompletionMoment,
@@ -540,19 +539,6 @@ export async function scheduleEnrollmentAutomations(
     return { ...empty, reason: "COURSE_NOT_ENTITLED" };
   }
 
-  /**
-   * Atencion humana en curso: los momentos comerciales de ESTA persona se
-   * callan para no hablar encima del asesor. Los operativos siguen, porque
-   * quedarse sin el enlace de la sesion por haber escrito una duda seria un
-   * dano mucho mayor que un comercial de mas.
-   *
-   * Se consulta una vez por inscripcion, no por regla: son once reglas y la
-   * respuesta es la misma para todas.
-   */
-  const conversacion = enrollment.lead.phone
-    ? await prisma.conversation.findUnique({ where: { phone: enrollment.lead.phone }, select: { state: true } })
-    : null;
-
   const sessions = resolveCourseSessions(enrollment.course, enrollment.course.sessions);
   // El curso puede tener sus fechas solo en las sesiones: la elegibilidad se
   // evalua sobre el calendario efectivo, no sobre startsAt/endsAt heredados.
@@ -578,7 +564,6 @@ export async function scheduleEnrollmentAutomations(
     // El cierre y el seguimiento hablan de "esta capacitación gratuita": en un
     // curso de pago le dirian a quien acaba de pagar que lo suyo era gratis.
     if (!momentoAplicaAlCurso(rule.planKey, enrollment.course)) { skipped++; continue; }
-    if (!automatizacionPermitida(conversacion?.state, rule.planKey)) { skipped++; continue; }
     if (rule.campaignId && rule.campaignId !== enrollment.campaignId) { skipped++; continue; }
     if (!supportsEnrollmentStatus(rule.enrollmentStatuses, enrollment.status)) { skipped++; continue; }
     /**
@@ -1029,33 +1014,6 @@ export async function sendMessage(messageId: string) {
     await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: inactiva.code } });
     return { ok: true, skipped: true };
   }
-  /**
-   * Atencion humana abierta DESPUES de programar el mensaje.
-   *
-   * El filtro al programar no basta: un comercial pudo quedar en cola dias
-   * antes de que la persona escribiera. Sin esta segunda puerta saldria igual y
-   * hablaria encima del asesor.
-   *
-   * Los operativos si salen: quedarse sin el enlace de la propia sesion por
-   * haber preguntado una duda seria un dano mucho mayor.
-   */
-  if (message.lead.phone && !esMomentoOperativo(message.automationRule?.planKey)) {
-    const conversacion = await prisma.conversation.findUnique({
-      where: { phone: message.lead.phone },
-      select: { state: true },
-    });
-    if (!automatizacionPermitida(conversacion?.state, message.automationRule?.planKey)) {
-      await prisma.outboundMessage.update({
-        where: { id: message.id },
-        // OMITIDO y no CANCELADO: no se envio, pero tampoco lo cancelo nadie.
-        // El historial conserva que existio y por que se quedo fuera.
-        data: { status: "OMITIDO", errorCode: "HUMAN_HANDOFF_ACTIVE", errorMessage: "No se envió: hay una atención humana abierta con este contacto.", nextAttemptAt: null },
-      });
-      await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "HUMAN_HANDOFF_ACTIVE", planKey: message.automationRule?.planKey ?? null } });
-      return { ok: true, skipped: true };
-    }
-  }
-
   if (!isAutomationEligibleContact(message.lead.classification, message.lead.consent)) {
     await prisma.outboundMessage.update({ where: { id: message.id }, data: { status: "OMITIDO", errorCode: "CONTACT_EXCLUDED", errorMessage: "Contacto de prueba, demostración, sin clasificar o sin consentimiento." } });
     await writeAudit({ actorEmail: "automation", action: "MESSAGE_OMITTED", entityType: "OutboundMessage", entityId: message.id, metadata: { reason: "CONTACT_EXCLUDED", classification: message.lead.classification, consent: message.lead.consent } });

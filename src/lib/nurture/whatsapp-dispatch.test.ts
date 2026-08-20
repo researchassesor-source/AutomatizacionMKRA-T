@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   prisma: {
     outboundMessage: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), create: vi.fn() },
     automationRule: { findMany: vi.fn(), update: vi.fn() },
-    conversation: { findUnique: vi.fn(async () => null) },    enrollment: { findMany: vi.fn(), findUnique: vi.fn() },
+    conversation: { findUnique: vi.fn(async (): Promise<{ state: string } | null> => null) },    enrollment: { findMany: vi.fn(), findUnique: vi.fn() },
     courseSession: { findMany: vi.fn() },
   },
   writeAudit: vi.fn(async () => undefined),
@@ -175,6 +175,36 @@ describe("prohibición del texto libre", () => {
       { nombre: "Angel" },
     );
     expect(resultado).toEqual({ payload: null, problem: null });
+  });
+});
+
+/**
+ * Cierre de producción: HUMAN_HANDOFF ya no calla nada, ni siquiera al
+ * despachar. Antes `sendMessage` volvía a consultar la conversación justo
+ * antes de enviar (segunda puerta, por si el handoff se abrió después de
+ * programar) y omitía con HUMAN_HANDOFF_ACTIVE lo que no fuera operativo. Esa
+ * puerta se eliminó por completo: ver el comentario de cabecera de
+ * `conversation.ts`.
+ */
+describe("HUMAN_HANDOFF ya no bloquea el envío", () => {
+  it("un mensaje comercial se envía igual aunque la conversación esté en HUMAN_HANDOFF", async () => {
+    waLive();
+    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "HUMAN_HANDOFF" });
+    mocks.prisma.outboundMessage.findUnique
+      .mockResolvedValueOnce({ scheduledAt: NOW, channel: "WHATSAPP" })
+      .mockResolvedValueOnce(message({ automationRule: { planKey: "welcome", status: "ACTIVE" } }));
+    const result = await sendMessage("msg-1");
+    expect(result).toMatchObject({ ok: true, providerMessageId: "wamid.OK" });
+    expect(mocks.waSend).toHaveBeenCalled();
+  });
+
+  it("sendMessage ya ni siquiera consulta la conversación del contacto", async () => {
+    waLive();
+    mocks.prisma.outboundMessage.findUnique
+      .mockResolvedValueOnce({ scheduledAt: NOW, channel: "WHATSAPP" })
+      .mockResolvedValueOnce(message({ automationRule: { planKey: "welcome", status: "ACTIVE" } }));
+    await sendMessage("msg-1");
+    expect(mocks.prisma.conversation.findUnique).not.toHaveBeenCalled();
   });
 });
 

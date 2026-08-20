@@ -20,19 +20,44 @@
  *   <span class="dato__etiqueta">Horario</span>
  *   <span class="dato__valor">Martes, Miércoles, Jueves  7:30-9:00 pm</span>
  *
- *   ACTUAL (verificado en vivo contra ra-training.com, 2026-08-19):
+ *   ACTUAL, sin fecha anunciada (verificado en vivo, 2026-08-19):
  *   <div class="tk-dates">
  *     <div class="dt-head">...<h3>INICIO DEL CURSO</h3></div>
  *     <div class="dt-card"><div class="dt-days">
  *       <div class="dt-day"><b>Próximamente</b></div>
  *     </div></div>
  *   </div>
+ *   (aqui no hay `.dt-mes` ni `.dt-time`: no se anuncia nada, no se lee nada)
  *
- * El diseño actual NO publica ningun campo de horario en ningun lugar de la
- * ficha (se comprobo en varios cursos reales): por eso `proponerCalendario`
- * sigue rechazando con un motivo explicito en vez de inventar una hora,
- * incluso el dia en que el sitio empiece a publicar fechas reales bajo este
- * diseño. Es una decision del sitio, no algo que este modulo pueda adivinar.
+ *   ACTUAL, con fecha anunciada (verificado en vivo contra
+ *   ia-para-la-planificacion-educativa el 2026-08-20 — la fecha SI cambio en
+ *   el sitio real, de 18/19/20 a 26/27/28 de agosto, mientras este modulo
+ *   seguia sin poder leerla bajo este diseño):
+ *   <div class="tk-dates">
+ *     <div class="dt-head">...<h3>INICIO DEL CURSO</h3></div>
+ *     <div class="dt-card">
+ *       <div class="dt-days">
+ *         <div class="dt-day"><small>MIÉ</small><b>26</b></div>
+ *         <div class="dt-day"><small>JUE</small><b>27</b></div>
+ *         <div class="dt-day"><small>VIE</small><b>28</b></div>
+ *       </div>
+ *       <span class="dt-mes">AGOSTO</span>
+ *     </div>
+ *     <div class="dt-time">7:00 pm-9:00 pm</div>
+ *   </div>
+ *
+ * A diferencia del legacy (un texto libre tipo "11, 12 y 13 de Agosto"), el
+ * diseño actual publica los dias, el mes y el horario como campos separados y
+ * estructurados — por eso se leen por clase (`dt-day`, `dt-mes`, `dt-time`) en
+ * vez de con una regex de texto libre, y se recomponen a la misma forma de
+ * texto que ya entiende `parsearFechas` para no duplicar esa logica.
+ *
+ * El div `tk-dates` NO siempre cierra contra el mismo hermano: sin fecha el
+ * siguiente bloque es `tk-cta` (invita a "avisarme"); con fecha es `tk-cupon`
+ * (el cupon de descuento). Asumir un cierre fijo fue el bug real que dejaba
+ * de leer fechas genuinas apenas el sitio empezo a publicarlas bajo este
+ * diseño: `extraerBloqueFechaActual` cuenta profundidad de `<div>` en vez de
+ * buscar un hermano fijo, asi que no importa cual venga despues.
  *
  * Este modulo NO crea nada: interpreta y propone. Una fecha mal leida
  * programaria recordatorios reales en el dia equivocado para gente real, asi
@@ -57,35 +82,67 @@ export function limpiarTexto(raw: string): string {
 
 const CAMPO_LEGACY = /class="dato__etiqueta">(.*?)<\/span>\s*<span class="dato__valor">(.*?)<\/span>/gs;
 
-/**
- * Bloque de fecha del diseño actual: `tk-cta` es el hermano que viene justo
- * despues de `tk-dates` en la ficha publica, asi que delimita el bloque sin
- * tener que contar el cierre de divs anidados (fragil por regex). Si esa
- * marca cambiara, el bloque no cierra y el match simplemente no aparece:
- * `extraerCampoActual` devuelve `null` en vez de arrastrar el resto de la
- * pagina.
- */
-const BLOQUE_FECHA_ACTUAL = /<div class="tk-dates">([\s\S]*?)<div class="tk-cta">/i;
-const ETIQUETA_H3 = /<h3[^>]*>([\s\S]*?)<\/h3>/i;
+const ANCLA_FECHA_ACTUAL = '<div class="tk-dates">';
+const DT_DAY = /<div class="dt-day">([\s\S]*?)<\/div>/gi;
+const DT_DAY_VALOR = /<b[^>]*>([^<]*)<\/b>/i;
+const DT_MES = /<span class="dt-mes">([^<]*)<\/span>/i;
+const DT_TIME = /<div class="dt-time">([\s\S]*?)<\/div>/i;
 
-function extraerCampoActual(html: string): { etiqueta: string; valor: string } | null {
-  const bloque = html.match(BLOQUE_FECHA_ACTUAL);
-  if (!bloque) return null;
-  const contenido = bloque[1];
-  const etiquetaMatch = contenido.match(ETIQUETA_H3);
-  if (!etiquetaMatch) return null;
-  const etiqueta = limpiarTexto(etiquetaMatch[1]);
-  const valor = limpiarTexto(contenido.replace(ETIQUETA_H3, ""));
-  return { etiqueta, valor };
+/**
+ * Aisla el contenido de `<div class="tk-dates">...</div>` contando
+ * profundidad de `<div>` en vez de asumir con que hermano cierra el bloque
+ * (ese hermano varia entre "sin fecha" y "con fecha": ver el comentario del
+ * modulo). Si el bloque nunca cierra, la profundidad nunca vuelve a cero y se
+ * devuelve `null` en vez de arrastrar el resto de la pagina.
+ */
+function extraerBloqueFechaActual(html: string): string | null {
+  const inicio = html.indexOf(ANCLA_FECHA_ACTUAL);
+  if (inicio === -1) return null;
+  const tras = inicio + ANCLA_FECHA_ACTUAL.length;
+  let profundidad = 1;
+  const etiquetasDiv = /<div\b|<\/div>/gi;
+  etiquetasDiv.lastIndex = tras;
+  for (let etiqueta = etiquetasDiv.exec(html); etiqueta; etiqueta = etiquetasDiv.exec(html)) {
+    profundidad += etiqueta[0].toLowerCase() === "</div>" ? -1 : 1;
+    if (profundidad === 0) return html.slice(tras, etiqueta.index);
+  }
+  return null;
+}
+
+/**
+ * Dias, mes y horario del diseño actual, recompuestos como el texto libre
+ * que `parsearFechas`/`parsearHorario` ya saben leer (p.ej. "26, 27, 28 de
+ * Agosto"), para no duplicar esa logica de parseo ni su criterio de que es
+ * una fecha valida.
+ *
+ * No se exige que cada `<b>` sea numerico aqui: cuando no hay fecha, el
+ * valor real es el texto "Próximamente" (sin `.dt-mes`), y se deja pasar tal
+ * cual como `inicio` — igual que el legacy deja pasar cualquier texto — para
+ * que `parsearFechas` lo rechace con el motivo especifico de "todavía no
+ * anuncia fechas" en vez de caer en el mensaje generico de "no publica el
+ * campo Inicio".
+ */
+function extraerCampoActual(html: string): { inicio: string | null; horario: string | null } {
+  const bloque = extraerBloqueFechaActual(html);
+  if (!bloque) return { inicio: null, horario: null };
+
+  const valoresDias = [...bloque.matchAll(DT_DAY)]
+    .map((celda) => celda[1].match(DT_DAY_VALOR)?.[1]?.trim())
+    .filter((valor): valor is string => !!valor);
+
+  const mes = bloque.match(DT_MES)?.[1];
+  const textoDias = valoresDias.join(", ");
+  const inicio = valoresDias.length === 0 ? null : mes ? `${textoDias} de ${limpiarTexto(mes)}` : textoDias;
+
+  const horario = bloque.match(DT_TIME)?.[1];
+  return { inicio, horario: horario ? limpiarTexto(horario) : null };
 }
 
 /**
  * Pares etiqueta/valor de la ficha publica.
  *
- * Prueba el diseño legacy primero; el actual solo rellena "inicio" si el
- * legacy no lo encontro, y nunca pisa lo que el legacy ya haya leido. El
- * diseño actual no tiene un campo de horario equivalente (ver el comentario
- * del modulo): no se inventa uno.
+ * Prueba el diseño legacy primero; el actual solo rellena lo que el legacy no
+ * encontro (inicio, horario) y nunca pisa lo que el legacy ya haya leido.
  */
 export function extraerCampos(html: string): Record<string, string> {
   const campos: Record<string, string> = {};
@@ -94,12 +151,9 @@ export function extraerCampos(html: string): Record<string, string> {
     const valor = limpiarTexto(match[2]);
     if (etiqueta) campos[etiqueta.toLowerCase()] = valor;
   }
-  if (!campos.inicio) {
-    const actual = extraerCampoActual(html);
-    if (actual && /inicio/i.test(actual.etiqueta) && actual.valor) {
-      campos.inicio = actual.valor;
-    }
-  }
+  const actual = extraerCampoActual(html);
+  if (!campos.inicio && actual.inicio) campos.inicio = actual.inicio;
+  if (!campos.horario && actual.horario) campos.horario = actual.horario;
   return campos;
 }
 

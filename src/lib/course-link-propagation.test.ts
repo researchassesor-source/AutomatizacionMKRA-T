@@ -13,20 +13,32 @@ function sesion(streamUrl: string | null): ResolvedCourseSession {
   return { id: "s1", key: "s1", title: null, startAt: INICIO, endAt: null, streamUrl } as ResolvedCourseSession;
 }
 
+/**
+ * Cada paso trae SUS DOS canales disponibles (EMAIL y WHATSAPP), ambos
+ * ACTIVE: este archivo prueba específicamente el bloqueo por enlace de
+ * transmisión, no el de completitud de canal (ver course-timeline.test.ts,
+ * sección C del cierre de producción) -- un paso con un solo canal activo ya
+ * queda "Falta activar WhatsApp." antes de que el enlace entre en juego, lo
+ * que taparía el escenario que este archivo realmente ejercita.
+ */
 function reglas() {
-  return [
-    { id: "r1", name: "Bienvenida", planKey: "welcome", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "ON_REGISTRATION" as const, offsetMinutes: 0, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r2", name: "Grupo", planKey: "whatsapp_group", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "ON_REGISTRATION" as const, offsetMinutes: 5, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r3", name: "24h", planKey: "reminder_24h", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 1440, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r4", name: "2h", planKey: "reminder_2h", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 120, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r5", name: "15m", planKey: "reminder_15m", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r6", name: "En vivo", planKey: "session_live", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "BEFORE_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r7", name: "Rezagados", planKey: "late_access", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true, waTemplateName: null },
-    { id: "r8", name: "Gracias", planKey: "thank_you", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r9", name: "Curso completo", planKey: "course_complete", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 5, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r10", name: "Seguimiento", planKey: "course_follow_up", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 10, requiresStreamUrl: false, waTemplateName: null },
-    { id: "r11", name: "Encuesta", planKey: "survey", channel: "EMAIL" as const, status: "ACTIVE" as const, trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: false, waTemplateName: null },
+  const base = [
+    { id: "r1", name: "Bienvenida", planKey: "welcome", trigger: "ON_REGISTRATION" as const, offsetMinutes: 0, requiresStreamUrl: false },
+    { id: "r2", name: "Grupo", planKey: "whatsapp_group", trigger: "ON_REGISTRATION" as const, offsetMinutes: 5, requiresStreamUrl: false },
+    { id: "r3", name: "24h", planKey: "reminder_24h", trigger: "BEFORE_COURSE" as const, offsetMinutes: 1440, requiresStreamUrl: false },
+    { id: "r4", name: "2h", planKey: "reminder_2h", trigger: "BEFORE_COURSE" as const, offsetMinutes: 120, requiresStreamUrl: true },
+    { id: "r5", name: "15m", planKey: "reminder_15m", trigger: "BEFORE_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true },
+    { id: "r6", name: "En vivo", planKey: "session_live", trigger: "BEFORE_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: true },
+    { id: "r7", name: "Rezagados", planKey: "late_access", trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: true },
+    { id: "r8", name: "Gracias", planKey: "thank_you", trigger: "AFTER_COURSE" as const, offsetMinutes: 0, requiresStreamUrl: false },
+    { id: "r9", name: "Curso completo", planKey: "course_complete", trigger: "AFTER_COURSE" as const, offsetMinutes: 5, requiresStreamUrl: false },
+    { id: "r10", name: "Seguimiento", planKey: "course_follow_up", trigger: "AFTER_COURSE" as const, offsetMinutes: 10, requiresStreamUrl: false },
+    { id: "r11", name: "Encuesta", planKey: "survey", trigger: "AFTER_COURSE" as const, offsetMinutes: 15, requiresStreamUrl: false },
   ];
+  return base.flatMap((item) => [
+    { ...item, id: `${item.id}-email`, channel: "EMAIL" as const, status: "ACTIVE" as const, waTemplateName: null },
+    { ...item, id: `${item.id}-wa`, channel: "WHATSAPP" as const, status: "ACTIVE" as const, waTemplateName: "plantilla_aprobada" },
+  ]);
 }
 
 describe("propagación del enlace de la sesión", () => {

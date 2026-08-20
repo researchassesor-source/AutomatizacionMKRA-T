@@ -53,8 +53,12 @@ const reconcileSchema = z.object({
  * cliente ya mostró y que el administrador aceptó explícitamente.
  *
  * Ver applyCourseSchedule en wordpress-sync-orchestrator.ts para el detalle
- * de la transacción (cuarentena/cancelación antes de mover fechas, revisión
- * de calendarRevision, reintento de reschedule con 503 honesto).
+ * de la transacción (cuarentena de TODO lo que depende del calendario,
+ * revisión de calendarRevision) y reconcileCourseDerivedState para la
+ * reconciliación posterior (fechas, cola, reglas fijas, oferta #12), que ya
+ * no puede dejar "no se aplicó ningún cambio" -el calendario SÍ se aplicó- y
+ * que si falla dos veces queda pendiente para que el cron la recupere sola,
+ * en vez de exigir un reintento manual con un 503.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(request, CONTENIDO);
@@ -75,20 +79,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       created: resultado.created,
       cancelledMessages: resultado.cancelledMessages,
       quarantinedMessages: resultado.quarantinedMessages,
-      rescheduled: resultado.rescheduled,
+      // pending:true significa que el calendario SÍ se aplicó, pero la
+      // reconciliación derivada (cola/reglas/#12) todavía no terminó y el
+      // cron la recuperará sola; no es un error que exija reintentar a mano.
+      pending: !resultado.reconciled.ok,
+      reconciled: resultado.reconciled,
     });
   }
   if (resultado.code === "COURSE_NOT_FOUND") return NextResponse.json({ error: "No se encontró el curso." }, { status: 404 });
   if (resultado.code === "REVISION_MISMATCH") {
     return NextResponse.json({ error: "El calendario cambió mientras lo revisabas. Vuelve a sincronizar antes de aplicarlo." }, { status: 409 });
   }
-  if (resultado.code === "TRANSACTION_FAILED") {
-    return NextResponse.json({ error: "No se pudo actualizar el calendario. No se aplicó ningún cambio." }, { status: 500 });
-  }
-  return NextResponse.json({
-    ok: false,
-    calendarUpdated: true,
-    messagesSafe: true,
-    error: "El calendario se actualizó, pero los recordatorios quedaron detenidos hasta completar el recálculo. Reintenta.",
-  }, { status: 503 });
+  return NextResponse.json({ error: "No se pudo actualizar el calendario. No se aplicó ningún cambio." }, { status: 500 });
 }

@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   prisma: {
-    course: { findUnique: vi.fn(), update: vi.fn() },
+    course: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    automationRule: { findMany: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
   tx: {
@@ -16,12 +17,14 @@ const mocks = vi.hoisted(() => ({
     error: null,
   })),
   rescheduleCourseAutomations: vi.fn(async () => ({})),
+  reprogramarOfertaAutomatica: vi.fn(async () => null),
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 vi.mock("@/lib/auth/authorization", () => ({ requireRole: mocks.requireRole }));
 vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.rescheduleCourseAutomations }));
+vi.mock("@/lib/commerce/offer-campaign", () => ({ reprogramarOfertaAutomatica: mocks.reprogramarOfertaAutomatica }));
 
 import { PATCH } from "./route";
 
@@ -40,9 +43,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({ session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" }, error: null });
   mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1", title: "Curso de prueba", automationsPausedAt: null });
+  mocks.prisma.course.update.mockResolvedValue({});
+  mocks.prisma.course.updateMany.mockResolvedValue({ count: 1 });
+  mocks.prisma.automationRule.findMany.mockResolvedValue([]);
+  mocks.prisma.automationRule.update.mockResolvedValue({});
   mocks.prisma.$transaction.mockImplementation(async (callback: any) => callback(mocks.tx));
-  mocks.tx.course.update.mockImplementation(async ({ data }: any) => ({ automationsPausedAt: data.automationsPausedAt, automationsPausedBy: data.automationsPausedBy }));
+  mocks.tx.course.update.mockImplementation(async ({ data }: any) =>
+    "automationsPausedAt" in data ? { automationsPausedAt: data.automationsPausedAt, automationsPausedBy: data.automationsPausedBy } : {});
   mocks.tx.outboundMessage.updateMany.mockResolvedValue({ count: 0 });
+  mocks.rescheduleCourseAutomations.mockResolvedValue({});
+  mocks.reprogramarOfertaAutomatica.mockResolvedValue(null);
 });
 
 /**
@@ -82,14 +92,29 @@ describe("PATCH automations-pause", () => {
     mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1", title: "Curso de prueba", automationsPausedAt: new Date("2026-08-09T00:00:00.000Z") });
     const res = await patch("course-1", { paused: false, confirm: true });
     expect(res.status).toBe(200);
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
   });
 
-  it("si la reprogramación al reanudar falla, la respuesta igual confirma la reanudación", async () => {
+  it("reanudar marca el curso pendiente de reconciliación dentro de la misma transacción que lo reanuda", async () => {
+    await patch("course-1", { paused: false, confirm: true });
+    expect(mocks.tx.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { automationReconcilePendingAt: expect.any(Date), automationReconcileReason: "COURSE_RESUMED" },
+    });
+  });
+
+  it("pausar NO marca pendiente de reconciliación: ya se protegió la cola arriba", async () => {
+    await patch("course-1", { paused: true, confirm: true });
+    const marcasPendientes = mocks.tx.course.update.mock.calls.filter(([arg]: any) => "automationReconcilePendingAt" in arg.data);
+    expect(marcasPendientes).toHaveLength(0);
+  });
+
+  it("si la reprogramación al reanudar falla dos veces, la respuesta igual confirma la reanudación, marcada pendiente", async () => {
     mocks.rescheduleCourseAutomations.mockRejectedValue(new Error("token=secreto conexión perdida"));
     const res = await patch("course-1", { paused: false, confirm: true });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toMatchObject({ ok: true, pausado: false });
+    expect(body).toMatchObject({ ok: true, pausado: false, pending: true });
+    expect(JSON.stringify(body)).not.toMatch(/secreto/);
   });
 });

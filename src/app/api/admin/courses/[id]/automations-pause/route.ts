@@ -4,7 +4,7 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
 import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +60,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         { enrollment: { courseId: id } },
         { errorCode: "COURSE_AUTOMATIONS_PAUSED", errorMessage: "No se envió: las automatizaciones de este curso están en pausa." },
       );
+    } else {
+      // Marcar pendiente solo al REANUDAR, no al pausar: pausar ya protege la
+      // cola por sí mismo (arriba) y no necesita recuperación de nada.
+      await markCourseAutomationReconcilePending(tx, id, "COURSE_RESUMED");
     }
     return curso2;
   });
@@ -76,12 +80,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   /**
    * Reanudar: lo que se quedo OMITIDO/COURSE_AUTOMATIONS_PAUSED (el cerrojo de
    * ultimo momento en sendMessage) necesita que alguien lo vuelva a evaluar.
-   * Sin este llamado se quedaria pausado para siempre aunque el curso ya no lo
-   * estuviera.
+   * Antes, un fallo de este recálculo se ignoraba en silencio y el curso
+   * podia quedar COURSE_AUTOMATIONS_PAUSED para siempre aunque ya no lo
+   * estuviera; ahora el flag persistente (marcado arriba) garantiza que el
+   * cron lo recupere si esto falla.
    */
-  if (!parsed.data.paused) {
-    await rescheduleCourseAutomations(id).catch(() => undefined);
-  }
+  const reconciled = parsed.data.paused ? null : await reconcileCourseDerivedState(id, auth.session);
 
   return NextResponse.json({
     ok: true,
@@ -89,5 +93,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     desde: actualizado.automationsPausedAt?.toISOString() ?? null,
     por: actualizado.automationsPausedBy,
     quarantined,
+    pending: reconciled ? !reconciled.ok : false,
+    reconciled,
   });
 }

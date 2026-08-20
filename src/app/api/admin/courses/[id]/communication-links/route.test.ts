@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   prisma: {
-    course: { findUnique: vi.fn() },
+    course: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    automationRule: { findMany: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
   tx: {
@@ -16,12 +17,14 @@ const mocks = vi.hoisted(() => ({
     error: null,
   })),
   rescheduleCourseAutomations: vi.fn(async () => ({})),
+  reprogramarOfertaAutomatica: vi.fn(async () => null),
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 vi.mock("@/lib/auth/authorization", () => ({ requireRole: mocks.requireRole }));
 vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.rescheduleCourseAutomations }));
+vi.mock("@/lib/commerce/offer-campaign", () => ({ reprogramarOfertaAutomatica: mocks.reprogramarOfertaAutomatica }));
 
 import { PATCH } from "./route";
 
@@ -50,10 +53,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({ session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" }, error: null });
   mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1" });
+  mocks.prisma.course.update.mockResolvedValue({});
+  mocks.prisma.course.updateMany.mockResolvedValue({ count: 1 });
+  mocks.prisma.automationRule.findMany.mockResolvedValue([]);
+  mocks.prisma.automationRule.update.mockResolvedValue({});
   mocks.prisma.$transaction.mockImplementation(async (callback: any) => callback(mocks.tx));
   mocks.tx.course.update.mockResolvedValue({ id: "course-1" });
   mocks.tx.outboundMessage.updateMany.mockResolvedValue({ count: 0 });
   mocks.rescheduleCourseAutomations.mockResolvedValue({});
+  mocks.reprogramarOfertaAutomatica.mockResolvedValue(null);
 });
 
 describe("guardar un enlace", () => {
@@ -131,7 +139,9 @@ describe("cuarentena antes de guardar y reprogramación después", () => {
     const res = await peticion("course-1", { whatsappGroupUrl: "https://chat.whatsapp.com/nuevo", confirm: true });
     const body = await res.json();
 
-    expect(orden).toEqual(["cuarentena", "guardar"]);
+    // "guardar" aparece dos veces: la escritura de los enlaces y, en la misma
+    // transacción, la marca de reconciliación pendiente.
+    expect(orden).toEqual(["cuarentena", "guardar", "guardar"]);
     expect(mocks.tx.outboundMessage.updateMany).toHaveBeenCalledWith({
       where: {
         enrollment: { courseId: "course-1" },
@@ -164,16 +174,25 @@ describe("cuarentena antes de guardar y reprogramación después", () => {
   it("después de guardar, reprograma el curso para recuperar lo que estaba OMITIDO por falta de enlace", async () => {
     const res = await peticion("course-1", { whatsappGroupUrl: "https://chat.whatsapp.com/x", confirm: true });
     const body = await res.json();
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
-    expect(body.rescheduled).toBeDefined();
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
+    expect(body.reconciled).toBeDefined();
   });
 
-  it("si la reprogramación falla, la respuesta igual confirma que el enlace se guardó", async () => {
+  it("marca el curso pendiente de reconciliación dentro de la misma transacción", async () => {
+    await peticion("course-1", { whatsappGroupUrl: "https://chat.whatsapp.com/x", confirm: true });
+    expect(mocks.tx.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { automationReconcilePendingAt: expect.any(Date), automationReconcileReason: "COMMUNICATION_LINKS_CHANGED" },
+    });
+  });
+
+  it("si la reprogramación falla dos veces, la respuesta igual confirma que el enlace se guardó, marcada pendiente", async () => {
     mocks.rescheduleCourseAutomations.mockRejectedValue(new Error("token=secreto conexión perdida"));
     const res = await peticion("course-1", { whatsappGroupUrl: "https://chat.whatsapp.com/x", confirm: true });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toMatchObject({ ok: true, changed: true, rescheduled: null });
+    expect(body).toMatchObject({ ok: true, changed: true, pending: true });
+    expect(JSON.stringify(body)).not.toMatch(/secreto/);
   });
 });
 
@@ -216,7 +235,9 @@ describe("confirm obligatorio", () => {
   it("confirm:true con al menos un enlace funciona", async () => {
     const res = await peticion("course-1", { surveyUrl: "https://forms.example.com/x", confirm: true });
     expect(res.status).toBe(200);
-    expect(mocks.tx.course.update).toHaveBeenCalledTimes(1);
+    // Dos escrituras a Course en la misma transacción: los enlaces y la
+    // marca de reconciliación pendiente.
+    expect(mocks.tx.course.update).toHaveBeenCalledTimes(2);
   });
 });
 

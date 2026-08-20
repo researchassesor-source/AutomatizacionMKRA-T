@@ -1,18 +1,24 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
 import { VENTANA_ATENCION_MS } from "./conversation";
 
 /**
- * Recupera lo comercial que quedo callado por una atencion humana ya cerrada.
+ * Recupera lo comercial que quedo callado por una atencion humana ya cerrada,
+ * o por un contacto restaurado/reclasificado como REAL.
  *
  * `automatizacionPermitida` calla los mensajes comerciales de ESTE contacto
- * mientras dura el handoff (OMITIDO, no CANCELADO: reprogramable). Pero nada
- * los reactiva solo, ni siquiera al cerrar la atencion: hace falta pedirle al
- * motor que vuelva a evaluar el curso. `rescheduleCourseAutomations` ya
- * protege contra revivir un mensaje cuyo momento paso (se omite de nuevo, no
- * se envia tarde), asi que aqui basta con volver a llamarlo por cada curso en
- * el que el contacto tiene inscripcion.
+ * mientras dura la condicion (OMITIDO, no CANCELADO: reprogramable). Pero
+ * nada los reactiva solo: hace falta pedirle al motor que vuelva a evaluar
+ * cada curso en el que el contacto tiene inscripcion.
+ *
+ * Antes, un fallo de `rescheduleCourseAutomations` aqui se ignoraba en
+ * silencio Y `reprogramados++` se ejecutaba de todos modos -- quien llamaba
+ * (el cierre de un handoff, la restauracion de un contacto) creia que la
+ * recuperacion habia funcionado aunque hubiera fallado de verdad. Ahora se
+ * marca el curso pendiente ANTES de intentarlo y solo se cuenta como
+ * recuperado lo que realmente se reconcilio; lo que falla queda para que el
+ * cron lo recoja despues.
  */
 export async function recuperarAutomatizacionesDelContacto(leadId: string, ahora = new Date()): Promise<number> {
   const cursos = await prisma.enrollment.findMany({
@@ -22,8 +28,9 @@ export async function recuperarAutomatizacionesDelContacto(leadId: string, ahora
   });
   let reprogramados = 0;
   for (const { courseId } of cursos) {
-    await rescheduleCourseAutomations(courseId, ahora).catch(() => undefined);
-    reprogramados++;
+    await markCourseAutomationReconcilePending(prisma, courseId, "CONTACT_AUTOMATIONS_RECOVERED").catch(() => undefined);
+    const resultado = await reconcileCourseDerivedState(courseId, null, ahora);
+    if (resultado.ok) reprogramados++;
   }
   return reprogramados;
 }

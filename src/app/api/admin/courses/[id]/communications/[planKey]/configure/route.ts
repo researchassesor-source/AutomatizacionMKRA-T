@@ -7,7 +7,7 @@ import { CONTENIDO } from "@/lib/auth/roles";
 import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { TIMELINE_STEPS } from "@/lib/course-timeline";
 import { prisma } from "@/lib/db";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
 import { planEntryFor } from "@/lib/nurture/plan-entry";
 
 export const dynamic = "force-dynamic";
@@ -126,33 +126,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     alreadyConfigured.push(channel);
   }
 
-  const cambio = created.length > 0 || revived.length > 0;
-  // Igual que en el toggle del paso: si el reschedule falla no se revierte lo
-  // ya guardado, y el error nunca viaja crudo a la auditoria.
-  let reprogramado = false;
-  if (cambio) {
-    try {
-      await rescheduleCourseAutomations(id);
-      reprogramado = true;
-    } catch {
-      await writeAudit({
-        session: auth.session,
-        action: "COURSE_COMMUNICATION_STEP_RESCHEDULE_FAILED",
-        entityType: "Course",
-        entityId: id,
-        result: "FAILURE",
-        metadata: { courseId: id, planKey, enabled: true, error: "RESCHEDULE_FAILED" },
-      }).catch(() => undefined);
-    }
-  }
+  /**
+   * Se reconcilia siempre que se haya pedido AL MENOS un canal, no solo
+   * cuando `created.length > 0 || revived.length > 0`: ese condicional era
+   * el bug -si el reschedule original fallaba, un reintento encontraba la
+   * regla YA creada (status ACTIVE, ahora en `alreadyConfigured`) y por eso
+   * nunca volvía a intentar el recálculo-. El flag persistente cubre también
+   * el reintento; nunca se revierte lo ya guardado si esto falla.
+   */
+  if (entradas.length > 0) await markCourseAutomationReconcilePending(prisma, id, "STEP_CONFIGURED");
+  const reconciled = entradas.length > 0 ? await reconcileCourseDerivedState(id, auth.session) : null;
 
   await writeAudit({
     session: auth.session,
     action: "COURSE_COMMUNICATION_STEP_CONFIGURED",
     entityType: "Course",
     entityId: id,
-    metadata: { planKey, created, revived, alreadyConfigured, reprogramado },
+    metadata: { planKey, created, revived, alreadyConfigured, reprogramado: reconciled?.ok ?? false },
   }).catch(() => undefined);
 
-  return NextResponse.json({ ok: true, planKey, created, revived, alreadyConfigured });
+  return NextResponse.json({ ok: true, planKey, created, revived, alreadyConfigured, pending: reconciled ? !reconciled.ok : false });
 }

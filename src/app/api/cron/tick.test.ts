@@ -19,6 +19,7 @@ const cerrarInscripciones = vi.fn();
 const procesarOfertas = vi.fn();
 const procesarAtenciones = vi.fn();
 const procesarRecuperacionTecnica = vi.fn();
+const procesarReconciliacionDurable = vi.fn();
 
 vi.mock("@/lib/social/orchestrator", () => ({
   processScheduledPosts: (...args: unknown[]) => procesarPublicaciones(...args),
@@ -32,6 +33,9 @@ vi.mock("@/lib/whatsapp/handoff-expiry", () => ({
 }));
 vi.mock("@/lib/nurture/technical-recovery", () => ({
   recuperarCodigosTecnicosAtascados: (...args: unknown[]) => procesarRecuperacionTecnica(...args),
+}));
+vi.mock("@/lib/nurture/course-reconciliation", () => ({
+  recuperarReconciliacionesPendientes: (...args: unknown[]) => procesarReconciliacionDurable(...args),
 }));
 
 vi.mock("@/lib/nurture/engine", () => ({
@@ -67,6 +71,7 @@ beforeEach(() => {
   procesarOfertas.mockReset().mockResolvedValue({ campanas: 0, encolados: 0 });
   procesarAtenciones.mockReset().mockResolvedValue({ liberadas: 0, cursosReprogramados: 0 });
   procesarRecuperacionTecnica.mockReset().mockResolvedValue({ cursos: 0 });
+  procesarReconciliacionDurable.mockReset().mockResolvedValue({ cursos: 0, recuperados: 0 });
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -266,6 +271,31 @@ describe("recuperación técnica (códigos como SCHEDULE_RECONCILING atascados)"
     const { GET } = await import("./tick/route");
     const cuerpo = await (await GET(conBearer())).json();
     expect(cuerpo.recuperacionTecnica).toMatchObject({ estado: "error" });
+    expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
+    errores.mockRestore();
+  });
+});
+
+describe("reconciliación durable (Course.automationReconcilePendingAt)", () => {
+  it("se procesa en cada tick", async () => {
+    const { GET } = await import("./tick/route");
+    await GET(conBearer());
+    expect(procesarReconciliacionDurable).toHaveBeenCalledTimes(1);
+  });
+
+  it("informa de los cursos pendientes y de los recuperados", async () => {
+    procesarReconciliacionDurable.mockResolvedValue({ cursos: 4, recuperados: 3 });
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.reconciliacionDurable).toMatchObject({ estado: "ok", resumen: { cursosPendientes: 4, cursosRecuperados: 3 } });
+  });
+
+  it("si falla, el despacho sigue ejecutandose", async () => {
+    procesarReconciliacionDurable.mockRejectedValue(new Error("base caída"));
+    const errores = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await import("./tick/route");
+    const cuerpo = await (await GET(conBearer())).json();
+    expect(cuerpo.reconciliacionDurable).toMatchObject({ estado: "error" });
     expect(procesarComunicaciones).toHaveBeenCalledTimes(1);
     errores.mockRestore();
   });

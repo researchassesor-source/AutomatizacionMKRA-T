@@ -53,9 +53,7 @@ export async function POST(request: Request) {
       ? "No se encontró el curso."
       : resultado.code === "REVISION_MISMATCH"
         ? "El calendario cambió mientras lo revisabas. Vuelve a sincronizarlo."
-        : resultado.code === "TRANSACTION_FAILED"
-          ? "No se pudo actualizar el calendario. No se aplicó ningún cambio en este curso."
-          : "El calendario se actualizó, pero los recordatorios quedaron detenidos hasta completar el recálculo. Reintenta este curso.";
+        : "No se pudo actualizar el calendario. No se aplicó ningún cambio en este curso.";
     resultados.push({ courseId: item.courseId, ok: false, code: resultado.code, error: mensaje });
   }
 

@@ -6,7 +6,7 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { prisma } from "@/lib/db";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
 import { cancelIrreversibleMessages, quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 import { CONTENIDO, GESTION } from "@/lib/auth/roles";
 
@@ -90,17 +90,24 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         { errorCode: "SCHEDULE_RECONCILING", errorMessage: "Esta automatización cambió y este aviso está esperando ser recalculado." },
       );
     }
-    return tx.automationRule.update({
+    const actualizada = await tx.automationRule.update({
       where: { id },
       data: { ...data, campaignId, nextExecutionAt, ...(activatingNow ? { activatedAt: new Date() } : {}) },
     });
+    // Mismo alcance que el recálculo de abajo: cualquier ACTIVE (edición o
+    // activación) puede necesitar reconciliación, así que el flag persistente
+    // cubre exactamente lo mismo que el intento real, nunca menos.
+    if (actualizada.status === "ACTIVE") await markCourseAutomationReconcilePending(tx, actualizada.courseId, activatingNow ? "RULE_ACTIVATED" : "RULE_CONTENT_CHANGED");
+    return actualizada;
   });
 
   // Activar o reescribir una regla debe reflejarse de inmediato en las
-  // inscripciones vigentes; los mensajes ya enviados no se tocan.
-  const rescheduled = rule.status === "ACTIVE" ? await rescheduleCourseAutomations(rule.courseId).catch(() => null) : null;
-  await writeAudit({ session: auth.session, action: "AUTOMATION_RULE_UPDATED", entityType: "AutomationRule", entityId: id, metadata: { status: rule.status, nextExecutionAt: rule.nextExecutionAt?.toISOString(), rescheduled: rescheduled?.enrollments ?? 0 } });
-  return NextResponse.json({ ok: true, rule, rescheduled });
+  // inscripciones vigentes; los mensajes ya enviados no se tocan. Si el
+  // recálculo falla dos veces, el flag persistente (marcado arriba, en la
+  // misma transacción) garantiza que el cron lo recupere.
+  const reconciled = rule.status === "ACTIVE" ? await reconcileCourseDerivedState(rule.courseId, auth.session) : null;
+  await writeAudit({ session: auth.session, action: "AUTOMATION_RULE_UPDATED", entityType: "AutomationRule", entityId: id, metadata: { status: rule.status, nextExecutionAt: rule.nextExecutionAt?.toISOString(), rescheduled: reconciled?.ok ? reconciled.rescheduled.enrollments : 0 } });
+  return NextResponse.json({ ok: true, rule, pending: reconciled ? !reconciled.ok : false, reconciled });
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -3,6 +3,7 @@ import { processScheduledPosts } from "@/lib/social/orchestrator";
 import { procesarCampanasVencidas } from "@/lib/commerce/offer-campaign";
 import { expirarAtencionesHumanas } from "@/lib/whatsapp/handoff-expiry";
 import { recuperarCodigosTecnicosAtascados } from "@/lib/nurture/technical-recovery";
+import { recuperarReconciliacionesPendientes } from "@/lib/nurture/course-reconciliation";
 
 /**
  * Reloj maestro: un solo despertar para los dos subsistemas.
@@ -40,6 +41,7 @@ export type ResultadoTick = {
   ofertas: ResultadoSubsistema;
   atenciones: ResultadoSubsistema;
   recuperacionTecnica: ResultadoSubsistema;
+  reconciliacionDurable: ResultadoSubsistema;
 };
 
 /** Un fallo inesperado no puede tumbar el reloj entero ni el otro subsistema. */
@@ -158,6 +160,21 @@ async function ejecutarRecuperacionTecnica(ahora: Date): Promise<ResultadoSubsis
 }
 
 /**
+ * Reconciliación derivada pendiente (curso): fechas, cola, nextExecutionAt de
+ * reglas fijas y oferta #12.
+ *
+ * Complementa a la recuperación técnica de arriba: esa barre mensajes YA
+ * atascados en un código técnico; esta cubre el caso donde el proceso se cayó
+ * ANTES de que existiera cualquier mensaje que delatara el problema -una
+ * sesión recién creada, por ejemplo-, porque la señal vive en el propio
+ * Course (automationReconcilePendingAt), no en un OutboundMessage.
+ */
+async function ejecutarReconciliacionDurable(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await recuperarReconciliacionesPendientes(ahora);
+  return { estado: "ok", resumen: { cursosPendientes: resumen.cursos, cursosRecuperados: resumen.recuperados } };
+}
+
+/**
  * Ejecuta los subsistemas y devuelve que paso en cada uno.
  *
  * `ok` es cierto solo si ninguno lanzo una excepcion. Un subsistema bloqueado
@@ -175,6 +192,7 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
   const ofertas = await aislar("ofertas", () => ejecutarOfertas(ahora));
   const atenciones = await aislar("atenciones", () => ejecutarAtenciones(ahora));
   const recuperacionTecnica = await aislar("recuperacionTecnica", () => ejecutarRecuperacionTecnica(ahora));
+  const reconciliacionDurable = await aislar("reconciliacionDurable", () => ejecutarReconciliacionDurable(ahora));
   const [social, comunicaciones] = await Promise.all([
     aislar("social", () => ejecutarSocial(ahora)),
     aislar("comunicaciones", () => ejecutarComunicaciones(ahora)),
@@ -182,7 +200,8 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
 
   return {
     ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error"
-      && ofertas.estado !== "error" && atenciones.estado !== "error" && recuperacionTecnica.estado !== "error",
+      && ofertas.estado !== "error" && atenciones.estado !== "error" && recuperacionTecnica.estado !== "error"
+      && reconciliacionDurable.estado !== "error",
     ejecutadoEn: ahora.toISOString(),
     duracionMs: Date.now() - inicio,
     social,
@@ -191,5 +210,6 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
     ofertas,
     atenciones,
     recuperacionTecnica,
+    reconciliacionDurable,
   };
 }

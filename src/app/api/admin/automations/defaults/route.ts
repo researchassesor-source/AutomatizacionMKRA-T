@@ -7,7 +7,7 @@ import { courseCompletionMoment, resolveCourseSessions } from "@/lib/course-sess
 import { prisma } from "@/lib/db";
 import { DEFAULT_AUTOMATION_PLAN } from "@/lib/nurture/default-automations";
 import { templateFieldsFor, WHATSAPP_AUTOMATION_PLAN } from "@/lib/nurture/default-automations-whatsapp";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
 import { CONTENIDO } from "@/lib/auth/roles";
 
 const schema = z.object({
@@ -142,12 +142,20 @@ export async function POST(request: Request) {
     }
   }
 
-  // Un curso con inscripciones previas debe recibir sus mensajes sin que nadie
-  // tenga que abrir y volver a guardar la sesión a mano. La reprogramación es
-  // idempotente y va por lotes, así que no duplica ni carga todo en memoria.
-  const rescheduled = parsed.data.activate && (created > 0 || activated > 0)
-    ? await rescheduleCourseAutomations(course.id)
-    : null;
+  /**
+   * Un curso con inscripciones previas debe recibir sus mensajes sin que
+   * nadie tenga que abrir y volver a guardar la sesión a mano.
+   *
+   * Se marca pendiente y se reconcilia siempre que `activate` sea true, NO
+   * solo cuando `created > 0 || activated > 0`: ese condicional era el bug
+   * -si el reschedule original fallaba, un reintento encontraba las reglas
+   * YA creadas/activadas (created=0, activated=0) y por eso nunca volvía a
+   * intentar el recálculo, dejando el curso con reglas activas pero sin
+   * cola-. Ahora el flag persistente cubre también el reintento.
+   */
+  if (parsed.data.activate) await markCourseAutomationReconcilePending(prisma, course.id, "DEFAULTS_ACTIVATED");
+  const reconciled = parsed.data.activate ? await reconcileCourseDerivedState(course.id, auth.session) : null;
+  const rescheduled = reconciled?.ok ? reconciled.rescheduled : null;
 
   await writeAudit({
     session: auth.session,
@@ -165,6 +173,7 @@ export async function POST(request: Request) {
       messagesUpdated: rescheduled?.updated ?? 0,
       messagesOmitted: rescheduled?.omitted ?? 0,
       truncated: rescheduled?.truncated ?? false,
+      pending: reconciled ? !reconciled.ok : false,
     },
   });
 
@@ -175,7 +184,7 @@ export async function POST(request: Request) {
   const enrollmentSummary = rescheduled
     ? ` Inscripciones existentes procesadas: ${rescheduled.enrollments}; mensajes creados: ${rescheduled.enqueued}, actualizados: ${rescheduled.updated}, omitidos: ${rescheduled.omitted}.`
     : parsed.data.activate
-      ? ""
+      ? " El recálculo de recordatorios quedó pendiente; se completará solo en breve."
       : " El plan quedó en borrador: actívalo para que las inscripciones existentes reciban sus mensajes.";
   const truncatedWarning = rescheduled?.truncated
     ? " ATENCIÓN: quedaron inscripciones sin procesar por el límite de seguridad. Vuelve a aplicar el plan para continuar."
@@ -187,6 +196,7 @@ export async function POST(request: Request) {
     created,
     activated,
     unchanged: plan.length - created - activated,
+    pending: reconciled ? !reconciled.ok : false,
     enrollments: rescheduled
       ? {
           processed: rescheduled.enrollments,

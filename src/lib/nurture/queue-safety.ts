@@ -99,3 +99,25 @@ export async function cancelIrreversibleMessages(db: Db, where: Prisma.OutboundM
   });
   return resultado.count;
 }
+
+/**
+ * Cuarentena de TODO lo que depende del calendario de un curso, no solo de
+ * la sesión que cambió directamente.
+ *
+ * `resolveCourseSessions` asigna `position`/`totalSessions` por orden
+ * cronológico de TODAS las sesiones del curso: borrar o crear una sesión
+ * desplaza esos números para las demás (3 sesiones -> 2 convierte "sesión 2
+ * de 3" en "sesión 1 de 2"), y cambiar la fecha de una puede reordenarla
+ * frente a sus hermanas. Cuarentenar solo `courseSessionId IN [la que
+ * cambió]` deja mensajes de sesiones NO tocadas directamente con un texto
+ * que ya no describe el calendario real. Por eso el alcance es el curso
+ * entero, no un subconjunto de ids.
+ *
+ * Solo AUTOMATION: una respuesta humana nunca depende del calendario, y
+ * nunca se envía en PROGRAMADO (sale de inmediato), así que en la práctica
+ * esto no la tocaría de todos modos -- el filtro es explícito para que la
+ * intención quede escrita, no implícita en un efecto colateral de otro campo.
+ */
+export async function quarantineCourseCalendarDependentMessages(db: Db, courseId: string, motivo: MotivoCola): Promise<number> {
+  return quarantineRecoverableMessages(db, { enrollment: { courseId }, origin: "AUTOMATION" }, motivo);
+}

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
 import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 export const dynamic = "force-dynamic";
@@ -86,6 +86,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     // Solo estos tres campos: nada de precio, publicacion ni fechas.
     await tx.course.update({ where: { id }, data });
+    await markCourseAutomationReconcilePending(tx, id, "COMMUNICATION_LINKS_CHANGED");
   });
 
   await writeAudit({
@@ -98,8 +99,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   // Recupera lo que estaba OMITIDO por falta de enlace (si se acaba de
   // configurar) y recalcula lo que se puso en cuarentena arriba. Nunca envía
-  // tarde: rescheduleCourseAutomations omite de nuevo lo que ya pasó de hora.
-  const rescheduled = await rescheduleCourseAutomations(id).catch(() => null);
+  // tarde: la reconciliación omite de nuevo lo que ya pasó de hora. Si falla
+  // dos veces, el flag persistente (marcado arriba, en la misma transacción)
+  // garantiza que el cron lo recupere -- no hace falta pedir un reintento.
+  const reconciled = await reconcileCourseDerivedState(id, auth.session);
 
-  return NextResponse.json({ ok: true, changed: true, quarantined, rescheduled });
+  return NextResponse.json({ ok: true, changed: true, quarantined, pending: !reconciled.ok, reconciled });
 }

@@ -5,14 +5,17 @@ import { calendarRevisionOf } from "@/lib/course-schedule-reconciliation";
 const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   prisma: {
-    course: { findUnique: vi.fn() },
+    course: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    automationRule: { findMany: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
   tx: {
+    course: { update: vi.fn() },
     courseSession: { findMany: vi.fn(), deleteMany: vi.fn(), update: vi.fn(), create: vi.fn() },
     outboundMessage: { updateMany: vi.fn() },
   },
   rescheduleCourseAutomations: vi.fn(),
+  reprogramarOfertaAutomatica: vi.fn(),
   writeAudit: vi.fn(async () => undefined),
   proponerCalendario: vi.fn(),
 }));
@@ -24,6 +27,7 @@ vi.mock("@/lib/auth/authorization", () => ({ requireRole: mocks.requireRole }));
 // esa llamada explotaría aquí en vez de pasar inadvertida.
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.rescheduleCourseAutomations }));
+vi.mock("@/lib/commerce/offer-campaign", () => ({ reprogramarOfertaAutomatica: mocks.reprogramarOfertaAutomatica }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 vi.mock("@/lib/course-schedule-parser", () => ({ proponerCalendario: mocks.proponerCalendario }));
 
@@ -62,6 +66,12 @@ beforeEach(() => {
   mocks.requireRole.mockResolvedValue({ session: { userId: "u1", email: "tecnico@example.test", role: "ADMIN" }, error: null });
   mocks.prisma.$transaction.mockImplementation(async (callback: any) => callback(mocks.tx));
   mocks.rescheduleCourseAutomations.mockResolvedValue({ enrollments: 0, enqueued: 0, updated: 0, omitted: 0, cancelled: 0, batches: 1, truncated: false });
+  mocks.reprogramarOfertaAutomatica.mockResolvedValue(null);
+  mocks.prisma.course.update.mockResolvedValue({});
+  mocks.prisma.course.updateMany.mockResolvedValue({ count: 1 });
+  mocks.prisma.automationRule.findMany.mockResolvedValue([]);
+  mocks.prisma.automationRule.update.mockResolvedValue({});
+  mocks.tx.course.update.mockResolvedValue({});
   mocks.tx.outboundMessage.updateMany.mockImplementation(async ({ where, data }: any) => {
     const statusIn: string[] | undefined = where.status?.in;
     const sessionIn: string[] | undefined = where.courseSessionId?.in;
@@ -233,7 +243,7 @@ describe("POST schedule-proposal: 1/2/8 - cuarentena antes de mover la fecha, ca
     // La sesión igual se actualizó: el motor, al llamarse después, es quien
     // recalcula sobre la fecha nueva.
     expect(mocks.tx.courseSession.update).toHaveBeenCalledWith({ where: { id: "s1" }, data: { startAt: new Date("2026-08-26T00:00:00.000Z"), endAt: null } });
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
   });
 
   it("la cuarentena ocurre ANTES de mover la fecha de la sesión (orden de las llamadas)", async () => {
@@ -292,8 +302,8 @@ describe("POST schedule-proposal: 1/2/8 - cuarentena antes de mover la fecha, ca
   });
 });
 
-describe("POST schedule-proposal: 3/4 - fail-closed si rescheduleCourseAutomations falla", () => {
-  it("3: reschedule falla dos veces -> 503, calendarUpdated:true, messagesSafe:true, sin filtrar la excepción", async () => {
+describe("POST schedule-proposal: 3/4 - reconciliación durable si rescheduleCourseAutomations falla", () => {
+  it("3: reschedule falla dos veces -> 200 igual (el calendario SÍ se aplicó), pending:true, sin filtrar la excepción; el cron lo recupera después", async () => {
     const existing = [s("s1", "2026-08-18T00:00:00.000Z")];
     mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1" });
     mocks.tx.courseSession.findMany.mockResolvedValue(existing);
@@ -305,18 +315,20 @@ describe("POST schedule-proposal: 3/4 - fail-closed si rescheduleCourseAutomatio
       sessions: [{ startAt: "2026-08-26T00:00:00.000Z", endAt: null }],
     }), params());
 
-    expect(response.status).toBe(503);
+    // Ya no hace falta un 503 que exija reintentar a mano: el flag persistente
+    // (Course.automationReconcilePendingAt) y el cron se encargan solos.
+    expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body).toEqual({
-      ok: false,
-      calendarUpdated: true,
-      messagesSafe: true,
-      error: "El calendario se actualizó, pero los recordatorios quedaron detenidos hasta completar el recálculo. Reintenta.",
-    });
+    expect(body).toMatchObject({ ok: true, pending: true, reconciled: { ok: false, pending: true } });
     expect(JSON.stringify(body)).not.toMatch(/secreto|línea 42/);
     // El calendario YA se guardó: no se puede decir "no se aplicó ningún cambio".
     expect(mocks.tx.courseSession.update).toHaveBeenCalled();
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledTimes(2);
+    // El flag quedó marcado dentro de la MISMA transacción que movió la fecha.
+    expect(mocks.tx.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { automationReconcilePendingAt: expect.any(Date), automationReconcileReason: "WORDPRESS_CALENDAR_APPLIED" },
+    });
   });
 
   it("un solo fallo transitorio se recupera con el reintento (como máximo 2 intentos)", async () => {
@@ -357,7 +369,7 @@ describe("POST schedule-proposal: 3/4 - fail-closed si rescheduleCourseAutomatio
     // Aun sin nada que reconciliar en las sesiones, reschedule se llama
     // igual: es lo único que puede recuperar un SCHEDULE_RECONCILING que
     // haya quedado de un intento anterior fallido.
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
   });
 });
 

@@ -4,19 +4,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   prisma: {
-    automationRule: { findUnique: vi.fn(), update: vi.fn() },
-    course: { findUnique: vi.fn() },
+    automationRule: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+    course: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     campaign: { findUnique: vi.fn() },
     outboundMessage: { updateMany: vi.fn(async (_args: any) => ({ count: 0 })) },
     $transaction: vi.fn((callback: any) => callback(mocks.prisma)),
   },
   rescheduleCourseAutomations: vi.fn(async () => ({ enrollments: 0, enqueued: 0, updated: 0, omitted: 0, cancelled: 0, batches: 1, truncated: false })),
+  reprogramarOfertaAutomatica: vi.fn(async () => null),
   writeAudit: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/lib/auth/authorization", () => ({ requireRole: mocks.requireRole }));
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.rescheduleCourseAutomations }));
+vi.mock("@/lib/commerce/offer-campaign", () => ({ reprogramarOfertaAutomatica: mocks.reprogramarOfertaAutomatica }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 
 import { PATCH } from "./route";
@@ -51,7 +53,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({ session: { userId: "u1", email: "tecnico@example.test", role: "ADMIN" }, error: null });
   mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1", startsAt: null, endsAt: null, streamUrl: null, sessions: [] });
+  mocks.prisma.course.update.mockResolvedValue({});
+  mocks.prisma.course.updateMany.mockResolvedValue({ count: 1 });
+  mocks.prisma.automationRule.findMany.mockResolvedValue([]);
   mocks.prisma.automationRule.update.mockImplementation(async ({ data }: any) => ({ ...RULE_BASE, ...data }));
+  mocks.reprogramarOfertaAutomatica.mockResolvedValue(null);
 });
 
 /**
@@ -119,12 +125,31 @@ describe("PATCH automations/[id]: pausa reversible vs archivado definitivo", () 
   it("reprograma el curso cuando el resultado queda ACTIVE, nunca si queda PAUSED", async () => {
     mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "PAUSED" });
     await PATCH(request({ ...RULE_BASE, status: "ACTIVE", confirm: true }), params());
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
 
     mocks.rescheduleCourseAutomations.mockClear();
     mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
     await PATCH(request({ ...RULE_BASE, status: "PAUSED", confirm: true }), params());
     expect(mocks.rescheduleCourseAutomations).not.toHaveBeenCalled();
+  });
+
+  it("una edición que deja la regla ACTIVE marca el curso pendiente de reconciliación en la misma transacción", async () => {
+    mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
+    await PATCH(request({ ...RULE_BASE, body: "Cuerpo editado {{nombre}}", confirm: true }), params());
+    expect(mocks.prisma.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { automationReconcilePendingAt: expect.any(Date), automationReconcileReason: "RULE_CONTENT_CHANGED" },
+    });
+  });
+
+  it("si el recálculo falla dos veces, la edición igual queda guardada, marcada pendiente (el cron la recupera)", async () => {
+    mocks.prisma.automationRule.findUnique.mockResolvedValue({ ...RULE_BASE, status: "ACTIVE" });
+    mocks.rescheduleCourseAutomations.mockRejectedValue(new Error("token=secreto conexión perdida"));
+    const res = await PATCH(request({ ...RULE_BASE, subject: "Asunto editado", confirm: true }), params());
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.pending).toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/secreto/);
   });
 });
 

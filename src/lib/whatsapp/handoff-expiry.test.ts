@@ -7,12 +7,16 @@ const mocks = vi.hoisted(() => ({
     enrollment: { findMany: vi.fn() },
   },
   writeAudit: vi.fn(async () => undefined),
-  rescheduleCourseAutomations: vi.fn(async () => ({})),
+  markCourseAutomationReconcilePending: vi.fn(async () => undefined),
+  reconcileCourseDerivedState: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
-vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.rescheduleCourseAutomations }));
+vi.mock("@/lib/nurture/course-reconciliation", () => ({
+  markCourseAutomationReconcilePending: mocks.markCourseAutomationReconcilePending,
+  reconcileCourseDerivedState: mocks.reconcileCourseDerivedState,
+}));
 
 import { expirarAtencionesHumanas, recuperarAutomatizacionesDelContacto } from "./handoff-expiry";
 
@@ -38,7 +42,8 @@ beforeEach(() => {
   mocks.prisma.conversation.findMany.mockResolvedValue([]);
   mocks.prisma.conversation.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.enrollment.findMany.mockResolvedValue([]);
-  mocks.rescheduleCourseAutomations.mockResolvedValue({});
+  mocks.markCourseAutomationReconcilePending.mockResolvedValue(undefined);
+  mocks.reconcileCourseDerivedState.mockResolvedValue({ ok: true, startsAt: null, endsAt: null, rescheduled: {}, rulesRefreshed: 0 });
 });
 
 /**
@@ -101,8 +106,11 @@ describe("expirarAtencionesHumanas", () => {
       actorEmail: "automation",
       metadata: { motivo: "SIN_ACTIVIDAD_24H" },
     }));
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("curso-a", AHORA);
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("curso-b", AHORA);
+    expect(mocks.reconcileCourseDerivedState).toHaveBeenCalledWith("curso-a", null, AHORA);
+    expect(mocks.reconcileCourseDerivedState).toHaveBeenCalledWith("curso-b", null, AHORA);
+    // Marca pendiente ANTES de intentar reconciliar, por cada curso.
+    expect(mocks.markCourseAutomationReconcilePending).toHaveBeenCalledWith(mocks.prisma, "curso-a", "CONTACT_AUTOMATIONS_RECOVERED");
+    expect(mocks.markCourseAutomationReconcilePending).toHaveBeenCalledWith(mocks.prisma, "curso-b", "CONTACT_AUTOMATIONS_RECOVERED");
     expect(resultado).toEqual({ liberadas: 1, cursosReprogramados: 2 });
   });
 
@@ -121,7 +129,7 @@ describe("expirarAtencionesHumanas", () => {
 
     expect(resultado).toEqual({ liberadas: 0, cursosReprogramados: 0 });
     expect(mocks.writeAudit).not.toHaveBeenCalled();
-    expect(mocks.rescheduleCourseAutomations).not.toHaveBeenCalled();
+    expect(mocks.reconcileCourseDerivedState).not.toHaveBeenCalled();
   });
 
   it("varias conversaciones vencidas se procesan todas, cada una con su propio reclamo", async () => {
@@ -157,7 +165,7 @@ describe("recuperarAutomatizacionesDelContacto", () => {
   it("sin inscripciones, no llama a reprogramar nada", async () => {
     const total = await recuperarAutomatizacionesDelContacto("lead-1", AHORA);
     expect(total).toBe(0);
-    expect(mocks.rescheduleCourseAutomations).not.toHaveBeenCalled();
+    expect(mocks.reconcileCourseDerivedState).not.toHaveBeenCalled();
   });
 
   it("reprograma cada curso distinto en el que el contacto tiene inscripción", async () => {
@@ -171,13 +179,25 @@ describe("recuperarAutomatizacionesDelContacto", () => {
     expect(total).toBe(2);
   });
 
-  it("si reprogramar un curso falla, sigue con los demás en vez de abortar", async () => {
+  it("marca cada curso pendiente ANTES de intentar reconciliarlo", async () => {
+    mocks.prisma.enrollment.findMany.mockResolvedValue([{ courseId: "curso-a" }]);
+    await recuperarAutomatizacionesDelContacto("lead-1", AHORA);
+    expect(mocks.markCourseAutomationReconcilePending).toHaveBeenCalledWith(mocks.prisma, "curso-a", "CONTACT_AUTOMATIONS_RECOVERED");
+  });
+
+  /**
+   * Bug corregido en esta continuación: antes `reprogramados++` se ejecutaba
+   * SIEMPRE, incluso cuando el curso fallaba -- quien llamaba (cerrar un
+   * handoff, restaurar un contacto) creía que la recuperación había
+   * funcionado aunque un curso concreto siguiera atascado.
+   */
+  it("si un curso falla por completo, NO cuenta como recuperado, pero sigue con los demás en vez de abortar", async () => {
     mocks.prisma.enrollment.findMany.mockResolvedValue([{ courseId: "curso-a" }, { courseId: "curso-b" }]);
-    mocks.rescheduleCourseAutomations
-      .mockRejectedValueOnce(new Error("curso-a caído"))
-      .mockResolvedValueOnce({});
+    mocks.reconcileCourseDerivedState
+      .mockResolvedValueOnce({ ok: false, pending: true })
+      .mockResolvedValueOnce({ ok: true, startsAt: null, endsAt: null, rescheduled: {}, rulesRefreshed: 0 });
     const total = await recuperarAutomatizacionesDelContacto("lead-1", AHORA);
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledTimes(2);
-    expect(total).toBe(2);
+    expect(mocks.reconcileCourseDerivedState).toHaveBeenCalledTimes(2);
+    expect(total).toBe(1);
   });
 });

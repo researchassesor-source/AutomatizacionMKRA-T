@@ -4,7 +4,7 @@ import { WHATSAPP_TEMPLATES } from "@/lib/whatsapp/templates";
 
 const mocks = vi.hoisted(() => ({
   prisma: {
-    course: { findUnique: vi.fn() },
+    course: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     automationRule: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
   },
   writeAudit: vi.fn(async (_input: any) => undefined),
@@ -13,12 +13,14 @@ const mocks = vi.hoisted(() => ({
     error: null,
   })),
   rescheduleCourseAutomations: vi.fn(async () => ({ enrollments: 1, enqueued: 1, updated: 0, omitted: 0, cancelled: 0, batches: 1, truncated: false, nextCursor: null })),
+  reprogramarOfertaAutomatica: vi.fn(async () => null),
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 vi.mock("@/lib/auth/authorization", () => ({ requireRole: mocks.requireRole }));
 vi.mock("@/lib/nurture/engine", () => ({ rescheduleCourseAutomations: mocks.rescheduleCourseAutomations }));
+vi.mock("@/lib/commerce/offer-campaign", () => ({ reprogramarOfertaAutomatica: mocks.reprogramarOfertaAutomatica }));
 
 import { POST } from "./route";
 
@@ -40,10 +42,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({ session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" }, error: null });
   mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1", ...FUTURO });
+  mocks.prisma.course.update.mockResolvedValue({});
+  mocks.prisma.course.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.automationRule.findMany.mockResolvedValue([]);
   mocks.prisma.automationRule.create.mockImplementation(async ({ data }: any) => ({ id: "rule-new", ...data }));
   mocks.prisma.automationRule.update.mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data }));
   mocks.rescheduleCourseAutomations.mockResolvedValue({ enrollments: 1, enqueued: 1, updated: 0, omitted: 0, cancelled: 0, batches: 1, truncated: false, nextCursor: null });
+  mocks.reprogramarOfertaAutomatica.mockResolvedValue(null);
 });
 
 describe("seguridad y validación", () => {
@@ -206,28 +211,38 @@ describe("idempotencia", () => {
 });
 
 describe("reprogramación y auditoría", () => {
-  it("crea y reprograma una sola vez cuando hay cambios", async () => {
+  it("crea y reprograma cuando hay cambios", async () => {
     await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledTimes(1);
-    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
   });
 
-  it("si no hubo ningún cambio (todo ya estaba configurado), no reprograma", async () => {
+  /**
+   * Este es justo el escenario del bug corregido: si el reschedule de un
+   * intento anterior falló, un reintento encuentra los canales YA
+   * configurados (created=[], todo en alreadyConfigured) -- pero como se
+   * pidieron canales igual, la reconciliación se intenta de nuevo. Antes
+   * "sin cambios" significaba "no reprogramar nada", y un reintento así
+   * nunca recuperaba el reschedule que había fallado.
+   */
+  it("aunque todo ya estuviera configurado, SIGUE reconciliando (recupera un reintento tras un fallo previo)", async () => {
     mocks.prisma.automationRule.findMany.mockResolvedValue([
       { id: "r1", channel: "EMAIL", status: "ACTIVE" },
       { id: "r2", channel: "WHATSAPP", status: "ACTIVE" },
     ]);
     await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
-    expect(mocks.rescheduleCourseAutomations).not.toHaveBeenCalled();
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
   });
 
-  it("un fallo de reschedule no revierte lo creado, y no expone el mensaje crudo del error en la auditoría", async () => {
-    mocks.rescheduleCourseAutomations.mockRejectedValueOnce(new Error("postgres://admin:hunter2@10.0.0.5/prod"));
+  it("un fallo de reschedule (dos intentos) no revierte lo creado, y no expone el mensaje crudo del error en la auditoría", async () => {
+    mocks.rescheduleCourseAutomations.mockRejectedValue(new Error("postgres://admin:hunter2@10.0.0.5/prod"));
     const res = await peticion("course-1", "welcome", { channels: ["EMAIL"], confirm: true });
+    const body = await res.json();
     expect(res.status).toBe(200);
+    expect(body.pending).toBe(true);
     expect(mocks.prisma.automationRule.create).toHaveBeenCalledTimes(1);
     const fallo = mocks.writeAudit.mock.calls.find((call: any) => call[0].result === "FAILURE");
-    expect(fallo?.[0].action).toBe("COURSE_COMMUNICATION_STEP_RESCHEDULE_FAILED");
+    expect(fallo?.[0].action).toBe("COURSE_RECONCILE_FAILED");
     const todaLaAuditoria = JSON.stringify(mocks.writeAudit.mock.calls);
     expect(todaLaAuditoria).not.toContain("hunter2");
   });

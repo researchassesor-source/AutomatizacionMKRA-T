@@ -75,6 +75,18 @@ model Course {
   /// las reglas y el historial siguen donde estaban.
   automationsPausedAt          DateTime?
   automationsPausedBy          String?
+  /// Reconciliación derivada pendiente (startsAt/endsAt, cola, nextExecutionAt
+  /// de reglas fijas y oferta #12).
+  ///
+  /// Antes, cuando rescheduleCourseAutomations fallaba tras un cambio de
+  /// calendario, regla o handoff, el único rastro era un `.catch(() => null)`
+  /// silencioso: nada volvía a intentarlo si nadie tocaba ese curso por otro
+  /// motivo. Este flag se marca DENTRO de la misma transacción que la
+  /// mutación real, así que sobrevive aunque el proceso se caiga justo
+  /// después del commit; el cron lo recupera. Null significa "reconciliado",
+  /// nunca "nunca tuvo un cambio".
+  automationReconcilePendingAt DateTime?
+  automationReconcileReason    String?
   duration                     String?
   modality                     String?
   startsAt                     DateTime?
@@ -118,6 +130,7 @@ model Course {
   @@index([isPublished, displayOrder])
   @@index([category])
   @@index([syncStatus])
+  @@index([automationReconcilePendingAt])
   @@map("courses")
 }
 

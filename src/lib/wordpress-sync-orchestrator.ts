@@ -29,9 +29,8 @@ import {
 } from "@/lib/course-schedule-reconciliation";
 import { proponerCalendario, type SesionPropuesta } from "@/lib/course-schedule-parser";
 import { prisma } from "@/lib/db";
-import { reprogramarOfertaAutomatica } from "@/lib/commerce/offer-campaign";
-import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
-import { cancelIrreversibleMessages, quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState, type ReconcileCourseResult } from "@/lib/nurture/course-reconciliation";
+import { cancelIrreversibleMessages, quarantineCourseCalendarDependentMessages } from "@/lib/nurture/queue-safety";
 import { safeWordPressErrorCode, synchronizeWordPressCatalog } from "@/lib/wordpress-catalog";
 
 const DOMINIO_OFICIAL = "ra-training.com";
@@ -129,18 +128,27 @@ export async function analyzeCourseSchedule(course: CourseForAnalysis): Promise<
 }
 
 export type ApplyCourseScheduleResult =
-  | { ok: true; updated: number; removed: number; created: number; cancelledMessages: number; quarantinedMessages: number; rescheduled: Awaited<ReturnType<typeof rescheduleCourseAutomations>> }
+  | { ok: true; updated: number; removed: number; created: number; cancelledMessages: number; quarantinedMessages: number; reconciled: ReconcileCourseResult }
   | { ok: false; code: "COURSE_NOT_FOUND" }
   | { ok: false; code: "REVISION_MISMATCH" }
-  | { ok: false; code: "TRANSACTION_FAILED" }
-  | { ok: false; code: "RESCHEDULE_FAILED"; calendarUpdated: true; messagesSafe: true };
+  | { ok: false; code: "TRANSACTION_FAILED" };
 
 /**
  * Aplica un calendario YA CONFIRMADO por una persona para UN curso.
  *
  * Reutilizada tal cual por la ruta por curso (schedule-proposal POST) y por
- * el apply global (Sección L): la transacción, la cuarentena y el reintento
- * de reschedule son exactamente los mismos en los dos caminos.
+ * el apply global (Sección L): la transacción, la cuarentena y la
+ * reconciliación posterior son exactamente las mismas en los dos caminos.
+ *
+ * La cuarentena alcanza a TODOS los mensajes AUTOMATION todavía recuperables
+ * del curso, no solo a `courseSessionId IN [las sesiones que cambiaron]`
+ * (bug real corregido en esta continuación): `resolveCourseSessions` asigna
+ * "sesión X de Y" por orden cronológico de TODAS las sesiones, así que
+ * borrar o crear una desplaza esos números para las demás -3 sesiones -> 2
+ * convierte "sesión 2 de 3" en "sesión 1 de 2"-, aunque su propia fecha no
+ * haya cambiado. Las sesiones ELIMINADAS son aparte: sus propios mensajes se
+ * cancelan de forma irreversible (SESSION_REMOVED), porque ese destino
+ * concreto ya no existe.
  */
 export async function applyCourseSchedule(
   courseId: string,
@@ -163,6 +171,7 @@ export async function applyCourseSchedule(
         return;
       }
       plan = planScheduleReconciliation(existing, input.sessions);
+      const hayCambioEstructural = plan.toUpdate.length > 0 || plan.toRemove.length > 0 || plan.toCreate.length > 0;
 
       if (plan.toRemove.length > 0) {
         const removedIds = plan.toRemove.map((session) => session.id);
@@ -173,19 +182,21 @@ export async function applyCourseSchedule(
         );
         await tx.courseSession.deleteMany({ where: { id: { in: removedIds } } });
       }
-      if (plan.toUpdate.length > 0) {
-        const updatedIds = plan.toUpdate.map((session) => session.id);
-        quarantinedMessages = await quarantineRecoverableMessages(
+      if (hayCambioEstructural) {
+        quarantinedMessages = await quarantineCourseCalendarDependentMessages(
           tx,
-          { courseSessionId: { in: updatedIds } },
+          courseId,
           { errorCode: "SCHEDULE_RECONCILING", errorMessage: "El calendario cambió y este aviso está esperando ser recalculado." },
         );
-        for (const update of plan.toUpdate) {
-          await tx.courseSession.update({ where: { id: update.id }, data: { startAt: update.startAt, endAt: update.endAt } });
-        }
+      }
+      for (const update of plan.toUpdate) {
+        await tx.courseSession.update({ where: { id: update.id }, data: { startAt: update.startAt, endAt: update.endAt } });
       }
       for (const create of plan.toCreate) {
         await tx.courseSession.create({ data: { courseId, startAt: create.startAt, endAt: create.endAt } });
+      }
+      if (hayCambioEstructural) {
+        await markCourseAutomationReconcilePending(tx, courseId, "WORDPRESS_CALENDAR_APPLIED");
       }
     }, { isolationLevel: "Serializable", maxWait: 5_000, timeout: 20_000 });
   } catch {
@@ -202,20 +213,15 @@ export async function applyCourseSchedule(
     metadata: { updated: plan.toUpdate.length, removed: plan.toRemove.length, created: plan.toCreate.length, cancelledMessages, quarantinedMessages },
   });
 
-  // El calendario YA está confirmado en la base a partir de aquí. Un fallo de
-  // aquí en adelante nunca puede volver a decir "no se aplicó ningún cambio".
-  let rescheduled: Awaited<ReturnType<typeof rescheduleCourseAutomations>>;
-  try {
-    rescheduled = await rescheduleCourseAutomations(courseId);
-  } catch {
-    try {
-      rescheduled = await rescheduleCourseAutomations(courseId);
-    } catch {
-      return { ok: false, code: "RESCHEDULE_FAILED", calendarUpdated: true, messagesSafe: true };
-    }
-  }
-
-  await reprogramarOfertaAutomatica(courseId, actor).catch(() => undefined);
+  /**
+   * El calendario YA está confirmado en la base a partir de aquí. La
+   * reconciliación derivada (fechas del curso, cola, nextExecutionAt de
+   * reglas fijas y oferta #12) queda a cargo de reconcileCourseDerivedState,
+   * que reintenta hasta dos veces y, si aun así falla, deja el curso
+   * pendiente para que el cron lo recupere -- nunca "no se aplicó ningún
+   * cambio", porque sí se aplicó.
+   */
+  const reconciled = await reconcileCourseDerivedState(courseId, actor);
 
   return {
     ok: true,
@@ -224,7 +230,7 @@ export async function applyCourseSchedule(
     created: plan.toCreate.length,
     cancelledMessages,
     quarantinedMessages,
-    rescheduled,
+    reconciled,
   };
 }
 

@@ -596,18 +596,22 @@ export async function scheduleEnrollmentAutomations(
      *      se considera al registrarse— asi que comparar solo con
      *      `rule.createdAt` no la protegia: la regla ya existia desde antes.
      *
-     * `updatedAt` cubre el segundo caso porque el toggle de un paso lo mueve
-     * al reactivar. Nunca es anterior a `createdAt`, asi que esta guarda solo
-     * puede volverse MAS estricta que antes, jamas menos.
+     * Production comparaba contra `rule.updatedAt` (nunca anterior a
+     * `createdAt`, asi que esa guarda solo podia volverse MAS estricta,
+     * jamas menos). `activatedAt` la refina: editar el texto o el horario de
+     * una regla ya ACTIVE no lo mueve, asi que una correccion de copy no
+     * vuelve a silenciar la bienvenida de inscripciones anteriores a esa
+     * edicion. Solo una activacion real (creacion, o retorno desde
+     * PAUSED/DRAFT/ARCHIVED) lo actualiza.
      *
-     * `activatedAt` en vez de `updatedAt`: editar el texto o el horario de una
-     * regla ya ACTIVE no lo mueve, asi que una correccion de copy no vuelve a
-     * silenciar la bienvenida de inscripciones anteriores a esa edicion. Solo
-     * una activacion real (creacion, o retorno desde PAUSED/DRAFT/ARCHIVED) lo
-     * actualiza. Si por algun motivo faltara (dato viejo sin backfill), no
-     * bloquea: es mas seguro dejar salir una bienvenida de mas que perder una.
+     * Si `activatedAt` faltara por cualquier motivo (dato legacy, una fila
+     * que escapo del backfill), se cae a `updatedAt` -la frontera que
+     * Production ya usaba- en vez de tratar null como "sin limite": omitir
+     * una bienvenida de mas es un problema menor y reversible manualmente;
+     * mandarla de mas no se puede deshacer.
      */
-    if (rule.trigger === "ON_REGISTRATION" && rule.activatedAt && enrollment.createdAt < rule.activatedAt) { skipped++; continue; }
+    const activationBoundary = rule.activatedAt ?? rule.updatedAt;
+    if (rule.trigger === "ON_REGISTRATION" && enrollment.createdAt < activationBoundary) { skipped++; continue; }
     const toAddress = rule.channel === "EMAIL" ? enrollment.lead.email : enrollment.lead.phone;
     if (!toAddress) { skipped++; continue; }
 

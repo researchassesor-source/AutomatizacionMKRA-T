@@ -176,8 +176,11 @@ describe("editar no reenvía nada", () => {
     // regla ya ACTIVE volveria a colgar la bienvenida de inscripciones
     // anteriores a esa edicion sin que nadie la hubiera pausado. `activatedAt`
     // solo se mueve en una activacion real: creacion, o vuelta desde
-    // PAUSED/DRAFT/ARCHIVED.
-    expect(motor).toMatch(/rule\.trigger === "ON_REGISTRATION" && rule\.activatedAt && enrollment\.createdAt < rule\.activatedAt/);
+    // PAUSED/DRAFT/ARCHIVED. Si faltara por dato legacy, cae a `updatedAt`
+    // -la frontera que Production ya usaba- en vez de tratar null como "sin
+    // limite" (ultimo review de release).
+    expect(motor).toMatch(/const activationBoundary = rule\.activatedAt \?\? rule\.updatedAt;/);
+    expect(motor).toMatch(/rule\.trigger === "ON_REGISTRATION" && enrollment\.createdAt < activationBoundary/);
   });
 
   it("desactivar no cancela lo ya enviado", () => {

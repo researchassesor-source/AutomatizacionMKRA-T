@@ -4,6 +4,7 @@ import { courseAutomationWindow } from "@/lib/course-automation-window";
 import { writeAudit } from "@/lib/audit";
 import type { AdminSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 const SOURCE = "wordpress";
 const RUN_LOCK_TIMEOUT_MINUTES = 15;
@@ -211,6 +212,16 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
   if (user && password) headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
   const courses: WordPressCourse[] = [];
   let totalPages = 1;
+  /**
+   * Total declarado por WordPress (cabecera X-WP-Total), no la cuenta de
+   * paginas. Una respuesta 200 parcial (una pagina que fallo entre medias, un
+   * proxy que corto la lista) puede dejar `errors = 0` con menos cursos de los
+   * que en realidad existen, y reconcileCatalogAndAutomations trataria a los
+   * que faltan como si ya no existieran en el sitio. Verificar que la cuenta
+   * final coincide con lo que el propio WordPress declaro es lo unico que
+   * distingue "esto es todo el catalogo" de "esto es lo que llego".
+   */
+  let expectedTotal: number | null = null;
   for (let page = 1; page <= Math.min(totalPages, 20); page++) {
     endpoint.searchParams.set("per_page", "100");
     endpoint.searchParams.set("page", String(page));
@@ -221,7 +232,22 @@ export async function fetchWordPressCourses(fetcher: typeof fetch = fetch): Prom
     if (!Array.isArray(payload)) throw new Error("WORDPRESS_API_INVALID_RESPONSE");
     courses.push(...payload.map(normalizeWordPressCourse));
     totalPages = Math.max(1, Number(response.headers.get("x-wp-totalpages")) || 1);
+
+    const totalHeader = response.headers.get("x-wp-total");
+    const total = totalHeader === null ? Number.NaN : Number(totalHeader);
+    // Ausente, no numerico, negativo o distinto entre paginas: no hay forma
+    // segura de saber si el catalogo llego completo, asi que no se asume nada.
+    if (!Number.isInteger(total) || total < 0) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
+    if (expectedTotal === null) expectedTotal = total;
+    else if (expectedTotal !== total) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
   }
+  if (expectedTotal === null) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
+  // Un total de cero NO significa "borrar/historizar todo": es indistinguible
+  // de una fuente rota o mal configurada, y las consecuencias de equivocarse
+  // son demasiado grandes para adivinar.
+  if (expectedTotal === 0) throw new Error("WORDPRESS_API_EMPTY_CATALOG");
+  if (courses.length !== expectedTotal) throw new Error("WORDPRESS_API_INCOMPLETE_CATALOG");
+
   const ids = new Set<string>();
   for (const course of courses) {
     if (ids.has(course.externalId)) throw new Error("WORDPRESS_API_DUPLICATE_EXTERNAL_ID");
@@ -321,6 +347,17 @@ async function synchronizeSourceCourse(source: WordPressCourse, syncedAt: Date) 
   }, { isolationLevel: "Serializable", maxWait: 5_000, timeout: 20_000 });
 }
 
+/**
+ * Un curso solo puede volverse historico automaticamente por ESTA
+ * sincronizacion si de verdad pertenece a esta fuente: sin esto, cualquier
+ * curso manual, interno o de otra fuente que simplemente no aparece en la
+ * respuesta de WordPress (porque nunca debia aparecer) se marcaria como si
+ * hubiera desaparecido del sitio.
+ */
+function isWordPressManagedCourse(course: { externalSource: string | null; externalId: string | null }) {
+  return course.externalSource === SOURCE && Boolean(course.externalId);
+}
+
 async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, conflictCourseIds: Set<string>, syncedAt: Date) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(68294113)::text AS lock_result`;
@@ -333,9 +370,11 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
         acceptsRegistrations: true,
         startsAt: true,
         endsAt: true,
+        externalSource: true,
+        externalId: true,
       },
     });
-    const historicalCourses = courses.filter((course) => !currentCourseIds.has(course.id));
+    const historicalCourses = courses.filter((course) => isWordPressManagedCourse(course) && !currentCourseIds.has(course.id));
     for (const course of historicalCourses) {
       await tx.course.update({
         where: { id: course.id },
@@ -364,6 +403,7 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
             title: true,
             slug: true,
             externalId: true,
+            externalSource: true,
             isPublished: true,
             acceptsRegistrations: true,
             startsAt: true,
@@ -377,7 +417,7 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
       },
     });
     const pausedDetails: PausedRuleDetail[] = activeRules.flatMap((rule) => {
-      const isHistorical = !currentCourseIds.has(rule.course.id);
+      const isHistorical = isWordPressManagedCourse(rule.course) && !currentCourseIds.has(rule.course.id);
       const window = courseAutomationWindow(rule.course, rule.course.sessions);
       const courseState = {
         isPublished: isHistorical ? false : rule.course.isPublished,
@@ -415,15 +455,16 @@ async function reconcileCatalogAndAutomations(currentCourseIds: Set<string>, con
         where: { id: { in: pauseRuleIds } },
         data: { status: "PAUSED", nextExecutionAt: null },
       });
-      await tx.outboundMessage.updateMany({
-        where: { automationRuleId: { in: pauseRuleIds }, status: "PROGRAMADO" },
-        data: {
-          status: "CANCELADO",
-          cancelledAt: syncedAt,
-          errorCode: "COURSE_NOT_ELIGIBLE",
-          errorMessage: "La automatización se pausó porque el curso no está vigente o no tiene fecha o plantilla válida.",
-        },
-      });
+      // La regla queda PAUSED (no ARCHIVED): es reversible por diseño, así que
+      // sus mensajes van a OMITIDO, no a CANCELADO. De lo contrario, si un
+      // administrador reactivara la regla a mano después de que el curso
+      // volviera a estar vigente, rescheduleCourseAutomations no podría
+      // recuperar nada -- CANCELADO no es reprogramable.
+      await quarantineRecoverableMessages(
+        tx,
+        { automationRuleId: { in: pauseRuleIds } },
+        { errorCode: "COURSE_NOT_ELIGIBLE", errorMessage: "La automatización se pausó porque el curso no está vigente o no tiene fecha o plantilla válida." },
+      );
       // Deja rastro por regla y motivo: sin esto no se puede distinguir después
       // una pausa correcta de una provocada por un error de la sincronización.
       await tx.auditLog.create({
@@ -477,6 +518,10 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
     let conflicts = 0;
     let ignored = 0;
     let errors = 0;
+    // IDs (no solo el conteo) de lo creado en ESTA vuelta: el orquestador de
+    // sync los necesita para distinguir "curso nuevo" de "cambio de fecha" en
+    // el mismo barrido, sin adivinar por createdAt.
+    const createdCourseIds: string[] = [];
     const currentCourseIds = new Set<string>();
     const conflictCourseIds = new Set<string>();
     const conflictItems: ConflictItem[] = [];
@@ -486,7 +531,7 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
     for (const source of sourceCourses) {
       try {
         const result = await synchronizeSourceCourse(source, syncedAt);
-        if (result.outcome === "created") created++;
+        if (result.outcome === "created") { created++; createdCourseIds.push(result.courseId); }
         if (result.outcome === "updated") updated++;
         if (result.outcome === "unchanged") unchanged++;
         if (result.outcome === "ignored") {
@@ -563,7 +608,7 @@ export async function synchronizeWordPressCatalog(session: AdminSession, fetcher
       result: errors ? "FAILURE" : "SUCCESS",
       metadata: { discovered: sourceCourses.length, created, updated, unchanged, ignored, conflicts, errors, ...reconciliation, readOnlySource: true },
     });
-    return { runId: run.id, discovered: sourceCourses.length, created, updated, unchanged, ignored, ignoredItems, conflicts, errors, ...reconciliation };
+    return { runId: run.id, discovered: sourceCourses.length, created, createdCourseIds, updated, unchanged, ignored, ignoredItems, conflicts, errors, ...reconciliation };
   } catch (error) {
     const code = safeWordPressErrorCode(error);
     await prisma.catalogSyncRun.update({ where: { id: run.id }, data: { status: "ERROR", errors: 1, error: code, completedAt: new Date() } });

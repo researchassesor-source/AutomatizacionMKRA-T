@@ -77,7 +77,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Prom
         description="El catálogo, sus fechas y lo que recibe cada inscrito."
         actions={<span className="header-actions">
           <a className="btn-sm ghost" href="https://ra-training.com/courses-1/" target="_blank" rel="noopener noreferrer">Ver catálogo oficial</a>
-          {canEdit ? <SyncEverythingButton canSyncCatalog={tecnico} courses={scheduledCourses.map((course) => ({ id: course.id, title: course.title, enrollments: course._count.enrollments, sessionsCount: resolveCourseSessions(course, course.sessions).length }))} /> : null}
+          {canEdit ? <SyncEverythingButton canSyncCatalog={tecnico} /> : null}
           {canEdit ? <Link className="btn-sm" href={createHref} scroll={false}>Crear curso</Link> : null}
         </span>}
       />

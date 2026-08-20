@@ -1,6 +1,9 @@
 import { finalizeCompletedCourseEnrollments, processScheduledMessages } from "@/lib/nurture/engine";
 import { processScheduledPosts } from "@/lib/social/orchestrator";
 import { procesarCampanasVencidas } from "@/lib/commerce/offer-campaign";
+import { expirarAtencionesHumanas } from "@/lib/whatsapp/handoff-expiry";
+import { recuperarCodigosTecnicosAtascados } from "@/lib/nurture/technical-recovery";
+import { recuperarReconciliacionesPendientes } from "@/lib/nurture/course-reconciliation";
 
 /**
  * Reloj maestro: un solo despertar para los dos subsistemas.
@@ -36,6 +39,9 @@ export type ResultadoTick = {
   comunicaciones: ResultadoSubsistema;
   cierres: ResultadoSubsistema;
   ofertas: ResultadoSubsistema;
+  atenciones: ResultadoSubsistema;
+  recuperacionTecnica: ResultadoSubsistema;
+  reconciliacionDurable: ResultadoSubsistema;
 };
 
 /** Un fallo inesperado no puede tumbar el reloj entero ni el otro subsistema. */
@@ -125,6 +131,50 @@ async function ejecutarOfertas(ahora: Date): Promise<ResultadoSubsistema> {
 }
 
 /**
+ * Atenciones humanas abandonadas (nadie hizo clic en "Cerrar atencion").
+ *
+ * Van ANTES del despacho, igual que cierres y ofertas: si esta vuelta libera
+ * una conversacion, lo comercial que reprograma puede salir en este mismo
+ * tick en vez de esperar al siguiente.
+ */
+async function ejecutarAtenciones(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await expirarAtencionesHumanas(ahora);
+  return {
+    estado: "ok",
+    resumen: { atencionesLiberadas: resumen.liberadas, cursosReprogramados: resumen.cursosReprogramados },
+  };
+}
+
+/**
+ * Códigos técnicos (SCHEDULE_RECONCILING) atascados en OMITIDO.
+ *
+ * Es la red por debajo del recalculo puntual que ya dispara cada endpoint
+ * que cuarentena: si ESA llamada fallara y nadie mas la reintentara, el
+ * mensaje se quedaria ahi para siempre. NUNCA toca codigos que dependen de
+ * una condicion de negocio (handoff, pausa, contacto archivado/excluido):
+ * esos exigen que alguien resuelva su condicion primero.
+ */
+async function ejecutarRecuperacionTecnica(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await recuperarCodigosTecnicosAtascados(ahora);
+  return { estado: "ok", resumen: { cursosRecuperados: resumen.cursos } };
+}
+
+/**
+ * Reconciliación derivada pendiente (curso): fechas, cola, nextExecutionAt de
+ * reglas fijas y oferta #12.
+ *
+ * Complementa a la recuperación técnica de arriba: esa barre mensajes YA
+ * atascados en un código técnico; esta cubre el caso donde el proceso se cayó
+ * ANTES de que existiera cualquier mensaje que delatara el problema -una
+ * sesión recién creada, por ejemplo-, porque la señal vive en el propio
+ * Course (automationReconcilePendingAt), no en un OutboundMessage.
+ */
+async function ejecutarReconciliacionDurable(ahora: Date): Promise<ResultadoSubsistema> {
+  const resumen = await recuperarReconciliacionesPendientes(ahora);
+  return { estado: "ok", resumen: { cursosPendientes: resumen.cursos, cursosRecuperados: resumen.recuperados } };
+}
+
+/**
  * Ejecuta los subsistemas y devuelve que paso en cada uno.
  *
  * `ok` es cierto solo si ninguno lanzo una excepcion. Un subsistema bloqueado
@@ -140,18 +190,26 @@ export async function ejecutarTick(ahora = new Date()): Promise<ResultadoTick> {
   // Las ofertas se encolan ANTES de despachar, para que el mismo tick que las
   // crea pueda ya enviarlas en lugar de esperar al siguiente.
   const ofertas = await aislar("ofertas", () => ejecutarOfertas(ahora));
+  const atenciones = await aislar("atenciones", () => ejecutarAtenciones(ahora));
+  const recuperacionTecnica = await aislar("recuperacionTecnica", () => ejecutarRecuperacionTecnica(ahora));
+  const reconciliacionDurable = await aislar("reconciliacionDurable", () => ejecutarReconciliacionDurable(ahora));
   const [social, comunicaciones] = await Promise.all([
     aislar("social", () => ejecutarSocial(ahora)),
     aislar("comunicaciones", () => ejecutarComunicaciones(ahora)),
   ]);
 
   return {
-    ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error" && ofertas.estado !== "error",
+    ok: social.estado !== "error" && comunicaciones.estado !== "error" && cierres.estado !== "error"
+      && ofertas.estado !== "error" && atenciones.estado !== "error" && recuperacionTecnica.estado !== "error"
+      && reconciliacionDurable.estado !== "error",
     ejecutadoEn: ahora.toISOString(),
     duracionMs: Date.now() - inicio,
     social,
     comunicaciones,
     cierres,
     ofertas,
+    atenciones,
+    recuperacionTecnica,
+    reconciliacionDurable,
   };
 }

@@ -221,7 +221,7 @@ export async function recoverPausedAutomations(
   // una regla que ya dejó de estar en PAUSED no se toca.
   const updated = await prisma.automationRule.updateMany({
     where: { id: { in: ruleIds }, status: "PAUSED" },
-    data: { status: "ACTIVE" },
+    data: { status: "ACTIVE", activatedAt: new Date() },
   });
 
   await writeAudit({

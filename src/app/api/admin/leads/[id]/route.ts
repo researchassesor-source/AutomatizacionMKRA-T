@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { normalizeEcuadorPhone } from "@/lib/leads";
 import { requireRole } from "@/lib/auth/authorization";
 import { writeAudit } from "@/lib/audit";
-import { cancelPendingMessages } from "@/lib/nurture/engine";
+import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
+import { recuperarAutomatizacionesDelContacto } from "@/lib/whatsapp/handoff-expiry";
 import { COMERCIAL, TECNICO } from "@/lib/auth/roles";
 
 const updateSchema = z.object({
@@ -88,13 +89,36 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       data: { leadId: id, type: "stage_change", payload: { from: current.stage, to: parsed.data.stage } },
     });
   }
-  // Archivar un contacto detiene sus recordatorios pendientes; el historial de
-  // lo ya enviado se conserva intacto.
+  /**
+   * Archivar y reclasificar fuera de REAL detienen los recordatorios
+   * pendientes, pero de forma RECUPERABLE (OMITIDO, no CANCELADO): restaurar
+   * el contacto o volver a clasificarlo como REAL debe poder traerlos de
+   * vuelta. El historial de lo ya enviado nunca se toca.
+   */
   if (archivedChanged && updated.isArchived) {
-    await cancelPendingMessages(
+    await quarantineRecoverableMessages(
+      prisma,
       { leadId: id },
-      { code: "CONTACT_ARCHIVED", message: "El contacto fue archivado por un administrador." },
+      { errorCode: "CONTACT_ARCHIVED", errorMessage: "El contacto fue archivado por un administrador." },
     );
+  } else if (changesClassification && updated.classification !== "REAL") {
+    await quarantineRecoverableMessages(
+      prisma,
+      { leadId: id },
+      { errorCode: "CONTACT_EXCLUDED", errorMessage: "El contacto no está clasificado como real." },
+    );
+  }
+  /**
+   * Restaurar o volver a clasificar como REAL recupera lo que quedó
+   * OMITIDO. `rescheduleCourseAutomations` (vía recuperarAutomatizacionesDelContacto)
+   * ya rechaza por su cuenta a un contacto sin consentimiento o que sigue sin
+   * ser REAL (CONTACT_EXCLUDED), así que no hace falta repetir esa condición
+   * aquí: es seguro llamarlo siempre que la transición vaya en este sentido.
+   * Nunca revive un momento que ya pasó de hora: eso lo protege el mismo
+   * recálculo, no algo especial de este endpoint.
+   */
+  if ((archivedChanged && !updated.isArchived) || (changesClassification && updated.classification === "REAL")) {
+    await recuperarAutomatizacionesDelContacto(id).catch(() => undefined);
   }
   await writeAudit({
     session: auth.session,

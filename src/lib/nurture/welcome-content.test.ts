@@ -293,10 +293,10 @@ describe("idempotencia tras el arreglo", () => {
     // inscritos: sin este freno todos recibirían de nuevo "tu inscripción fue
     // registrada", porque la bienvenida está exenta del filtro de fechas pasadas.
     //
-    // `updatedAt` acompaña a `createdAt`: en Prisma nacen iguales, así que una
-    // regla recién creada tiene las dos fechas después del registro.
+    // `activatedAt` acompaña a `createdAt`: una regla recién creada como
+    // ACTIVE tiene las dos fechas después del registro.
     const creacion = new Date(REGISTERED_AT.getTime() + 86_400_000);
-    const reciente = { ...planRule("welcome"), createdAt: creacion, updatedAt: creacion };
+    const reciente = { ...planRule("welcome"), createdAt: creacion, activatedAt: creacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reciente] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(messages).toHaveLength(0);
@@ -306,7 +306,7 @@ describe("idempotencia tras el arreglo", () => {
 
   it("una regla anterior a la inscripción sí envía la bienvenida", async () => {
     const creacion = new Date(REGISTERED_AT.getTime() - 86_400_000);
-    const previa = { ...planRule("welcome"), createdAt: creacion, updatedAt: creacion };
+    const previa = { ...planRule("welcome"), createdAt: creacion, activatedAt: creacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [previa] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(result.enqueued).toBe(1);
@@ -320,7 +320,7 @@ describe("idempotencia tras el arreglo", () => {
     // sin esta guarda, reactivarla crearía uno nuevo con fecha retroactiva.
     const creacionRegla = new Date(REGISTERED_AT.getTime() - 30 * 86_400_000);
     const reactivacion = new Date(REGISTERED_AT.getTime() + 5 * 86_400_000);
-    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, updatedAt: reactivacion };
+    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, activatedAt: reactivacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reactivada] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(messages).toHaveLength(0);
@@ -333,10 +333,105 @@ describe("idempotencia tras el arreglo", () => {
     // persona se inscribiera, es una regla activa como cualquier otra.
     const creacionRegla = new Date(REGISTERED_AT.getTime() - 30 * 86_400_000);
     const reactivacion = new Date(REGISTERED_AT.getTime() - 86_400_000);
-    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, updatedAt: reactivacion };
+    const reactivada = { ...planRule("welcome"), createdAt: creacionRegla, activatedAt: reactivacion };
     mocks.prisma.enrollment.findUnique.mockResolvedValue(enrollment({ rules: [reactivada] }));
     const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(result.enqueued).toBe(1);
+  });
+
+  /**
+   * Último review de release: la migración original hacía
+   * `activatedAt = createdAt`, pero Production hoy protege ON_REGISTRATION
+   * comparando contra `rule.updatedAt`, no `createdAt`. Backfillear con
+   * createdAt movía la frontera hacia atrás para cualquier regla editada o
+   * activada después de creada, y una inscripción en ese hueco pasaba de
+   * estar correctamente excluida a calificar para una bienvenida
+   * retroactiva que Production nunca le habría mandado. Corregido:
+   * `activatedAt = updatedAt`, solo para ACTIVE (ver migration.sql).
+   */
+  it("1: tras el backfill correcto (activatedAt = updatedAt), una inscripción en el hueco createdAt..updatedAt NO recibe bienvenida retroactiva", async () => {
+    const reglaCreada = new Date("2026-07-01T00:00:00.000Z");
+    const reglaActivada = new Date("2026-08-01T00:00:00.000Z"); // updatedAt real de la regla
+    const inscripcionEnElHueco = new Date("2026-07-10T00:00:00.000Z"); // entre las dos
+    const regla = { ...planRule("welcome"), createdAt: reglaCreada, updatedAt: reglaActivada, activatedAt: reglaActivada };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue({ ...enrollment({ rules: [regla] }), createdAt: inscripcionEnElHueco });
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(messages).toHaveLength(0);
+    expect(result.enqueued).toBe(0);
+    expect(result.skipped).toBe(1);
+  });
+
+  // 2 y 3 (editar no mueve activatedAt / PAUSED->ACTIVE sí lo fija) ya están
+  // cubiertas en automations/[id]/route.test.ts: "editar el asunto de una
+  // regla ya ACTIVE no toca activatedAt" y "PAUSED -> ACTIVE (reactivación
+  // real) sí fija activatedAt" -- son responsabilidad de esa ruta, no del
+  // motor.
+
+  /**
+   * 4: el WHERE de la migración solo toca ACTIVE. DRAFT/PAUSED/ARCHIVED se
+   * verifican leyendo el SQL real -no hay Postgres en esta suite-, con la
+   * misma convención que el resto del proyecto usa para lo que no se puede
+   * ejecutar directamente en una prueba unitaria.
+   */
+  it("4: la migración solo asigna activatedAt a reglas ACTIVE, tomándolo de updatedAt (no createdAt)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const sql = fs.readFileSync(
+      path.join(process.cwd(), "prisma/migrations/20260819010000_core_stabilization/migration.sql"),
+      "utf8",
+    );
+    expect(sql).toContain(`UPDATE "automation_rules" SET "activatedAt" = "updatedAt" WHERE "activatedAt" IS NULL AND "status" = 'ACTIVE';`);
+    // Ya no debe quedar el backfill viejo (incorrecto) en ningún lado del archivo.
+    expect(sql).not.toContain(`SET "activatedAt" = "createdAt"`);
+  });
+
+  /**
+   * 5: dato legacy que de algún modo escapó del backfill (activatedAt
+   * ausente en una regla ACTIVE). El motor no lo trata como "sin límite":
+   * cae a updatedAt, la misma frontera que Production ya usaba, fallando
+   * cerrado en vez de abierto.
+   */
+  it("5: ACTIVE con activatedAt ausente usa updatedAt como frontera de reserva (fail closed)", async () => {
+    const reglaVieja = new Date("2026-06-01T00:00:00.000Z");
+    const ultimaEdicion = new Date("2026-08-01T00:00:00.000Z");
+    const regla = { ...planRule("welcome"), createdAt: reglaVieja, updatedAt: ultimaEdicion, activatedAt: null };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue({ ...enrollment({ rules: [regla] }), createdAt: new Date("2026-07-15T00:00:00.000Z") });
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(messages).toHaveLength(0);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("5b: espejo del anterior -- una inscripción posterior a updatedAt sí recibe la bienvenida aunque activatedAt falte", async () => {
+    const reglaVieja = new Date("2026-06-01T00:00:00.000Z");
+    const ultimaEdicion = new Date("2026-08-01T00:00:00.000Z");
+    const regla = { ...planRule("welcome"), createdAt: reglaVieja, updatedAt: ultimaEdicion, activatedAt: null };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue({ ...enrollment({ rules: [regla] }), createdAt: new Date("2026-08-05T00:00:00.000Z") });
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(result.enqueued).toBe(1);
+  });
+
+  /**
+   * 6 (Paid First): el guard de bienvenida nunca leyó nada de pago o acceso
+   * -solo compara fechas de registro contra la activación de la regla-, así
+   * que es ortogonal a `courseAccessEligibility`/`participantHasCourseEntitlement`
+   * (probadas en paid-first.test.ts). Esta prueba confirma explícitamente
+   * que un curso PAGO (no gratuito) sigue recibiendo su bienvenida legítima
+   * exactamente igual tras el cambio del fallback.
+   */
+  it("6 (Paid First): tras PAYMENT_VERIFIED, la bienvenida legítima de un curso pago sigue funcionando exactamente igual", async () => {
+    const base = enrollment();
+    const cursoPago = {
+      ...base,
+      course: { ...base.course, isFree: false, acceptsRegistrations: true },
+      // Paid first: sin esto courseAccessEligibility bloquea todo el journey
+      // ANTES de llegar al guard de activación -- no es lo que esta prueba
+      // verifica, así que el pago se da por verificado explícitamente.
+      purchases: [{ status: "PAYMENT_VERIFIED" }],
+    };
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(cursoPago);
+    const result = await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(result.enqueued).toBe(1);
+    expect(welcome()?.body).toContain("Tu inscripción a Desarrollo Profesional en Marketing");
   });
 
   it("aplicar el plan repetidamente no duplica mensajes", async () => {

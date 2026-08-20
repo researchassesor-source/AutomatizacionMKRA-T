@@ -1,0 +1,93 @@
+name: Core Regression Gate
+
+# Verificacion de correctness antes de fusionar o desplegar: tipos, lint,
+# esquema, pruebas y build. NUNCA toca Production: sin secretos reales, sin
+# conexion a una base de datos de verdad, sin migraciones, sin deploy. Los
+# valores de entorno de aqui abajo son placeholders inertes (igual que los
+# de .env.example, ya publico en el repo) — ningun paso de este workflow
+# llega a conectarse con ellos, porque test/typecheck/lint/build nunca abren
+# una conexion real (cada prueba mockea @/lib/db).
+#
+# El gate de calidad es el propio job: si algun paso falla, el check de
+# GitHub Actions queda en rojo sobre el commit/PR. No hay un paso aparte que
+# "reporte" el resultado.
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - "fix/**"
+
+concurrency:
+  group: core-regression-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+  # Cadenas inertes: ningun paso de este workflow abre una conexion real.
+  POSTGRES_PRISMA_URL: "postgresql://ci:ci@localhost:5432/ci_core_gate?schema=public"
+  POSTGRES_URL_NON_POOLING: "postgresql://ci:ci@localhost:5432/ci_core_gate?schema=public"
+  APP_URL: "http://localhost:3000"
+  SESSION_SECRET: "core-gate-placeholder-session-secret"
+  ADMIN_PASSWORD: "core-gate-placeholder-not-real"
+  ADMIN_LEGACY_LOGIN_ENABLED: "false"
+  CRON_SECRET: "core-gate-placeholder-cron-secret"
+  # Todos los canales externos en modo simulacion o deshabilitados: ninguna
+  # publicacion, correo o WhatsApp real puede salir desde este workflow.
+  SOCIAL_MODE: "simulation"
+  MESSAGING_MODE: "simulation"
+  WHATSAPP_MODE: "disabled"
+  FINANCE_MODE: "simulation"
+  EMAIL_PROVIDER: "smtp"
+  SMTP_HOST: "localhost"
+  SMTP_PORT: "1025"
+  SMTP_SECURE: "false"
+  SMTP_USER: "core-gate@example.test"
+  SMTP_PASSWORD: "core-gate-placeholder"
+
+jobs:
+  gate:
+    name: typecheck · lint · prisma validate · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Alineado con el runtime real de Production en Vercel: el gate
+          # tiene que validar la misma versión que compila de verdad, no una
+          # arbitraria.
+          node-version: "24"
+          cache: "npm"
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Sin errores de espacio en blanco en el diff
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+          fi
+          git diff --check "$BASE" HEAD
+
+      - name: Tipos (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Lint (biome)
+        run: npm run lint
+
+      - name: Esquema de Prisma valido
+        run: npx prisma validate
+
+      - name: Suite de pruebas
+        run: npm test
+
+      - name: Build (config de prueba/simulacion, sin deploy)
+        run: npm run build

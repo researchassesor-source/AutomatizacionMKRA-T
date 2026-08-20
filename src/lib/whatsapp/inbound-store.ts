@@ -95,6 +95,7 @@ export async function guardarMensajeEntrante(notice: InboundNotice): Promise<Res
   const enrollmentId = leadId ? await resolverInscripcion(leadId) : null;
 
   let inboundId: string;
+  let esDuplicado = false;
   try {
     const guardado = await prisma.inboundMessage.create({
       data: {
@@ -113,13 +114,34 @@ export async function guardarMensajeEntrante(notice: InboundNotice): Promise<Res
     });
     inboundId = guardado.id;
   } catch (error: unknown) {
-    // P2002 sobre el wamid: Meta reenvio el mismo webhook. No es un fallo.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { estado: "duplicado" };
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+      // Cualquier otro fallo de escritura es transitorio hasta que se demuestre
+      // lo contrario: se pide reintento en lugar de perder el mensaje.
+      return { estado: "reintentable", codigo: error instanceof Prisma.PrismaClientKnownRequestError ? `PRISMA_${error.code}` : "PERSISTENCIA_FALLIDA" };
     }
-    // Cualquier otro fallo de escritura es transitorio hasta que se demuestre
-    // lo contrario: se pide reintento en lugar de perder el mensaje.
-    return { estado: "reintentable", codigo: error instanceof Prisma.PrismaClientKnownRequestError ? `PRISMA_${error.code}` : "PERSISTENCIA_FALLIDA" };
+    /**
+     * P2002 sobre el wamid: Meta reenvio el mismo webhook.
+     *
+     * El mensaje ya esta guardado, pero eso NO implica que la reparacion
+     * anterior haya llegado hasta el final: el primer intento pudo guardar el
+     * InboundMessage y morir justo antes o durante el upsert de Conversation
+     * (el catch de mas abajo pide "reintentable" exactamente para este caso).
+     * Cortar aqui con "duplicado" dejaria esa Conversation rota para siempre,
+     * porque Meta no vuelve a reenviar un wamid que ya considera entregado.
+     * Por eso el reintento SIGUE hacia la resolucion de Conversation en vez de
+     * salir: repetir el upsert de una conversacion ya sana es barato e
+     * idempotente, y repararla cuando hizo falta es la unica oportunidad real.
+     */
+    const existente = await prisma.inboundMessage.findUnique({
+      where: { providerMessageId: notice.providerMessageId },
+      select: { id: true },
+    });
+    // Si no se encuentra (borrado manual entre el intento y este, caso
+    // extremo), no hay nada que reparar bajo esta identidad: se trata como
+    // definitivo en vez de reintentar para siempre el mismo choque.
+    if (!existente) return { estado: "duplicado" };
+    inboundId = existente.id;
+    esDuplicado = true;
   }
 
   const conversacion = await prisma.conversation.findUnique({
@@ -181,5 +203,9 @@ export async function guardarMensajeEntrante(notice: InboundNotice): Promise<Res
     }).catch(() => undefined);
   }
 
+  // El mensaje sigue siendo un reenvio de Meta bajo el mismo wamid, aunque
+  // esta vuelta si haya reparado la Conversation: la fila de InboundMessage
+  // no se duplico, asi que la clasificacion correcta sigue siendo duplicado.
+  if (esDuplicado) return { estado: "duplicado" };
   return { estado: "guardado", inboundId, leadId, handoffAbierto: abrirHandoff };
 }

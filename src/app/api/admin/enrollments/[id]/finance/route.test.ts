@@ -52,4 +52,18 @@ describe("POST /api/admin/enrollments/[id]/finance", () => {
     expect(failed.status).toBe(502);
     expect(await failed.json()).toEqual({ error: "No se pudo enviar la inscripción a Finance." });
   });
+
+  it("FINANCE_SERVICE_NOT_CONFIGURED responde 422 con el motivo exacto, no un genérico", async () => {
+    mocks.confirmEnrollmentWithFinance.mockRejectedValue(new Error("FINANCE_SERVICE_NOT_CONFIGURED"));
+    const response = await POST(request(), { params: Promise.resolve({ id: "enrollment-1" }) });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "Este curso no está configurado como un servicio activo en Finance." });
+  });
+
+  it("FINANCE_AUTH_FAILED responde 503, no 502 genérico", async () => {
+    mocks.confirmEnrollmentWithFinance.mockRejectedValue(new Error("FINANCE_AUTH_FAILED"));
+    const response = await POST(request(), { params: Promise.resolve({ id: "enrollment-1" }) });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Finance no está disponible en este momento." });
+  });
 });

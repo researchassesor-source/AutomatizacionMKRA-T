@@ -1,13 +1,38 @@
 /**
  * Lectura de fechas y horario desde la ficha publica del curso.
  *
- * La API REST de WordPress no expone estos datos (`acf` viene vacio), pero la
- * pagina si los publica en un bloque con clases estables:
+ * La API REST de WordPress no expone estos datos: `acf` viene vacio y
+ * `content.rendered` tambien, verificado en vivo contra
+ * `/wp-json/wp/v2/cursos` (sección M del release de estabilización) sobre
+ * varios cursos reales, no solo uno. No es una limitacion de permisos ni algo
+ * que cambie agregando un parametro: esos campos simplemente no se exponen
+ * para este tipo de contenido. La pagina publica SI los muestra, asi que el
+ * parser de HTML sigue siendo la unica fuente posible, no un respaldo
+ * temporal a reemplazar.
  *
+ * El bloque de fecha tuvo DOS disenos distintos, y este modulo reconoce los
+ * dos (el legacy manda si aparece; el actual solo rellena lo que el legacy no
+ * encontro):
+ *
+ *   LEGACY:
  *   <span class="dato__etiqueta">Inicio</span>
  *   <span class="dato__valor">11, 12, y 13 de Agosto</span>
  *   <span class="dato__etiqueta">Horario</span>
  *   <span class="dato__valor">Martes, Miércoles, Jueves  7:30-9:00 pm</span>
+ *
+ *   ACTUAL (verificado en vivo contra ra-training.com, 2026-08-19):
+ *   <div class="tk-dates">
+ *     <div class="dt-head">...<h3>INICIO DEL CURSO</h3></div>
+ *     <div class="dt-card"><div class="dt-days">
+ *       <div class="dt-day"><b>Próximamente</b></div>
+ *     </div></div>
+ *   </div>
+ *
+ * El diseño actual NO publica ningun campo de horario en ningun lugar de la
+ * ficha (se comprobo en varios cursos reales): por eso `proponerCalendario`
+ * sigue rechazando con un motivo explicito en vez de inventar una hora,
+ * incluso el dia en que el sitio empiece a publicar fechas reales bajo este
+ * diseño. Es una decision del sitio, no algo que este modulo pueda adivinar.
  *
  * Este modulo NO crea nada: interpreta y propone. Una fecha mal leida
  * programaria recordatorios reales en el dia equivocado para gente real, asi
@@ -30,15 +55,50 @@ export function limpiarTexto(raw: string): string {
     .trim();
 }
 
-const CAMPO = /class="dato__etiqueta">(.*?)<\/span>\s*<span class="dato__valor">(.*?)<\/span>/gs;
+const CAMPO_LEGACY = /class="dato__etiqueta">(.*?)<\/span>\s*<span class="dato__valor">(.*?)<\/span>/gs;
 
-/** Pares etiqueta/valor de la ficha publica. */
+/**
+ * Bloque de fecha del diseño actual: `tk-cta` es el hermano que viene justo
+ * despues de `tk-dates` en la ficha publica, asi que delimita el bloque sin
+ * tener que contar el cierre de divs anidados (fragil por regex). Si esa
+ * marca cambiara, el bloque no cierra y el match simplemente no aparece:
+ * `extraerCampoActual` devuelve `null` en vez de arrastrar el resto de la
+ * pagina.
+ */
+const BLOQUE_FECHA_ACTUAL = /<div class="tk-dates">([\s\S]*?)<div class="tk-cta">/i;
+const ETIQUETA_H3 = /<h3[^>]*>([\s\S]*?)<\/h3>/i;
+
+function extraerCampoActual(html: string): { etiqueta: string; valor: string } | null {
+  const bloque = html.match(BLOQUE_FECHA_ACTUAL);
+  if (!bloque) return null;
+  const contenido = bloque[1];
+  const etiquetaMatch = contenido.match(ETIQUETA_H3);
+  if (!etiquetaMatch) return null;
+  const etiqueta = limpiarTexto(etiquetaMatch[1]);
+  const valor = limpiarTexto(contenido.replace(ETIQUETA_H3, ""));
+  return { etiqueta, valor };
+}
+
+/**
+ * Pares etiqueta/valor de la ficha publica.
+ *
+ * Prueba el diseño legacy primero; el actual solo rellena "inicio" si el
+ * legacy no lo encontro, y nunca pisa lo que el legacy ya haya leido. El
+ * diseño actual no tiene un campo de horario equivalente (ver el comentario
+ * del modulo): no se inventa uno.
+ */
 export function extraerCampos(html: string): Record<string, string> {
   const campos: Record<string, string> = {};
-  for (const match of html.matchAll(CAMPO)) {
+  for (const match of html.matchAll(CAMPO_LEGACY)) {
     const etiqueta = limpiarTexto(match[1]);
     const valor = limpiarTexto(match[2]);
     if (etiqueta) campos[etiqueta.toLowerCase()] = valor;
+  }
+  if (!campos.inicio) {
+    const actual = extraerCampoActual(html);
+    if (actual && /inicio/i.test(actual.etiqueta) && actual.valor) {
+      campos.inicio = actual.valor;
+    }
   }
   return campos;
 }

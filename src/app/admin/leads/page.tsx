@@ -10,6 +10,8 @@ import { AdminFilterPanel } from "../AdminFilterPanel";
 import { AdminNav } from "../AdminNav";
 import { AdminPageHeader } from "../AdminPageHeader";
 import { presentAdminValue } from "../adminPresentation";
+import { FINANCE_HANDOFF_ROLES } from "@/lib/finance/authorization";
+import { BulkFinanceButton } from "./BulkFinanceButton";
 import { NewContactForm } from "./NewContactForm";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const view = await resolveViewMode(session.role);
   const canCreate = COMERCIAL.includes(session.role);
   const canExport = COMERCIAL.includes(session.role);
+  const canSendFinance = FINANCE_HANDOFF_ROLES.includes(session.role);
   const advancedFiltersActive = Boolean(filters.assignedTo || filters.classification || (filters.sort && filters.sort !== "newest"));
   const hasFilters = Boolean(
     filters.q || filters.stage || filters.course || filters.source || filters.from || filters.to || filters.assignedTo || advancedFiltersActive
@@ -81,6 +84,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
         description="Consulta, segmenta y da seguimiento a cada persona interesada en la oferta de R.A. Training."
         actions={<>
           {canCreate ? <NewContactForm courses={activeCourses} users={users} /> : null}
+          {canSendFinance ? <BulkFinanceButton courses={activeCourses} /> : null}
           {canExport ? <a className="btn-sm ghost" href="/api/admin/leads/export">Exportar autorizados</a> : null}
           <Link className="btn-sm ghost" href={`/admin/leads?archived=${filters.archived === "true" ? "false" : "true"}`}>{filters.archived === "true" ? "Ver activos" : "Ver archivados"}</Link>
         </>}

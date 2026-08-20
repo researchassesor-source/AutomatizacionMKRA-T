@@ -75,6 +75,18 @@ model Course {
   /// las reglas y el historial siguen donde estaban.
   automationsPausedAt          DateTime?
   automationsPausedBy          String?
+  /// Reconciliación derivada pendiente (startsAt/endsAt, cola, nextExecutionAt
+  /// de reglas fijas y oferta #12).
+  ///
+  /// Antes, cuando rescheduleCourseAutomations fallaba tras un cambio de
+  /// calendario, regla o handoff, el único rastro era un `.catch(() => null)`
+  /// silencioso: nada volvía a intentarlo si nadie tocaba ese curso por otro
+  /// motivo. Este flag se marca DENTRO de la misma transacción que la
+  /// mutación real, así que sobrevive aunque el proceso se caiga justo
+  /// después del commit; el cron lo recupera. Null significa "reconciliado",
+  /// nunca "nunca tuvo un cambio".
+  automationReconcilePendingAt DateTime?
+  automationReconcileReason    String?
   duration                     String?
   modality                     String?
   startsAt                     DateTime?
@@ -89,6 +101,13 @@ model Course {
   benefits                     Json?
   externalId                   String?
   externalSource               String?
+  /// Vinculo estable con el Servicio de Finance (por ID, no por nombre).
+  ///
+  /// Finance resolvia el servicio por nombre normalizado del curso, lo que se
+  /// rompia con cualquier cambio de titulo. Cuando este campo esta presente,
+  /// el envio a Finance lo usa siempre y nunca vuelve a depender del nombre.
+  /// Ausente significa "todavia sin vincular", no un error.
+  financeServiceId              String?
   officialSlug                 String?
   crmSlug                      String?           @unique
   officialUrl                  String?
@@ -111,6 +130,7 @@ model Course {
   @@index([isPublished, displayOrder])
   @@index([category])
   @@index([syncStatus])
+  @@index([automationReconcilePendingAt])
   @@map("courses")
 }
 
@@ -552,6 +572,16 @@ model AutomationRule {
   enrollmentStatuses Json?
   lastExecutedAt     DateTime?
   nextExecutionAt    DateTime?
+  /// Momento de la activacion vigente: cuando pasa a ACTIVE por primera vez, o
+  /// cuando vuelve a ACTIVE desde PAUSED/DRAFT/ARCHIVED. Editar el contenido o
+  /// el horario de una regla que YA esta ACTIVE no lo cambia.
+  ///
+  /// Sustituye a comparar contra `updatedAt` en el guard de bienvenida
+  /// (ON_REGISTRATION): `updatedAt` cambia con cualquier edicion, asi que una
+  /// correccion de texto en una regla activa podia silenciar la bienvenida
+  /// para inscripciones anteriores a esa edicion sin que nadie la hubiera
+  /// pausado. `activatedAt` solo se mueve en una activacion real.
+  activatedAt        DateTime?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 

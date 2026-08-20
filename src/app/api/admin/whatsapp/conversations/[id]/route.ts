@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { GESTION, OPERACION } from "@/lib/auth/roles";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
 import { ventanaDe } from "@/lib/whatsapp/conversation-service";
+import { recuperarAutomatizacionesDelContacto } from "@/lib/whatsapp/handoff-expiry";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,13 @@ const patchSchema = z.object({
   leadId: z.string().trim().min(1).max(40).nullable().optional(),
   assignedToId: z.string().trim().min(1).max(40).nullable().optional(),
   state: z.enum(["HUMAN_HANDOFF", "RESOLVED"]).optional(),
+  /**
+   * Confirmación explícita de "el contacto tiene otro número, úsalo y
+   * vincula" (sección W). Sin esto, un teléfono que no coincide se rechaza
+   * como hasta ahora (PHONE_MISMATCH): esto NUNCA es el comportamiento por
+   * defecto, hace falta un clic aparte.
+   */
+  confirmPhoneUpdate: z.literal(true).optional(),
 }).refine((v) => v.leadId !== undefined || v.assignedToId !== undefined || v.state !== undefined, {
   message: "No hay nada que cambiar.",
 });
@@ -141,6 +149,43 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const conversacion = await prisma.conversation.findUnique({ where: { id }, select: { id: true, phone: true, leadId: true, assignedToId: true, state: true } });
   if (!conversacion) return NextResponse.json({ error: "No se encontró la conversación." }, { status: 404 });
 
+  /**
+   * "Usar este nuevo número y vincular" (sección W): acción propia y
+   * aislada, no una variante del vínculo normal. Toca DOS tablas (Lead y
+   * Conversation) de forma atómica, así que vive fuera del acumulador
+   * genérico `data` de más abajo, que solo escribe Conversation.
+   */
+  if (parsed.data.leadId && parsed.data.confirmPhoneUpdate) {
+    const lead = await prisma.lead.findUnique({ where: { id: parsed.data.leadId }, select: { id: true, phone: true } });
+    if (!lead) return NextResponse.json({ error: "Ese contacto no existe.", errorCode: "LEAD_NOT_FOUND" }, { status: 422 });
+    if (lead.phone === conversacion.phone) {
+      // Ya coincidía: nada que confirmar, se trata como un vínculo normal.
+    } else {
+      const otroDueño = await prisma.lead.findFirst({ where: { phone: conversacion.phone, id: { not: lead.id } }, select: { id: true } });
+      if (otroDueño) {
+        return NextResponse.json({ error: "Ese número de WhatsApp ya pertenece a otro contacto.", errorCode: "PHONE_CLAIMED_BY_ANOTHER_LEAD" }, { status: 409 });
+      }
+      await prisma.$transaction([
+        // El consentimiento y la clasificación NUNCA se tocan aquí: cambiar el
+        // número no es lo mismo que consentir de nuevo.
+        prisma.lead.update({ where: { id: lead.id }, data: { phone: conversacion.phone } }),
+        prisma.conversation.update({ where: { id }, data: { leadId: lead.id } }),
+        prisma.inboundMessage.updateMany({ where: { fromPhone: conversacion.phone, leadId: null }, data: { leadId: lead.id } }),
+      ]);
+      await writeAudit({
+        session: auth.session,
+        action: "WHATSAPP_CONTACT_PHONE_UPDATED",
+        entityType: "Lead",
+        entityId: lead.id,
+        // Nunca el número viejo ni el nuevo en claro: un log de auditoría no
+        // es el lugar para un teléfono completo. `conversationId` ya basta
+        // para reconstruir el caso si hace falta investigarlo.
+        metadata: { conversationId: id, telefonoActualizado: true },
+      }).catch(() => undefined);
+      return NextResponse.json({ ok: true, changed: true });
+    }
+  }
+
   const data: Record<string, unknown> = {};
 
   if (parsed.data.leadId !== undefined) {
@@ -155,6 +200,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
        * Vincular una conversacion a un contacto con otro numero mezclaria el
        * historial de dos personas, y ademas la respuesta saldria hacia el
        * numero de la conversacion mientras el CRM cree que habla con otra.
+       * Si no coinciden, la salida es "confirmPhoneUpdate" (arriba), nunca
+       * un vínculo silencioso.
        */
       if (lead.phone !== conversacion.phone) {
         return NextResponse.json({ error: "El teléfono de ese contacto no coincide con el de la conversación.", errorCode: "PHONE_MISMATCH" }, { status: 422 });
@@ -208,6 +255,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       entityId: id,
       metadata: { desde: conversacion.state },
     }).catch(() => undefined);
+  }
+
+  /**
+   * Cerrar la atencion no reactivaba sola lo comercial que se habia callado
+   * mientras duro: se quedaba OMITIDO/HUMAN_HANDOFF_ACTIVE para siempre hasta
+   * que algo mas tocara ese curso por otro motivo. El asesor que cierra la
+   * conversacion espera que el contacto vuelva a recibir sus automatizaciones.
+   */
+  if (parsed.data.state === "RESOLVED") {
+    const leadId = data.leadId !== undefined ? (data.leadId as string | null) : conversacion.leadId;
+    if (leadId) await recuperarAutomatizacionesDelContacto(leadId).catch(() => undefined);
   }
 
   return NextResponse.json({ ok: true, changed: true });

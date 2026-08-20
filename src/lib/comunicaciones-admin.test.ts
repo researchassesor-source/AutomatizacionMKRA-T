@@ -148,11 +148,15 @@ describe("pausa por curso", () => {
 
 describe("editar no reenvía nada", () => {
   const motor = readFileSync(join(raiz, "lib/nurture/engine.ts"), "utf8");
+  const colaSegura = readFileSync(join(raiz, "lib/nurture/queue-safety.ts"), "utf8");
 
   it("los mensajes ya enviados nunca se reescriben", () => {
     // Solo lo pendiente es reprogramable; enviado, fallido o cancelado se
-    // conserva como historial.
-    expect(motor).toContain('const REPROGRAMMABLE_STATUSES = ["PROGRAMADO", "OMITIDO"] as const');
+    // conserva como historial. La constante vive en queue-safety.ts (no en
+    // engine.ts) para que el vocabulario de cuarentena/cancelación no
+    // dependa del motor de programación.
+    expect(colaSegura).toContain('export const REPROGRAMMABLE_STATUSES = ["PROGRAMADO", "OMITIDO"] as const');
+    expect(motor).toContain('import { REPROGRAMMABLE_STATUSES } from "./queue-safety"');
   });
 
   it("la identidad del mensaje no depende del texto, así que editarlo no crea otro", () => {
@@ -167,15 +171,24 @@ describe("editar no reenvía nada", () => {
 
   it("una bienvenida creada o reactivada después de la inscripción no saluda hacia atrás", () => {
     // Es lo que impide que activar una regla reenvie a todo el historico.
-    // Se compara con `updatedAt`, no con `createdAt`: una regla que estuvo
-    // pausada y se reactiva HOY sigue teniendo el `createdAt` de cuando se
-    // creó hace semanas, y solo `updatedAt` refleja que volvió a ACTIVE.
-    expect(motor).toMatch(/rule\.trigger === "ON_REGISTRATION" && enrollment\.createdAt < rule\.updatedAt/);
+    // Se compara con `activatedAt`, no con `updatedAt`: `updatedAt` cambia con
+    // CUALQUIER edicion (texto, horario), asi que corregir un asunto en una
+    // regla ya ACTIVE volveria a colgar la bienvenida de inscripciones
+    // anteriores a esa edicion sin que nadie la hubiera pausado. `activatedAt`
+    // solo se mueve en una activacion real: creacion, o vuelta desde
+    // PAUSED/DRAFT/ARCHIVED. Si faltara por dato legacy, cae a `updatedAt`
+    // -la frontera que Production ya usaba- en vez de tratar null como "sin
+    // limite" (ultimo review de release).
+    expect(motor).toMatch(/const activationBoundary = rule\.activatedAt \?\? rule\.updatedAt;/);
+    expect(motor).toMatch(/rule\.trigger === "ON_REGISTRATION" && enrollment\.createdAt < activationBoundary/);
   });
 
   it("desactivar no cancela lo ya enviado", () => {
-    const cancelar = motor.slice(motor.indexOf("export async function cancelPendingMessages"));
-    expect(cancelar.slice(0, 400)).toMatch(/status: "PROGRAMADO"/);
+    // La cancelación irreversible vive en queue-safety.ts (no en engine.ts):
+    // ver ahí sus propias pruebas de que nunca toca un estado histórico.
+    const cancelar = colaSegura.slice(colaSegura.indexOf("export async function cancelIrreversibleMessages"));
+    expect(cancelar.slice(0, 600)).toMatch(/status: \{ in: \[\.\.\.MENSAJES_RECUPERABLES\] \}/);
+    expect(colaSegura).not.toMatch(/MENSAJES_RECUPERABLES[\s\S]{0,120}(ACEPTADO|ENVIADO|ENTREGADO|LEIDO)/);
   });
 });
 

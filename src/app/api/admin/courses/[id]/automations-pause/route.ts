@@ -4,6 +4,8 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
+import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } from "@/lib/nurture/course-reconciliation";
+import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +37,35 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const curso = await prisma.course.findUnique({ where: { id }, select: { id: true, title: true, automationsPausedAt: true } });
   if (!curso) return NextResponse.json({ error: "El curso no existe." }, { status: 404 });
 
-  const actualizado = await prisma.course.update({
-    where: { id },
-    data: parsed.data.paused
-      ? { automationsPausedAt: new Date(), automationsPausedBy: auth.session.email }
-      : { automationsPausedAt: null, automationsPausedBy: null },
-    select: { automationsPausedAt: true, automationsPausedBy: true },
+  /**
+   * Pausar pone en cuarentena la cola EN EL MISMO INSTANTE, dentro de la misma
+   * transaccion que marca el curso pausado. Antes de esto solo existia el
+   * cerrojo de ultimo momento en sendMessage: correcto, pero significaba que
+   * un mensaje ya PROGRAMADO seguia "pendiente de enviar" en el panel hasta
+   * que le tocara su hora y recien ahi se descubriera la pausa. Poner en
+   * cuarentena aqui hace que el estado se refleje de inmediato.
+   */
+  let quarantined = 0;
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const curso2 = await tx.course.update({
+      where: { id },
+      data: parsed.data.paused
+        ? { automationsPausedAt: new Date(), automationsPausedBy: auth.session?.email ?? null }
+        : { automationsPausedAt: null, automationsPausedBy: null },
+      select: { automationsPausedAt: true, automationsPausedBy: true },
+    });
+    if (parsed.data.paused) {
+      quarantined = await quarantineRecoverableMessages(
+        tx,
+        { enrollment: { courseId: id } },
+        { errorCode: "COURSE_AUTOMATIONS_PAUSED", errorMessage: "No se envió: las automatizaciones de este curso están en pausa." },
+      );
+    } else {
+      // Marcar pendiente solo al REANUDAR, no al pausar: pausar ya protege la
+      // cola por sí mismo (arriba) y no necesita recuperación de nada.
+      await markCourseAutomationReconcilePending(tx, id, "COURSE_RESUMED");
+    }
+    return curso2;
   });
 
   await writeAudit({
@@ -49,13 +74,26 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     entityType: "Course",
     entityId: id,
     result: "SUCCESS",
-    metadata: { curso: curso.title },
+    metadata: { curso: curso.title, quarantined },
   });
+
+  /**
+   * Reanudar: lo que se quedo OMITIDO/COURSE_AUTOMATIONS_PAUSED (el cerrojo de
+   * ultimo momento en sendMessage) necesita que alguien lo vuelva a evaluar.
+   * Antes, un fallo de este recálculo se ignoraba en silencio y el curso
+   * podia quedar COURSE_AUTOMATIONS_PAUSED para siempre aunque ya no lo
+   * estuviera; ahora el flag persistente (marcado arriba) garantiza que el
+   * cron lo recupere si esto falla.
+   */
+  const reconciled = parsed.data.paused ? null : await reconcileCourseDerivedState(id, auth.session);
 
   return NextResponse.json({
     ok: true,
     pausado: Boolean(actualizado.automationsPausedAt),
     desde: actualizado.automationsPausedAt?.toISOString() ?? null,
     por: actualizado.automationsPausedBy,
+    quarantined,
+    pending: reconciled ? !reconciled.ok : false,
+    reconciled,
   });
 }

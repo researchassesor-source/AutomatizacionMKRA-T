@@ -1668,15 +1668,29 @@ table.data select { min-height: 44px; border: 1px solid #cbd5e1; border-radius: 
 .progress-bar { height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 16px; }
 .progress-bar span { display: block; height: 100%; width: 40%; border-radius: 999px; background: var(--brand-primary); animation: progress-slide 1.1s ease-in-out infinite; }
 @keyframes progress-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
+.sync-resumen { margin: 0 0 4px; font-size: .92rem; color: var(--muted); }
+.sync-resumen strong { color: var(--ink); font-variant-numeric: tabular-nums; }
 .sync-group { margin-bottom: 18px; }
 .sync-group h3 { margin: 0 0 10px; font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.sync-group.is-muted .sync-item { opacity: .72; }
-.sync-item { padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.sync-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.sync-item input[type="checkbox"] { margin-top: 3px; flex: 0 0 auto; }
 .sync-item strong { display: block; font-size: .9rem; font-weight: 600; color: var(--ink); }
 .sync-item small { display: block; margin-top: 2px; font-size: .81rem; color: var(--muted); }
 .sync-item ul { margin: 8px 0 0; padding-left: 18px; }
 .sync-item li { font-size: .85rem; color: var(--brand-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 .sync-item em { display: block; margin-top: 7px; font-style: normal; font-size: .8rem; color: var(--muted); }
+.sync-group.is-muted .sync-item { opacity: .72; }
+
+/* ═══ CONFIGURAR FINANCE ══════════════════════════════════════════════════ */
+.finance-service-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.finance-service-status strong.ok { color: var(--success); }
+.finance-service-status strong.pendiente { color: var(--warning); }
+.finance-sugerencia { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding: 8px 12px; border: 1px dashed var(--brand-primary); border-radius: 10px; font-size: .85rem; }
+.finance-service-list { max-height: 280px; margin-top: 10px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.finance-service-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: .87rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+.finance-service-row:last-child { border-bottom: 0; }
+.finance-service-row:hover { background: #f8fafc; }
+.finance-bulk-preview { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 
 /* ═══ PULIDO GENERAL ══════════════════════════════════════════════════════
    Transiciones cortas y consistentes. Nada dura mas de 180 ms: por encima de
@@ -2350,44 +2364,116 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* ---------------------------------------------------------------------------
    Inbox de WhatsApp.
 
-   Tres columnas en escritorio. En pantallas pequenas no se encogen: se navega
-   entre ellas, porque tres columnas en 375 px no se leen.
+   Dos columnas en escritorio -lista y conversación-; el panel de información
+   es un drawer superpuesto, no una tercera columna fija. En pantallas
+   pequenas no se encogen: se navega entre ellas, porque dos columnas en
+   375 px tampoco se leen. Paleta de marca (azul/blanco/grises); el naranja
+   de acento queda solo para lo no leído, nunca como color base.
 --------------------------------------------------------------------------- */
 .inbox-shell {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
   min-height: 60vh;
+  position: relative;
 }
-.inbox-list { display: flex; flex-direction: column; gap: .5rem; max-height: 70vh; overflow-y: auto; }
-.inbox-filters { display: flex; flex-wrap: wrap; gap: .25rem; }
-.inbox-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.inbox-list {
+  display: flex; flex-direction: column; gap: .3rem;
+  max-height: 70vh; overflow-y: auto;
+  padding: .5rem; border: 1px solid var(--color-border-subtle); border-radius: 12px;
+  background: var(--color-surface-soft);
+}
+.inbox-filters { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .15rem; }
+.inbox-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .15rem; }
 .inbox-item {
   display: flex; flex-direction: column; gap: .15rem;
-  width: 100%; text-align: left; padding: .6rem .7rem;
-  border: 1px solid var(--border, #e5e7eb); border-radius: .5rem;
-  background: transparent; cursor: pointer;
+  width: 100%; text-align: left; padding: .55rem .6rem;
+  border: 1px solid transparent; border-left: 3px solid transparent; border-radius: .6rem;
+  background: transparent; cursor: pointer; transition: background-color .12s ease, border-color .12s ease;
 }
-.inbox-item.is-active { border-color: currentColor; }
+.inbox-item:hover { background: var(--color-surface-elevated); border-color: var(--color-border-subtle); }
+.inbox-item.is-active { background: var(--primary-50); border-left-color: var(--brand-primary); }
+.inbox-item-row { display: flex; align-items: flex-start; gap: .55rem; width: 100%; }
+.inbox-item-body { display: flex; flex-direction: column; gap: .15rem; min-width: 0; flex: 1 1 auto; }
+.inbox-avatar {
+  display: grid; place-items: center; flex: 0 0 auto;
+  width: 2.35rem; height: 2.35rem; border-radius: 50%;
+  background: var(--brand-primary); color: #fff; font-weight: 700; font-size: .92rem;
+}
+.inbox-item.is-active .inbox-avatar { background: var(--brand-primary-hover); }
+.inbox-item .badge {
+  display: inline-grid; place-items: center; min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem;
+  border-radius: 999px; background: var(--brand-accent); color: #fff; font-size: .68rem; font-weight: 700;
+}
 .inbox-item-top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-.inbox-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox-chat { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
-.inbox-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
-.inbox-back { display: none; }
-.inbox-note { margin: 0; }
-.inbox-messages {
-  display: flex; flex-direction: column; gap: .5rem;
-  max-height: 55vh; overflow-y: auto; padding-right: .25rem;
+.inbox-item-top strong { color: var(--ink); font-size: .88rem; }
+.inbox-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .78rem; }
+.inbox-chat {
+  display: flex; flex-direction: column; gap: 0; min-width: 0;
+  border: 1px solid var(--color-border-subtle); border-radius: 12px; overflow: hidden; background: var(--surface);
 }
-.bubble { max-width: min(80%, 40rem); padding: .5rem .7rem; border-radius: .6rem; border: 1px solid var(--border, #e5e7eb); }
-.bubble.is-inbound { align-self: flex-start; }
-.bubble.is-outbound { align-self: flex-end; }
-.bubble-text { margin: .2rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.bubble-meta, .bubble-kind { margin: 0; font-size: .8rem; opacity: .75; }
-.inbox-composer { display: flex; flex-direction: column; gap: .5rem; }
-.inbox-composer textarea { width: 100%; resize: vertical; }
-.inbox-info { display: flex; flex-direction: column; gap: .4rem; }
+.inbox-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
+  padding: .85rem 1rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface-elevated);
+}
+.inbox-back { display: none; }
+.inbox-note {
+  margin: .6rem 1rem 0; padding: .5rem .7rem; border-radius: .5rem;
+  background: var(--primary-50); color: var(--brand-primary-hover); font-size: .78rem;
+}
+.inbox-messages {
+  display: flex; flex-direction: column; gap: .35rem;
+  min-height: 40vh; max-height: 55vh; overflow-y: auto; padding: 1rem;
+  background: var(--color-bg);
+}
+.bubble {
+  max-width: min(80%, 40rem); padding: .45rem .65rem; border-radius: .85rem;
+  background: var(--color-surface-elevated); border: 1px solid var(--color-border-subtle);
+}
+.bubble.is-inbound { align-self: flex-start; border-bottom-left-radius: .2rem; }
+.bubble.is-outbound { align-self: flex-end; border-bottom-right-radius: .2rem; background: var(--primary-100); border-color: var(--primary-200); }
+.bubble.is-outbound.is-human { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; }
+.bubble.is-grouped { margin-top: -.2rem; }
+.bubble-text { margin: .15rem 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .87rem; }
+.bubble-meta, .bubble-kind { margin: 0; font-size: .72rem; opacity: .75; }
+.bubble.is-outbound.is-human .bubble-meta, .bubble.is-outbound.is-human .bubble-kind { color: rgba(255,255,255,.82); }
+.inbox-composer {
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .85rem 1rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-elevated);
+}
+.inbox-composer textarea { width: 100%; resize: vertical; border-radius: .6rem; border: 1px solid var(--border); }
+/**
+ * "Información" es un drawer que realmente abre y cierra, no una tercera
+ * columna que ya estaba siempre a la vista (con eso el botón parecía no
+ * hacer nada en escritorio). Vive fuera del flujo del grid, superpuesto,
+ * igual en escritorio y en móvil: no depende del ancho de pantalla.
+ */
+.inbox-info {
+  display: none;
+  flex-direction: column;
+  gap: .4rem;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 100vw);
+  padding: 1.25rem;
+  background: var(--surface, #fff);
+  border-left: 1px solid var(--border, #e5e7eb);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, .12);
+  overflow-y: auto;
+  z-index: 40;
+}
+.inbox-shell.shows-info .inbox-info { display: flex; }
+.inbox-info-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .32);
+  z-index: 39;
+}
+.inbox-shell.shows-info .inbox-info-backdrop { display: block; }
 .inbox-enrollments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -2397,14 +2483,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 900px) {
   /* Una columna cada vez: lista, y al elegir, conversación. */
   .inbox-shell { grid-template-columns: 1fr; }
-  .inbox-shell .inbox-chat, .inbox-shell .inbox-info { display: none; }
+  .inbox-shell .inbox-chat { display: none; }
   .inbox-shell.has-selection .inbox-list { display: none; }
   .inbox-shell.has-selection .inbox-chat { display: flex; }
-  .inbox-shell.shows-info .inbox-chat { display: none; }
-  .inbox-shell.shows-info .inbox-info { display: flex; }
+  .inbox-info { width: 100vw; }
   .inbox-back { display: inline-flex; }
   .inbox-list { max-height: none; }
   .bubble { max-width: 92%; }
+  .inbox-avatar { width: 2.1rem; height: 2.1rem; font-size: .82rem; }
 }
 
 /* Línea de actividad del contacto. */
@@ -2416,17 +2502,39 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .timeline-item p { margin: .1rem 0; }
 
 /* Comunicaciones del curso: recorrido operativo con acciones por paso. */
-.comms-links { padding: 14px 0; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
-.comms-links h3 { margin: 0 0 8px; font-size: .85rem; color: #243b53; }
-.comms-links p { margin: 2px 0; }
-.comms-links-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.comms-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
-.comms-step { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
-.comms-step:last-child { border-bottom: 0; }
-.comms-step-main { flex: 1 1 260px; min-width: 0; }
-.comms-step-main p { margin: 3px 0; }
-.comms-step-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; }
-.comms-step-editor { flex-basis: 100%; margin-top: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2, #f8fafc); }
+/* ═══ DATOS PARA LOS MENSAJES ═════════════════════════════════════════════ */
+.comms-datos { padding: 14px 0; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+.comms-datos h3 { margin: 0 0 10px; font-size: .85rem; color: #243b53; }
+.comms-datos-tabla td { padding: 7px 10px; vertical-align: middle; }
+.comms-datos-tabla td:first-child { font-weight: 600; }
+
+/* ═══ 12 TARJETAS DEL RECORRIDO ═══════════════════════════════════════════ */
+.comms-cards-titulo { margin: 4px 0 10px; font-size: .85rem; color: #243b53; }
+.comms-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 10px; }
+.comms-card { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; transition: border-color .15s, background-color .15s; }
+.comms-card-toggle { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.comms-card-toggle:disabled { cursor: default; }
+.comms-card-check { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 900; color: #fff; }
+.comms-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.comms-card-body strong { font-size: .92rem; color: var(--ink); }
+.comms-card-estado { font-size: .74rem; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.comms-card-subtitle { font-size: .8rem; color: var(--muted); }
+.comms-card-editar { position: absolute; top: 10px; right: 10px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: .72rem; font-weight: 700; color: var(--muted); cursor: pointer; }
+
+.comms-card.is-deseleccionado { background: #f8fafc; }
+.comms-card.is-deseleccionado .comms-card-estado { color: var(--muted); }
+
+.comms-card.is-seleccionado, .comms-card.is-enviado { border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 6%, var(--surface)); }
+.comms-card.is-seleccionado .comms-card-check, .comms-card.is-enviado .comms-card-check { background: var(--brand-primary); border-color: var(--brand-primary); }
+.comms-card.is-seleccionado .comms-card-estado, .comms-card.is-enviado .comms-card-estado { color: var(--brand-primary); }
+
+.comms-card.is-incompleto { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, var(--surface)); }
+.comms-card.is-incompleto .comms-card-check { background: var(--warning); border-color: var(--warning); }
+.comms-card.is-incompleto .comms-card-estado { color: var(--warning); }
+.comms-card.is-incompleto .comms-card-subtitle { color: var(--warning); font-weight: 600; }
+
+.comms-card.is-ocupado { opacity: .68; }
+
 .comms-rule + .comms-rule { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
 .comms-rule textarea { width: 100%; resize: vertical; }
 

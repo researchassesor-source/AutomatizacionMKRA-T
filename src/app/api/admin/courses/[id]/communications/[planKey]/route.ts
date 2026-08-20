@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { TIMELINE_STEPS } from "@/lib/course-timeline";
 import { rescheduleCourseAutomations } from "@/lib/nurture/engine";
+import { quarantineRecoverableMessages } from "@/lib/nurture/queue-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -57,17 +58,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
        */
       const idsPausados = reglas.filter((r) => r.status === "PAUSED").map((r) => r.id);
       if (idsPausados.length > 0) {
-        await tx.automationRule.updateMany({ where: { id: { in: idsPausados } }, data: { status: "ACTIVE" } });
+        await tx.automationRule.updateMany({ where: { id: { in: idsPausados } }, data: { status: "ACTIVE", activatedAt: new Date() } });
       }
     } else {
       // "No enviar" es una instruccion explicita: tanto lo activo como lo que
       // seguia en borrador quedan pausados por igual, sin excepcion.
       await tx.automationRule.updateMany({ where: { id: { in: ids } }, data: { status: "PAUSED" } });
-      // Solo lo que aun no ha salido. Lo enviado es historial y no se toca.
-      await tx.outboundMessage.updateMany({
-        where: { automationRuleId: { in: ids }, status: "PROGRAMADO" },
-        data: { status: "CANCELADO", cancelledAt: new Date() },
-      });
+      /**
+       * Pausa reversible, no cancelacion real: OMITIDO con un motivo propio,
+       * nunca CANCELADO. Al reactivar el paso, rescheduleCourseAutomations ya
+       * reprograma cualquier OMITIDO cuyo momento siga en el futuro -es la
+       * misma via que ya usan MISSING_STREAM_URL y SCHEDULE_RECONCILING-, asi
+       * que no hace falta un recovery aparte aqui. Solo lo que aun no ha
+       * salido: lo enviado es historial y no se toca.
+       */
+      await quarantineRecoverableMessages(
+        tx,
+        { automationRuleId: { in: ids } },
+        { errorCode: "RULE_PAUSED", errorMessage: "Este aviso se pausó porque el paso se desactivó. Se reanuda solo si vuelves a activarlo, mientras siga en el futuro." },
+      );
     }
   });
 

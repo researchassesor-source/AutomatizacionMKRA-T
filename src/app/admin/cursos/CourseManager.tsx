@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminEmptyState } from "../AdminEmptyState";
 import { ecuadorLocalDateTimeToIso, isoToEcuadorLocalInput } from "@/lib/time";
+import { FinanceServiceModal } from "./FinanceServiceModal";
 
 export type CourseRow = {
   id: string;
@@ -17,6 +18,7 @@ export type CourseRow = {
   whatsappGroupUrl: string | null;
   surveyUrl: string | null;
   moodleCourseUrl: string | null;
+  financeServiceId: string | null;
   imageUrl: string | null;
   price: number | null;
   duration: string | null;
@@ -42,6 +44,7 @@ const emptyCourse: Omit<CourseRow, "id"> = {
   whatsappGroupUrl: "",
   surveyUrl: "",
   moodleCourseUrl: "",
+  financeServiceId: "",
   imageUrl: "",
   price: null,
   duration: "",
@@ -72,6 +75,7 @@ export function CourseManager({
   const [creating, setCreating] = useState(startCreating);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [configurandoFinance, setConfigurandoFinance] = useState(false);
   const current = editing ?? (creating ? ({ id: "", ...emptyCourse } as CourseRow) : null);
 
   useEffect(() => {
@@ -152,6 +156,7 @@ export function CourseManager({
           whatsappGroupUrl: course.whatsappGroupUrl ?? "",
           surveyUrl: course.surveyUrl ?? "",
           moodleCourseUrl: course.moodleCourseUrl ?? "",
+          financeServiceId: course.financeServiceId ?? "",
           imageUrl: course.imageUrl ?? "",
           price: course.price ?? "",
           duration: course.duration ?? "",
@@ -205,6 +210,20 @@ export function CourseManager({
             <input name="moodleCourseUrl" aria-label="URL del campus" type="url" defaultValue={current.moodleCourseUrl ?? ""} placeholder="URL del campus (opcional)" />
             <input name="imageUrl" aria-label="URL de imagen" type="url" defaultValue={current.imageUrl ?? ""} placeholder="URL de imagen (opcional)" />
           </div>
+          {editing ? (
+            <div className="form-row finance-service-status">
+              <span>
+                Finance: {current.financeServiceId
+                  ? <strong className="ok">Vinculado</strong>
+                  : <strong className="pendiente">Pendiente de configurar</strong>}
+              </span>
+              <button type="button" className="btn-sm ghost" onClick={() => setConfigurandoFinance(true)}>
+                Configurar Finance
+              </button>
+            </div>
+          ) : (
+            <p className="muted form-row">Podrás vincular este curso con Finance después de crearlo.</p>
+          )}
           <div className="form-row"><textarea name="description" aria-label="Descripción" defaultValue={current.description ?? ""} placeholder="Descripción" rows={3} /></div>
           <div className="toolbar">
             {[
@@ -247,6 +266,19 @@ export function CourseManager({
         )}
         </div>
       </details>
+      {configurandoFinance && editing ? (
+        <FinanceServiceModal
+          courseId={editing.id}
+          courseTitle={editing.title}
+          currentServiceId={editing.financeServiceId}
+          onClose={() => setConfigurandoFinance(false)}
+          onSaved={(id) => {
+            setEditing((prev) => (prev ? { ...prev, financeServiceId: id } : prev));
+            setConfigurandoFinance(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </>
   );
 }

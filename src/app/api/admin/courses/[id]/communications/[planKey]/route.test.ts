@@ -77,11 +77,13 @@ describe("apagar un paso", () => {
     expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it("cancela solo los mensajes PROGRAMADO de esas reglas, no el historial", async () => {
+  it("pausa (no cancela) solo los mensajes PROGRAMADO/FALLIDO de esas reglas, no el historial", async () => {
     await peticion("course-1", "reminder_24h", { enabled: false, confirm: true });
+    // Recuperable, no CANCELADO: rescheduleCourseAutomations puede reprogramar
+    // un OMITIDO cuyo momento siga en el futuro si el paso se reactiva.
     expect(mocks.prisma.outboundMessage.updateMany).toHaveBeenCalledWith({
-      where: { automationRuleId: { in: ["rule-email", "rule-wa"] }, status: "PROGRAMADO" },
-      data: { status: "CANCELADO", cancelledAt: expect.any(Date) },
+      where: { automationRuleId: { in: ["rule-email", "rule-wa"] }, status: { in: ["PROGRAMADO", "FALLIDO"] } },
+      data: expect.objectContaining({ status: "OMITIDO", errorCode: "RULE_PAUSED", errorMessage: expect.any(String) }),
     });
   });
 
@@ -98,7 +100,7 @@ describe("encender un paso", () => {
     expect(res.status).toBe(200);
     expect(mocks.prisma.automationRule.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["rule-email"] } },
-      data: { status: "ACTIVE" },
+      data: { status: "ACTIVE", activatedAt: expect.any(Date) },
     });
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledTimes(1);
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1");
@@ -169,7 +171,7 @@ describe("draft safety: una regla DRAFT nunca se activa por accidente", () => {
     await peticion("course-1", "welcome", { enabled: true, confirm: true });
     expect(mocks.prisma.automationRule.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["rule-email"] } },
-      data: { status: "ACTIVE" },
+      data: { status: "ACTIVE", activatedAt: expect.any(Date) },
     });
   });
 

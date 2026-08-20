@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { courseInputSchema, isTrustedMoodleUrl, isTrustedOfficialCourseUrl } from "./course-validation";
+import { courseData, courseInputSchema, isTrustedMoodleUrl, isTrustedOfficialCourseUrl } from "./course-validation";
 
 const course = {
   slug: "curso-seguro",
@@ -23,5 +23,13 @@ describe("cursos administrables", () => {
   it("permite desactivar la publicación", () => expect(courseInputSchema.parse({ ...course, isPublished: false }).isPublished).toBe(false));
   it("rechaza un cierre anterior al inicio", () => {
     expect(courseInputSchema.safeParse({ ...course, startsAt: "2026-08-02T14:00:00.000Z", endsAt: "2026-08-01T14:00:00.000Z" }).success).toBe(false);
+  });
+  it("financeServiceId es opcional y se guarda como null cuando viene vacío", () => {
+    const parsed = courseInputSchema.parse({ ...course, financeServiceId: "" });
+    expect(courseData(parsed).financeServiceId).toBeNull();
+  });
+  it("financeServiceId con valor se conserva tal cual", () => {
+    const parsed = courseInputSchema.parse({ ...course, financeServiceId: "svc-abc-123" });
+    expect(courseData(parsed).financeServiceId).toBe("svc-abc-123");
   });
 });

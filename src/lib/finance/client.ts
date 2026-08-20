@@ -34,6 +34,16 @@ export function financeEnrollmentUrl(inscripcionId: string): string {
   return base ? `${base}/inscripciones?open=${encodeURIComponent(inscripcionId)}` : "";
 }
 
+/**
+ * Finance no fue alcanzable: timeout, red caída, DNS, o un HTTP que ni
+ * siquiera llegó a responder success/error en JSON. Se distingue de un
+ * rechazo FUNCIONAL (Finance respondió, y dijo que no) porque en bulk una
+ * caída de transporte es un motivo para detener el lote entero -reintentar
+ * contra un servicio inalcanzable inscripción por inscripción no tiene
+ * sentido-, mientras que un rechazo funcional es solo de esa inscripción.
+ */
+class FinanceTransportError extends Error {}
+
 async function rawCall<T>(
   action: string,
   params: Record<string, unknown>,
@@ -57,14 +67,21 @@ async function rawCall<T>(
   if (serviceToken) body.serviceToken = serviceToken;
   // Sin plazo, una hoja de calculo lenta deja colgada la funcion hasta que la
   // plataforma la corta, y el cron pierde el resto del ciclo esperando.
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(FINANCE_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`Finance respondió ${response.status}.`);
+  let response: Response;
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(FINANCE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // Red, DNS, timeout del AbortSignal: Finance no fue alcanzable, no es
+    // que haya rechazado la petición.
+    throw new FinanceTransportError(error instanceof Error ? error.message : "No se pudo contactar a Finance.");
+  }
+  if (!response.ok) throw new FinanceTransportError(`Finance respondió ${response.status}.`);
   return (await response.json()) as FinanceResponse<T>;
 }
 
@@ -106,6 +123,12 @@ export type FinanceEnrollmentInput = {
   crmEnrollmentId: string;
   crmContactId: string;
   crmCourseId: string;
+  /**
+   * Vínculo estable con el Servicio de Finance (Course.financeServiceId).
+   * `null` cuando el curso todavía no está vinculado: Finance cae al
+   * contrato heredado por nombre normalizado (servicioNombre).
+   */
+  financeServiceId: string | null;
   courseTitle: string;
   courseSlug: string;
   modality: string;
@@ -128,6 +151,9 @@ export function buildFinanceInscripcionPayload(input: FinanceEnrollmentInput) {
     crmEnrollmentId: input.crmEnrollmentId,
     crmContactId: input.crmContactId,
     crmCourseId: input.crmCourseId,
+    // Ausente (no "") cuando el curso no está vinculado, para que Finance
+    // pueda distinguir "sin vínculo" de "vínculo vacío" y caer al nombre.
+    financeServiceId: input.financeServiceId ?? undefined,
     courseTitle: input.courseTitle,
     courseSlug: input.courseSlug,
     modality: input.modality,
@@ -149,12 +175,45 @@ export function buildFinanceInscripcionPayload(input: FinanceEnrollmentInput) {
   };
 };
 
+/**
+ * Errores funcionales que Finance devuelve en texto libre y que el CRM ya
+ * reconoce. Cualquier otro texto se trata como desconocido: nunca se propaga
+ * tal cual hacia la interfaz, para no filtrar detalles internos de Finance
+ * (tokens, URLs, mensajes de Apps Script) a quien opera el CRM.
+ */
+const KNOWN_FINANCE_ERRORS: Record<string, string> = {
+  "Servicio de Finance no configurado para este curso.": "FINANCE_SERVICE_NOT_CONFIGURED",
+  "Finance rechazó la autenticación.": "FINANCE_AUTH_FAILED",
+};
+
+function classifyFinanceError(rawError: string | undefined): string {
+  if (rawError && KNOWN_FINANCE_ERRORS[rawError]) return KNOWN_FINANCE_ERRORS[rawError];
+  return "FINANCE_REQUEST_FAILED";
+}
+
+/**
+ * Clasifica una excepción capturada (no un `response.error` de texto libre):
+ * primero distingue transporte -Finance ni siquiera respondió-, y solo si no
+ * lo es cae al mapeo por mensaje de siempre.
+ */
+function classifyFinanceCallError(error: unknown): string {
+  if (error instanceof FinanceTransportError) return "FINANCE_TRANSPORT_FAILED";
+  return classifyFinanceError(error instanceof Error ? error.message : undefined);
+}
+
 export async function createInscripcion(input: FinanceEnrollmentInput): Promise<{ id: string }> {
-  const response = await authedCall<unknown>("addInscripcion", {
-    idempotencyKey: input.crmEnrollmentId,
-    inscripcion: buildFinanceInscripcionPayload(input),
-  });
-  if (!response.success) throw new Error("Finance no pudo crear la inscripción.");
+  let response: FinanceResponse<unknown>;
+  try {
+    response = await authedCall<unknown>("addInscripcion", {
+      idempotencyKey: input.crmEnrollmentId,
+      inscripcion: buildFinanceInscripcionPayload(input),
+    });
+  } catch (error) {
+    // La autenticación (login) puede fallar antes de llegar a addInscripcion;
+    // pasa por el mismo mapeo para que ambos caminos terminen en el mismo código.
+    throw new Error(classifyFinanceCallError(error));
+  }
+  if (!response.success) throw new Error(classifyFinanceError(response.error));
   const data = response.data as { id?: string; ID?: string } | undefined;
   const id = response.id ?? data?.id ?? data?.ID;
   if (!id) throw new Error("Finance no devolvió una referencia.");
@@ -164,6 +223,44 @@ export async function createInscripcion(input: FinanceEnrollmentInput): Promise<
 export async function verifyCertificate(id: string) {
   const response = await rawCall<Record<string, unknown>>("verificarCertificado", { id });
   return { valido: response.valido === true, data: response.data ?? null };
+}
+
+export type FinanceService = { id: string; nombre: string; modalidad: string; activo: boolean };
+
+/**
+ * Servicios de Finance para el selector "Configurar Finance" (sección R del
+ * release de estabilización).
+ *
+ * Solo lo mínimo útil para elegir: id, nombre y modalidad. Nunca se expone
+ * nada de la fila cruda de la hoja de cálculo (tokens, montos, URLs
+ * privadas) — la respuesta de Finance para `getServicios` puede traer
+ * columnas internas que no le corresponden al CRM.
+ */
+export async function listActiveFinanceServices(): Promise<FinanceService[]> {
+  let response: FinanceResponse<unknown>;
+  try {
+    response = await authedCall<unknown>("getServicios", {});
+  } catch (error) {
+    throw new Error(classifyFinanceCallError(error));
+  }
+  if (!response.success) throw new Error(classifyFinanceError(response.error));
+  const filas = Array.isArray(response.data) ? (response.data as Record<string, unknown>[]) : [];
+  return filas
+    .filter((fila) => esVerdadero(fila.Activo))
+    .map((fila) => ({
+      id: String(fila.ID ?? ""),
+      nombre: String(fila.Nombre ?? ""),
+      modalidad: String(fila.Modalidad ?? ""),
+      activo: true,
+    }))
+    .filter((servicio) => servicio.id && servicio.nombre);
+}
+
+/** Espejo minimo de `esVerdadero` en Code.gs: la hoja guarda booleanos como texto. */
+function esVerdadero(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const texto = String(value ?? "").trim().toLowerCase();
+  return texto === "true" || texto === "verdadero" || texto === "sí" || texto === "si" || texto === "1";
 }
 
 // No existe una función de emisión en este cliente por diseño. El CRM solo

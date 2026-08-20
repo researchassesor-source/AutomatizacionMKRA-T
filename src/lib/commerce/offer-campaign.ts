@@ -107,6 +107,109 @@ export async function sincronizarDestinatarios(campaignId: string) {
   return { total: inscripciones.length, nuevos: creados.count };
 }
 
+/**
+ * Recalcula `automaticScheduledAt` cuando el calendario del curso cambió.
+ *
+ * Sin esto, la oferta institucional automática se quedaba con la fecha
+ * calculada el día que se creó la campaña, aunque WordPress moviera después
+ * el calendario del curso. Deliberadamente conservador: no crea campañas, no
+ * reabre una ya COMPLETED ni toca RUNNING (ya está siendo procesada), y solo
+ * escribe si la fecha calculada realmente cambió.
+ */
+export async function reprogramarOfertaAutomatica(courseId: string, actor?: { email?: string | null } | null) {
+  const campana = await prisma.certificationOfferCampaign.findUnique({ where: { courseId } });
+  if (campana?.audienceMode !== "AUTOMATIC_COMMERCE") return null;
+  if (campana.status !== "SCHEDULED" && campana.status !== "DRAFT") return null;
+
+  const curso = await prisma.course.findUnique({
+    where: { id: courseId },
+    include: { sessions: { orderBy: { startAt: "asc" } } },
+  });
+  if (!curso) return null;
+
+  const nuevaFecha = calcularEnvioAutomatico(resolveCourseSessions(curso, curso.sessions), curso.institutionalOfferDelayHours);
+  const sinCambio = (nuevaFecha?.getTime() ?? null) === (campana.automaticScheduledAt?.getTime() ?? null);
+  if (sinCambio) return null;
+
+  const actualizada = await prisma.certificationOfferCampaign.update({
+    where: { id: campana.id },
+    data: { automaticScheduledAt: nuevaFecha, status: nuevaFecha ? "SCHEDULED" : "DRAFT" },
+  });
+  await writeAudit({
+    actorEmail: actor?.email ?? "automation",
+    action: "CERT_OFFER_CAMPAIGN_RESCHEDULED",
+    entityType: "CertificationOfferCampaign",
+    entityId: campana.id,
+    result: "SUCCESS",
+    metadata: {
+      courseId,
+      before: campana.automaticScheduledAt?.toISOString() ?? null,
+      after: nuevaFecha?.toISOString() ?? null,
+    },
+  });
+  return actualizada;
+}
+
+/**
+ * Selecciona la tarjeta #12 en la UI unificada de comunicaciones (sección Q
+ * del release de estabilización): asegura una campaña AUTOMATIC_COMMERCE
+ * -crea si no existe, reactiva si estaba detenida- con su fecha recalculada.
+ *
+ * Nunca borra ni recrea destinatarios ya existentes: solo ajusta el estado y
+ * la fecha de la propia campaña.
+ */
+export async function activarOfertaAutomatica(courseId: string, actor?: { email?: string | null } | null) {
+  const campana = await asegurarCampana(courseId, "AUTOMATIC_COMMERCE", actor ?? undefined);
+  // COMPLETED y RUNNING no se reactivan aquí: ya se envió (o se está
+  // enviando) una vez, y esta acción es para reanudar algo que se detuvo
+  // ANTES de enviar, no para repetir un envío que ya ocurrió.
+  if (campana.status !== "CANCELLED" && campana.status !== "DRAFT") return campana;
+
+  const curso = await prisma.course.findUnique({ where: { id: courseId }, include: { sessions: { orderBy: { startAt: "asc" } } } });
+  if (!curso) return campana;
+  const nuevaFecha = calcularEnvioAutomatico(resolveCourseSessions(curso, curso.sessions), curso.institutionalOfferDelayHours);
+
+  const actualizada = await prisma.certificationOfferCampaign.update({
+    where: { id: campana.id },
+    data: { automaticScheduledAt: nuevaFecha, status: nuevaFecha ? "SCHEDULED" : "DRAFT" },
+  });
+  await writeAudit({
+    actorEmail: actor?.email ?? "automation",
+    action: "CERT_OFFER_CAMPAIGN_ACTIVATED",
+    entityType: "CertificationOfferCampaign",
+    entityId: campana.id,
+    result: "SUCCESS",
+    metadata: { courseId, estadoPrevio: campana.status, automaticScheduledAt: nuevaFecha?.toISOString() ?? null },
+  });
+  return actualizada;
+}
+
+/**
+ * Deselecciona la tarjeta #12: detiene la ejecución automática FUTURA sin
+ * borrar la campaña, sus destinatarios ni lo ya enviado. Es lo mismo que
+ * pausar una regla (OMITIDO, no CANCELADO) pero para esta campaña separada:
+ * reversible, nunca destructivo.
+ */
+export async function detenerOfertaAutomatica(courseId: string, actor?: { email?: string | null } | null) {
+  const campana = await prisma.certificationOfferCampaign.findUnique({ where: { courseId } });
+  if (campana?.audienceMode !== "AUTOMATIC_COMMERCE") return null;
+  if (campana.status !== "SCHEDULED" && campana.status !== "DRAFT") return campana;
+
+  const actualizada = await prisma.certificationOfferCampaign.update({
+    where: { id: campana.id },
+    data: { status: "CANCELLED" },
+  });
+  await writeAudit({
+    actorEmail: actor?.email ?? "automation",
+    action: "CERT_OFFER_CAMPAIGN_STOPPED",
+    entityType: "CertificationOfferCampaign",
+    entityId: campana.id,
+    result: "SUCCESS",
+    metadata: { courseId },
+  });
+  return actualizada;
+}
+
 /** Estado comercial de Finance para un conjunto de inscripciones, por lotes. */
 async function consultarFinance(enrollmentIds: readonly string[]): Promise<Map<string, FinanceCommercialState> | null> {
   const mapa = new Map<string, FinanceCommercialState>();

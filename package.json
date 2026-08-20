@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Motor de automatizacion de marketing y ventas para RA-Training (ra-training.com)",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -13,6 +16,7 @@
     "smoke:catalog": "tsx --env-file=.env scripts/course-catalog-smoke.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "core:gate": "npm run typecheck && npm run lint && npx prisma validate && npm test && npm run build",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

@@ -2364,8 +2364,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* ---------------------------------------------------------------------------
    Inbox de WhatsApp.
 
-   Tres columnas en escritorio. En pantallas pequenas no se encogen: se navega
-   entre ellas, porque tres columnas en 375 px no se leen.
+   Dos columnas en escritorio -lista y conversación-; el panel de información
+   es un drawer superpuesto, no una tercera columna fija. En pantallas
+   pequenas no se encogen: se navega entre ellas, porque dos columnas en
+   375 px tampoco se leen. Paleta de marca (azul/blanco/grises); el naranja
+   de acento queda solo para lo no leído, nunca como color base.
 --------------------------------------------------------------------------- */
 .inbox-shell {
   display: grid;
@@ -2375,33 +2378,71 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   min-height: 60vh;
   position: relative;
 }
-.inbox-list { display: flex; flex-direction: column; gap: .5rem; max-height: 70vh; overflow-y: auto; }
-.inbox-filters { display: flex; flex-wrap: wrap; gap: .25rem; }
-.inbox-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.inbox-list {
+  display: flex; flex-direction: column; gap: .3rem;
+  max-height: 70vh; overflow-y: auto;
+  padding: .5rem; border: 1px solid var(--color-border-subtle); border-radius: 12px;
+  background: var(--color-surface-soft);
+}
+.inbox-filters { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .15rem; }
+.inbox-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .15rem; }
 .inbox-item {
   display: flex; flex-direction: column; gap: .15rem;
-  width: 100%; text-align: left; padding: .6rem .7rem;
-  border: 1px solid var(--border, #e5e7eb); border-radius: .5rem;
-  background: transparent; cursor: pointer;
+  width: 100%; text-align: left; padding: .55rem .6rem;
+  border: 1px solid transparent; border-left: 3px solid transparent; border-radius: .6rem;
+  background: transparent; cursor: pointer; transition: background-color .12s ease, border-color .12s ease;
 }
-.inbox-item.is-active { border-color: currentColor; }
+.inbox-item:hover { background: var(--color-surface-elevated); border-color: var(--color-border-subtle); }
+.inbox-item.is-active { background: var(--primary-50); border-left-color: var(--brand-primary); }
+.inbox-item-row { display: flex; align-items: flex-start; gap: .55rem; width: 100%; }
+.inbox-item-body { display: flex; flex-direction: column; gap: .15rem; min-width: 0; flex: 1 1 auto; }
+.inbox-avatar {
+  display: grid; place-items: center; flex: 0 0 auto;
+  width: 2.35rem; height: 2.35rem; border-radius: 50%;
+  background: var(--brand-primary); color: #fff; font-weight: 700; font-size: .92rem;
+}
+.inbox-item.is-active .inbox-avatar { background: var(--brand-primary-hover); }
+.inbox-item .badge {
+  display: inline-grid; place-items: center; min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem;
+  border-radius: 999px; background: var(--brand-accent); color: #fff; font-size: .68rem; font-weight: 700;
+}
 .inbox-item-top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-.inbox-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox-chat { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
-.inbox-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
-.inbox-back { display: none; }
-.inbox-note { margin: 0; }
-.inbox-messages {
-  display: flex; flex-direction: column; gap: .5rem;
-  max-height: 55vh; overflow-y: auto; padding-right: .25rem;
+.inbox-item-top strong { color: var(--ink); font-size: .88rem; }
+.inbox-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .78rem; }
+.inbox-chat {
+  display: flex; flex-direction: column; gap: 0; min-width: 0;
+  border: 1px solid var(--color-border-subtle); border-radius: 12px; overflow: hidden; background: var(--surface);
 }
-.bubble { max-width: min(80%, 40rem); padding: .5rem .7rem; border-radius: .6rem; border: 1px solid var(--border, #e5e7eb); }
-.bubble.is-inbound { align-self: flex-start; }
-.bubble.is-outbound { align-self: flex-end; }
-.bubble-text { margin: .2rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.bubble-meta, .bubble-kind { margin: 0; font-size: .8rem; opacity: .75; }
-.inbox-composer { display: flex; flex-direction: column; gap: .5rem; }
-.inbox-composer textarea { width: 100%; resize: vertical; }
+.inbox-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
+  padding: .85rem 1rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface-elevated);
+}
+.inbox-back { display: none; }
+.inbox-note {
+  margin: .6rem 1rem 0; padding: .5rem .7rem; border-radius: .5rem;
+  background: var(--primary-50); color: var(--brand-primary-hover); font-size: .78rem;
+}
+.inbox-messages {
+  display: flex; flex-direction: column; gap: .35rem;
+  min-height: 40vh; max-height: 55vh; overflow-y: auto; padding: 1rem;
+  background: var(--color-bg);
+}
+.bubble {
+  max-width: min(80%, 40rem); padding: .45rem .65rem; border-radius: .85rem;
+  background: var(--color-surface-elevated); border: 1px solid var(--color-border-subtle);
+}
+.bubble.is-inbound { align-self: flex-start; border-bottom-left-radius: .2rem; }
+.bubble.is-outbound { align-self: flex-end; border-bottom-right-radius: .2rem; background: var(--primary-100); border-color: var(--primary-200); }
+.bubble.is-outbound.is-human { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; }
+.bubble.is-grouped { margin-top: -.2rem; }
+.bubble-text { margin: .15rem 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .87rem; }
+.bubble-meta, .bubble-kind { margin: 0; font-size: .72rem; opacity: .75; }
+.bubble.is-outbound.is-human .bubble-meta, .bubble.is-outbound.is-human .bubble-kind { color: rgba(255,255,255,.82); }
+.inbox-composer {
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .85rem 1rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-elevated);
+}
+.inbox-composer textarea { width: 100%; resize: vertical; border-radius: .6rem; border: 1px solid var(--border); }
 /**
  * "Información" es un drawer que realmente abre y cierra, no una tercera
  * columna que ya estaba siempre a la vista (con eso el botón parecía no
@@ -2449,6 +2490,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .inbox-back { display: inline-flex; }
   .inbox-list { max-height: none; }
   .bubble { max-width: 92%; }
+  .inbox-avatar { width: 2.1rem; height: 2.1rem; font-size: .82rem; }
 }
 
 /* Línea de actividad del contacto. */

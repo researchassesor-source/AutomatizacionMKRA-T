@@ -296,8 +296,9 @@ describe("Información es un drawer real, no una columna permanente", () => {
 });
 
 describe("gestión de la conversación", () => {
-  it("permite vincular, asignar y cerrar o reabrir la atención", () => {
-    expect(inbox).toContain('actualizarConversacion({ leadId }');
+  it("permite vincular (existente o nuevo), asignar y cerrar o reabrir la atención", () => {
+    expect(inbox).toContain("JSON.stringify({ leadId, ...(confirmarNuevoNumero ? { confirmPhoneUpdate: true } : {}) })");
+    expect(inbox).toContain("/create-contact");
     expect(inbox).toContain('{ state: "RESOLVED" }');
     expect(inbox).toContain('{ state: "HUMAN_HANDOFF" }');
   });
@@ -314,5 +315,123 @@ describe("gestión de la conversación", () => {
   it("enlaza a la ficha completa del contacto", () => {
     // Se busca el prefijo: el resto es una interpolación del componente.
     expect(inbox).toContain("/admin/leads/");
+  });
+});
+
+/**
+ * Secciones V y W del release de estabilización: un contacto sin vincular
+ * dejaba de ser un callejón sin salida. El modal ofrece buscar uno existente
+ * o crear uno nuevo, y si el número no coincide se pide confirmación
+ * explícita en vez de vincular en silencio o rechazar sin salida.
+ */
+describe("vincular contacto sin vínculo (secciones V y W)", () => {
+  it("ofrece las dos rutas: contacto existente y contacto nuevo", () => {
+    expect(inbox).toContain("Contacto existente");
+    expect(inbox).toContain("Contacto nuevo");
+    expect(inbox).toContain('useState<"buscar" | "crear">("buscar")');
+  });
+
+  it("la búsqueda usa el endpoint dedicado, no el listado general de leads", () => {
+    expect(inbox).toContain("/api/admin/whatsapp/contacts-search?q=");
+    expect(inbox).not.toContain("/api/admin/leads?search=");
+  });
+
+  it("un teléfono que no coincide no se vincula en silencio: pide confirmación aparte", () => {
+    const tabBuscar = inbox.slice(inbox.indexOf("function BuscarContactoTab"), inbox.indexOf("function CrearContactoTab"));
+    expect(tabBuscar).toContain('json?.errorCode === "PHONE_MISMATCH" && !confirmarNuevoNumero');
+    // El rechazo solo guarda el conflicto en estado; no hay un segundo fetch
+    // automático dentro de esa misma rama.
+    const ramaRechazo = tabBuscar.slice(tabBuscar.indexOf('if (json?.errorCode === "PHONE_MISMATCH"'), tabBuscar.indexOf("setConflictoId(null);"));
+    expect(ramaRechazo).toContain("setConflictoId(leadId)");
+    expect(ramaRechazo).not.toContain("fetch(");
+    expect(tabBuscar).toContain("Este contacto está registrado con otro número");
+    // El botón de confirmar solo existe dentro del bloque que ya detectó el conflicto.
+    const bloqueConflicto = tabBuscar.slice(tabBuscar.indexOf("conflictoId === contacto.id ?"), tabBuscar.indexOf(") : ("));
+    expect(bloqueConflicto).toContain("Usar este nuevo número y vincular");
+    expect(bloqueConflicto).toContain("vincular(contacto.id, true)");
+  });
+
+  it("crear contacto nuevo fija el teléfono de la conversación, no lo deja editar", () => {
+    const tabCrear = inbox.slice(inbox.indexOf("function CrearContactoTab"));
+    expect(tabCrear).toContain("<span>Teléfono</span>");
+    expect(tabCrear).toContain("<input value={phone} disabled />");
+  });
+
+  it("solo el nombre es obligatorio en el alta; correo, curso y responsable son opcionales", () => {
+    const tabCrear = inbox.slice(inbox.indexOf("function CrearContactoTab"));
+    expect(tabCrear).toContain("Nombre completo <strong aria-hidden=\"true\">*</strong>");
+    expect(tabCrear).toContain("Correo electrónico <small>(opcional)</small>");
+    expect(tabCrear).toContain("Curso de interés <small>(opcional)</small>");
+    expect(tabCrear).toContain("Responsable <small>(opcional)</small>");
+    expect(tabCrear).toContain("disabled={creando || !fullName.trim()}");
+  });
+
+  it("avisa que el contacto creado desde WhatsApp no entra solo en automatizaciones comerciales", () => {
+    const tabCrear = inbox.slice(inbox.indexOf("function CrearContactoTab"));
+    expect(tabCrear).toContain("no aceptó recibir comunicación comercial");
+    expect(tabCrear).toContain("confirm: true");
+  });
+
+  it("el modal se cierra con X, Escape o cancelar, igual que los demás diálogos del admin", () => {
+    const panel = inbox.slice(inbox.indexOf("function ContactoSinVincular"), inbox.indexOf("type ContactoEncontrado"));
+    expect(panel).toContain('if (event.key === "Escape")');
+    expect(panel).toContain("admin-dialog-close");
+    expect(panel).toContain("onCancel={(event) => {");
+  });
+
+  it("nunca manda el teléfono editable al servidor: solo se envía leadId/confirmPhoneUpdate o lo que define create-contact", () => {
+    // El input de telefono en "crear nuevo" esta deshabilitado y no forma
+    // parte del cuerpo JSON que se manda: el servidor usa el suyo propio.
+    const tabCrear = inbox.slice(inbox.indexOf("function CrearContactoTab"));
+    const cuerpoPeticion = tabCrear.slice(tabCrear.indexOf("body: JSON.stringify({"), tabCrear.indexOf("});"));
+    expect(cuerpoPeticion).not.toContain("phone");
+  });
+});
+
+/**
+ * Sección U del release de estabilización: la bandeja tenía la mecánica bien
+ * (drawer, ventana, envío sin duplicados) pero cero pulido visual -CSS sin
+ * colores, sin avatar, sin agrupar mensajes seguidos-. Esto comprueba que el
+ * pulido llegó y que usa la paleta de marca, no el verde de WhatsApp.
+ */
+describe("rediseño visual de la bandeja (sección U)", () => {
+  const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+
+  it("cada fila de la lista tiene un avatar con inicial", () => {
+    expect(inbox).toContain("function inicialDe(nombre: string): string");
+    expect(inbox).toContain('<span className="inbox-avatar"');
+    expect(css).toContain(".inbox-avatar {");
+  });
+
+  it("los mensajes seguidos del mismo origen se agrupan sin repetir la cabecera", () => {
+    expect(inbox).toContain("function agrupadoConAnterior(actual: Mensaje, anterior: Mensaje | undefined): boolean");
+    // Se compara con el mensaje inmediatamente anterior de la MISMA conversación.
+    expect(inbox).toContain("agrupadoConAnterior(m, detalle.messages[indice - 1])");
+    expect(inbox).toContain("{!agrupado ? (");
+  });
+
+  it("una burbuja humana se distingue de una automática, no solo por el texto", () => {
+    expect(inbox).toContain('m.origin === "HUMAN" ? "is-human" : ""');
+    expect(css).toContain(".bubble.is-outbound.is-human {");
+  });
+
+  it("usa la paleta de marca (azul/blanco/gris), no el verde de WhatsApp", () => {
+    const bloqueInbox = css.slice(css.indexOf("Inbox de WhatsApp."), css.indexOf("@media (max-width: 900px)", css.indexOf("Inbox de WhatsApp.")));
+    expect(bloqueInbox).not.toMatch(/#25d366|#128c7e|#075e54/i);
+    expect(bloqueInbox).toContain("var(--brand-primary)");
+  });
+
+  it("lo no leído es el único acento en naranja, y solo dentro de la bandeja", () => {
+    expect(css).toContain(".inbox-item .badge {");
+    const bloqueBadge = css.slice(css.indexOf(".inbox-item .badge {"), css.indexOf(".inbox-item .badge {") + 200);
+    expect(bloqueBadge).toContain("var(--brand-accent)");
+  });
+
+  it("el drawer de información sigue oculto por defecto tras el rediseño", () => {
+    // Repite la comprobación estructural: un rediseño visual no puede
+    // reintroducir la columna fija que ya se corrigió antes.
+    const bloque = css.slice(css.indexOf(".inbox-info {"), css.indexOf(".inbox-info {") + 400);
+    expect(bloque).toMatch(/display:\s*none/);
+    expect(bloque).toMatch(/position:\s*fixed/);
   });
 });

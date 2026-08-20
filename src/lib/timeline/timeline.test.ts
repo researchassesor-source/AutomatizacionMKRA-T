@@ -180,8 +180,10 @@ describe("selector de asesor", () => {
 
   it("la lista de asesores se pide una vez, no por conversación", () => {
     expect(inbox).toContain('fetch("/api/admin/users/assignable")');
+    // Comparte efecto con la carga de cursos (para "Contacto nuevo" del panel
+    // de vinculación), así que la ventana es algo más ancha que un solo fetch.
     const efecto = inbox.slice(inbox.indexOf('fetch("/api/admin/users/assignable")'));
-    expect(efecto.slice(0, 400)).toContain("}, []);");
+    expect(efecto.slice(0, 700)).toContain("}, []);");
   });
 
   it("bloquea el control mientras guarda", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PLANTILLAS_DE_BANDEJA } from "@/lib/whatsapp/inbox-templates";
 import { etiquetaDeEstado, etiquetaDeTipo, mensajeDeError } from "./mensajes-de-error";
@@ -59,6 +59,23 @@ function hora(iso: string): string {
   return new Date(iso).toLocaleString("es-EC", { timeZone: "America/Guayaquil", dateStyle: "short", timeStyle: "short" });
 }
 
+/** Inicial para el avatar de la lista: primera letra visible, en mayúscula. */
+function inicialDe(nombre: string): string {
+  return nombre.trim().charAt(0).toUpperCase() || "?";
+}
+
+/**
+ * ¿Este mensaje va agrupado con el anterior?
+ *
+ * Mismo origen y menos de 5 minutos de diferencia: repetir "Contacto · 10:32"
+ * en cada burbuja de una racha seguida es ruido, no informacion nueva.
+ */
+function agrupadoConAnterior(actual: Mensaje, anterior: Mensaje | undefined): boolean {
+  if (!anterior) return false;
+  if (anterior.direction !== actual.direction || anterior.origin !== actual.origin) return false;
+  return new Date(actual.at).getTime() - new Date(anterior.at).getTime() < 5 * 60_000;
+}
+
 function textoDeVentana(v: Ventana): string {
   if (!v.open) return v.reason === "SIN_MENSAJES" ? "Sin mensajes del contacto · usa plantilla" : "Ventana cerrada · usa plantilla";
   const horas = Math.floor(v.remainingSeconds / 3600);
@@ -102,6 +119,7 @@ export function WhatsAppInbox() {
   const [aviso, setAviso] = useState<{ tipo: "error" | "ok"; texto: string } | null>(null);
   const [panelInfo, setPanelInfo] = useState(false);
   const [asesores, setAsesores] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [cursos, setCursos] = useState<Array<{ id: string; title: string }>>([]);
   const [asignando, setAsignando] = useState(false);
 
   /**
@@ -163,16 +181,23 @@ export function WhatsAppInbox() {
 
   useEffect(() => { void cargarLista(); }, [cargarLista]);
 
-  // La lista de asesores se pide una vez: cambia poco y pedirla por
-  // conversacion seria una peticion por cada clic en la bandeja.
+  // Asesores y cursos se piden una vez: cambian poco y pedirlos por
+  // conversacion seria una peticion por cada clic en la bandeja. Ambos
+  // alimentan el formulario de "Contacto nuevo" del panel de vinculacion.
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch("/api/admin/users/assignable");
-        const json = await res.json();
-        if (json?.ok) setAsesores(json.users);
+        const [resUsuarios, resCursos] = await Promise.all([
+          fetch("/api/admin/users/assignable"),
+          fetch("/api/admin/courses"),
+        ]);
+        const [jsonUsuarios, jsonCursos] = await Promise.all([resUsuarios.json(), resCursos.json()]);
+        if (jsonUsuarios?.ok) setAsesores(jsonUsuarios.users);
+        if (Array.isArray(jsonCursos?.courses)) {
+          setCursos(jsonCursos.courses.map((c: { id: string; title: string }) => ({ id: c.id, title: c.title })));
+        }
       } catch {
-        // Sin lista, el resto de la bandeja sigue siendo usable.
+        // Sin estas listas, el resto de la bandeja sigue siendo usable.
       }
     })();
   }, []);
@@ -356,15 +381,20 @@ export function WhatsAppInbox() {
                   onClick={() => void abrir(item.id)}
                   aria-pressed={seleccionada === item.id}
                 >
-                  <span className="inbox-item-top">
-                    <strong>{item.name}</strong>
-                    {item.unreadCount > 0 ? <span className="badge" role="img" aria-label={`${item.unreadCount} sin leer`}>{item.unreadCount}</span> : null}
-                  </span>
-                  <span className="muted">{item.phonePartial} · {ESTADO_TEXTO[item.state]}</span>
-                  {item.lastMessage ? <span className="inbox-preview">{item.lastMessage.preview}</span> : null}
-                  <span className="muted">
-                    {item.lastMessage ? hora(item.lastMessage.at) : "—"} · {item.window.open ? "Ventana abierta" : "Ventana cerrada"}
-                    {item.assignedTo ? ` · ${item.assignedTo.name}` : ""}
+                  <span className="inbox-item-row">
+                    <span className="inbox-avatar" aria-hidden="true">{inicialDe(item.name)}</span>
+                    <span className="inbox-item-body">
+                      <span className="inbox-item-top">
+                        <strong>{item.name}</strong>
+                        {item.unreadCount > 0 ? <span className="badge" role="img" aria-label={`${item.unreadCount} sin leer`}>{item.unreadCount}</span> : null}
+                      </span>
+                      <span className="muted">{item.phonePartial} · {ESTADO_TEXTO[item.state]}</span>
+                      {item.lastMessage ? <span className="inbox-preview">{item.lastMessage.preview}</span> : null}
+                      <span className="muted">
+                        {item.lastMessage ? hora(item.lastMessage.at) : "—"} · {item.window.open ? "Ventana abierta" : "Ventana cerrada"}
+                        {item.assignedTo ? ` · ${item.assignedTo.name}` : ""}
+                      </span>
+                    </span>
                   </span>
                 </button>
               </li>
@@ -414,14 +444,20 @@ export function WhatsAppInbox() {
 
               <div className="inbox-messages" ref={chatRef} onScroll={alScroll} role="log" aria-label="Mensajes">
                 {detalle.messages.length === 0 ? <p className="muted">Esta conversación todavía no tiene mensajes.</p> : null}
-                {detalle.messages.map((m) => {
+                {detalle.messages.map((m, indice) => {
                   const etiquetaTipo = etiquetaDeTipo(m.type, m.attachment);
+                  const agrupado = agrupadoConAnterior(m, detalle.messages[indice - 1]);
                   return (
-                    <article key={m.id} className={`bubble ${m.direction === "INBOUND" ? "is-inbound" : "is-outbound"}`}>
-                      <p className="bubble-meta">
-                        {m.origin === "CONTACT" ? "Contacto" : m.origin === "HUMAN" ? `Asesor${m.actor ? ` · ${m.actor}` : ""}` : "Automatización"}
-                        {" · "}{hora(m.at)}
-                      </p>
+                    <article
+                      key={m.id}
+                      className={`bubble ${m.direction === "INBOUND" ? "is-inbound" : "is-outbound"} ${m.origin === "HUMAN" ? "is-human" : ""} ${agrupado ? "is-grouped" : ""}`}
+                    >
+                      {!agrupado ? (
+                        <p className="bubble-meta">
+                          {m.origin === "CONTACT" ? "Contacto" : m.origin === "HUMAN" ? `Asesor${m.actor ? ` · ${m.actor}` : ""}` : "Automatización"}
+                          {" · "}{hora(m.at)}
+                        </p>
+                      ) : null}
                       {etiquetaTipo ? <p className="bubble-kind">{etiquetaTipo}</p> : null}
                       {/* Texto plano: nunca HTML del contacto. */}
                       {m.text ? <p className="bubble-text">{m.text}</p> : null}
@@ -531,7 +567,14 @@ export function WhatsAppInbox() {
             ) : (
               <ContactoSinVincular
                 phone={detalle.conversation.phone}
-                onVincular={(leadId) => void actualizarConversacion({ leadId }, "Contacto vinculado.")}
+                conversationId={detalle.conversation.id}
+                courses={cursos}
+                asesores={asesores}
+                onVincular={(mensaje) => {
+                  setAviso({ tipo: "ok", texto: mensaje });
+                  void cargarDetalle(detalle.conversation.id, true);
+                  void cargarLista();
+                }}
               />
             )}
 
@@ -583,50 +626,305 @@ export function WhatsAppInbox() {
   );
 }
 
-/**
- * Vinculacion manual de un contacto.
- *
- * No crea contactos: el backend exige ademas que el telefono coincida, asi que
- * lo unico que se puede hacer aqui es senalar cual de los que ya existen es.
- */
-function ContactoSinVincular({ phone, onVincular }: { phone: string; onVincular: (leadId: string) => void }) {
-  const [texto, setTexto] = useState("");
-  const [resultados, setResultados] = useState<Array<{ id: string; fullName: string; email: string | null }>>([]);
-  const [buscando, setBuscando] = useState(false);
+type CursoOpcion = { id: string; title: string };
+type AsesorOpcion = { id: string; name: string };
 
-  async function buscar() {
-    if (!texto.trim()) return;
-    setBuscando(true);
-    try {
-      const res = await fetch(`/api/admin/leads?search=${encodeURIComponent(texto.trim())}&limit=8`);
-      const json = await res.json().catch(() => null);
-      setResultados(Array.isArray(json?.leads) ? json.leads.slice(0, 8) : []);
-    } catch {
-      setResultados([]);
-    } finally {
-      setBuscando(false);
-    }
+/**
+ * Contacto sin vincular: deja de ser un callejon sin salida (seccion V).
+ *
+ * Abre un modal con dos caminos -buscar un contacto que ya existe o crear uno
+ * nuevo- en vez de solo poder senalar cual de los que ya existen es, como
+ * antes. El telefono nunca se decide aqui: en "crear nuevo" viene fijo de la
+ * conversacion, y en "vincular existente" es el propio servidor quien exige
+ * que coincida (o pide confirmacion explicita si no, seccion W).
+ */
+function ContactoSinVincular({
+  phone,
+  conversationId,
+  courses,
+  asesores,
+  onVincular,
+}: {
+  phone: string;
+  conversationId: string;
+  courses: CursoOpcion[];
+  asesores: AsesorOpcion[];
+  onVincular: (mensaje: string) => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [tab, setTab] = useState<"buscar" | "crear">("buscar");
+
+  function abrirModal() {
+    setTab("buscar");
+    dialogRef.current?.showModal();
+  }
+  function cerrarModal() {
+    dialogRef.current?.close();
+  }
+  function vinculado(mensaje: string) {
+    cerrarModal();
+    onVincular(mensaje);
   }
 
   return (
     <div>
       <p className="result-line is-error" role="status">Contacto no vinculado</p>
       <p className="muted">Número: …{phone.slice(-4)}</p>
+      <p className="muted">Vincúlalo con un contacto para poder responder.</p>
+      <button type="button" className="btn-sm" onClick={abrirModal}>Vincular contacto</button>
+
+      <dialog
+        ref={dialogRef}
+        className="admin-dialog"
+        aria-labelledby={titleId}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            cerrarModal();
+          }
+        }}
+        onCancel={(event) => {
+          event.preventDefault();
+          cerrarModal();
+        }}
+      >
+        <div className="admin-dialog-card">
+          <header className="admin-dialog-header">
+            <div>
+              <span className="eyebrow">WhatsApp</span>
+              <h2 id={titleId}>Vincular contacto</h2>
+              <p>Número: …{phone.slice(-4)}</p>
+            </div>
+            <button className="admin-dialog-close" type="button" onClick={cerrarModal} aria-label="Cerrar">×</button>
+          </header>
+
+          <fieldset className="inbox-filters" aria-label="Elegir cómo vincular">
+            <button type="button" className={`btn-sm ${tab === "buscar" ? "" : "ghost"}`} aria-pressed={tab === "buscar"} onClick={() => setTab("buscar")}>
+              Contacto existente
+            </button>
+            <button type="button" className={`btn-sm ${tab === "crear" ? "" : "ghost"}`} aria-pressed={tab === "crear"} onClick={() => setTab("crear")}>
+              Contacto nuevo
+            </button>
+          </fieldset>
+
+          {tab === "buscar" ? (
+            <BuscarContactoTab conversationId={conversationId} onVincular={vinculado} />
+          ) : (
+            <CrearContactoTab conversationId={conversationId} phone={phone} courses={courses} asesores={asesores} onVincular={vinculado} />
+          )}
+        </div>
+      </dialog>
+    </div>
+  );
+}
+
+type ContactoEncontrado = { id: string; fullName: string; email: string | null; phonePartial: string };
+
+/**
+ * Tab "contacto existente": busca por nombre, correo o telefono y vincula.
+ *
+ * Si el telefono no coincide, el servidor responde PHONE_MISMATCH y aqui se
+ * ofrece la confirmacion explicita de la seccion W -nunca se reintenta solo
+ * con `confirmPhoneUpdate`, hace falta el clic aparte-.
+ */
+function BuscarContactoTab({ conversationId, onVincular }: { conversationId: string; onVincular: (mensaje: string) => void }) {
+  const [texto, setTexto] = useState("");
+  const [resultados, setResultados] = useState<ContactoEncontrado[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [buscado, setBuscado] = useState(false);
+  const [vinculandoId, setVinculandoId] = useState<string | null>(null);
+  const [conflictoId, setConflictoId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function buscar() {
+    if (texto.trim().length < 2) return;
+    setBuscando(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/contacts-search?q=${encodeURIComponent(texto.trim())}`);
+      const json = await res.json().catch(() => null);
+      setResultados(Array.isArray(json?.contacts) ? json.contacts : []);
+    } catch {
+      setResultados([]);
+    } finally {
+      setBuscando(false);
+      setBuscado(true);
+    }
+  }
+
+  async function vincular(leadId: string, confirmarNuevoNumero: boolean) {
+    setVinculandoId(leadId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId, ...(confirmarNuevoNumero ? { confirmPhoneUpdate: true } : {}) }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        if (json?.errorCode === "PHONE_MISMATCH" && !confirmarNuevoNumero) {
+          setConflictoId(leadId);
+          return;
+        }
+        setConflictoId(null);
+        setError(mensajeDeError(json?.errorCode, json?.error));
+        return;
+      }
+      onVincular(confirmarNuevoNumero ? "Contacto vinculado con su nuevo número." : "Contacto vinculado.");
+    } catch {
+      setError("No se pudo vincular el contacto.");
+    } finally {
+      setVinculandoId(null);
+    }
+  }
+
+  return (
+    <div className="modal-body">
       <div className="form-row">
         <label className="sr-only" htmlFor="inbox-buscar-lead">Buscar contacto</label>
-        <input id="inbox-buscar-lead" value={texto} onChange={(event) => setTexto(event.target.value)} placeholder="Nombre o correo" />
-        <button type="button" className="btn-sm ghost" disabled={buscando} onClick={() => void buscar()}>
+        <input
+          id="inbox-buscar-lead"
+          value={texto}
+          onChange={(event) => setTexto(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void buscar();
+            }
+          }}
+          placeholder="Nombre, correo o teléfono"
+        />
+        <button type="button" className="btn-sm ghost" disabled={buscando || texto.trim().length < 2} onClick={() => void buscar()}>
           {buscando ? "Buscando…" : "Buscar"}
         </button>
       </div>
+
+      {error ? <p className="result-line is-error" role="status">{error}</p> : null}
+      {buscado && !buscando && resultados.length === 0 ? <p className="muted">Sin coincidencias.</p> : null}
+
       <ul className="inbox-enrollments">
-        {resultados.map((lead) => (
-          <li key={lead.id}>
-            {lead.fullName} <span className="muted">{lead.email ?? ""}</span>{" "}
-            <button type="button" className="btn-sm" onClick={() => onVincular(lead.id)}>Vincular</button>
+        {resultados.map((contacto) => (
+          <li key={contacto.id}>
+            <div>
+              <strong>{contacto.fullName}</strong>{" "}
+              <span className="muted">{contacto.email || "sin correo"} · {contacto.phonePartial}</span>
+            </div>
+            {conflictoId === contacto.id ? (
+              <p className="result-line is-error" role="status">
+                Este contacto está registrado con otro número.{" "}
+                <button type="button" className="btn-sm" disabled={vinculandoId === contacto.id} onClick={() => void vincular(contacto.id, true)}>
+                  Usar este nuevo número y vincular
+                </button>{" "}
+                <button type="button" className="btn-sm ghost" onClick={() => setConflictoId(null)}>Cancelar</button>
+              </p>
+            ) : (
+              <button type="button" className="btn-sm" disabled={vinculandoId === contacto.id} onClick={() => void vincular(contacto.id, false)}>
+                {vinculandoId === contacto.id ? "Vinculando…" : "Vincular"}
+              </button>
+            )}
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Tab "contacto nuevo": el telefono es el de la conversacion, fijo y no
+ * editable -el backend lo ignora si el cliente manda otro, pero mostrarlo
+ * editable seria prometer algo que no pasa-. Solo el nombre es obligatorio.
+ */
+function CrearContactoTab({
+  conversationId,
+  phone,
+  courses,
+  asesores,
+  onVincular,
+}: {
+  conversationId: string;
+  phone: string;
+  courses: CursoOpcion[];
+  asesores: AsesorOpcion[];
+  onVincular: (mensaje: string) => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [courseId, setCourseId] = useState("");
+  const [assignedToId, setAssignedToId] = useState("");
+  const [creando, setCreando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function crear(event: React.FormEvent) {
+    event.preventDefault();
+    if (!fullName.trim() || creando) return;
+    setCreando(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/conversations/${conversationId}/create-contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          email: email.trim(),
+          ...(courseId ? { courseId } : {}),
+          ...(assignedToId ? { assignedToId } : {}),
+          confirm: true,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setError(mensajeDeError(json?.errorCode, json?.error));
+        return;
+      }
+      onVincular("Contacto creado y vinculado.");
+    } catch {
+      setError("No se pudo crear el contacto.");
+    } finally {
+      setCreando(false);
+    }
+  }
+
+  return (
+    <form className="modal-body" onSubmit={(event) => void crear(event)}>
+      <div className="admin-dialog-fields">
+        <label className="field">
+          <span>Teléfono</span>
+          <input value={phone} disabled />
+        </label>
+        <label className="field">
+          <span>Nombre completo <strong aria-hidden="true">*</strong></span>
+          <input value={fullName} onChange={(event) => setFullName(event.target.value)} maxLength={160} required />
+        </label>
+        <label className="field">
+          <span>Correo electrónico <small>(opcional)</small></span>
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} />
+        </label>
+        <label className="field">
+          <span>Curso de interés <small>(opcional)</small></span>
+          <select value={courseId} onChange={(event) => setCourseId(event.target.value)}>
+            <option value="">Sin especificar</option>
+            {courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>Responsable <small>(opcional)</small></span>
+          <select value={assignedToId} onChange={(event) => setAssignedToId(event.target.value)}>
+            <option value="">Sin asignar</option>
+            {asesores.map((asesor) => <option key={asesor.id} value={asesor.id}>{asesor.name}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <p className="muted">Este contacto queda sin autorización de marketing: escribió primero, no aceptó recibir comunicación comercial. Podrás responderle, pero no entrará en automatizaciones hasta que lo autorice.</p>
+
+      {error ? <p className="result-line is-error" role="status">{error}</p> : null}
+      <footer className="admin-dialog-actions">
+        <button type="submit" className="btn-sm" disabled={creando || !fullName.trim()}>
+          {creando ? "Creando…" : "Crear y vincular"}
+        </button>
+      </footer>
+    </form>
   );
 }

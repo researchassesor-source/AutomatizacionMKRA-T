@@ -71,7 +71,7 @@ export default async function CoursePage({
   });
   const sinFecha = sessions.length === 0;
 
-  const [inscritos, enviados, programados, bloqueados] = await Promise.all([
+  const [inscritos, enviados, programados, bloqueados, ofertaCampana] = await Promise.all([
     prisma.enrollment.findMany({
       where: { courseId: id },
       orderBy: { createdAt: "desc" },
@@ -81,6 +81,7 @@ export default async function CoursePage({
     prisma.outboundMessage.count({ where: { enrollment: { courseId: id }, status: { in: ["ACEPTADO", "ENVIADO", "ENTREGADO", "LEIDO"] } } }),
     prisma.outboundMessage.count({ where: { enrollment: { courseId: id }, status: "PROGRAMADO" } }),
     prisma.outboundMessage.count({ where: { enrollment: { courseId: id }, status: "OMITIDO", scheduledAt: { gt: new Date() } } }),
+    prisma.certificationOfferCampaign.findUnique({ where: { courseId: id }, select: { status: true, audienceMode: true, automaticScheduledAt: true } }),
   ]);
 
   function tabHref(key: string) {
@@ -234,12 +235,30 @@ export default async function CoursePage({
             courseCompleteUrl: course.courseCompleteUrl,
             surveyUrl: course.surveyUrl,
           }}
+          oferta={{
+            seleccionada: ofertaCampana?.audienceMode === "AUTOMATIC_COMMERCE"
+              && (ofertaCampana.status === "SCHEDULED" || ofertaCampana.status === "RUNNING" || ofertaCampana.status === "COMPLETED"),
+            enviada: ofertaCampana?.status === "COMPLETED",
+            automaticScheduledAt: ofertaCampana?.automaticScheduledAt?.toISOString() ?? null,
+            url: course.institutionalOfferUrl,
+            precio: course.institutionalOfferPrice === null ? null : Number(course.institutionalOfferPrice),
+            delayHoras: course.institutionalOfferDelayHours,
+          }}
         />
       ) : null}
 
-      {/* Sistema aparte de los once mensajes: otra audiencia, otro calendario
-          y otra decision. Se muestra debajo, no mezclado con el recorrido. */}
-      {tab === "comunicaciones" ? <InstitutionalOfferPanel courseId={course.id} canEdit={canEdit} /> : null}
+      {/* Historial y gestión manual/caso a caso de la oferta institucional:
+          avanzado, no la decisión del día a día (esa vive en la tarjeta #12
+          de arriba). Colapsado por defecto, pero sigue accesible -- no es
+          información técnica, es gestión comercial caso a caso. */}
+      {tab === "comunicaciones" ? (
+        <details className="panel course-admin-details">
+          <summary><span><strong>Oferta institucional: histórico y gestión manual</strong><small>Destinatarios, exclusiones y envíos caso a caso.</small></span><span>Mostrar</span></summary>
+          <div className="course-admin-details-body">
+            <InstitutionalOfferPanel courseId={course.id} canEdit={canEdit} />
+          </div>
+        </details>
+      ) : null}
 
       {tab === "configuracion" ? (
         <CourseConfigurationPanel

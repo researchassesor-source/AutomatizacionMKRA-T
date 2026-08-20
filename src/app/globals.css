@@ -2460,17 +2460,39 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .timeline-item p { margin: .1rem 0; }
 
 /* Comunicaciones del curso: recorrido operativo con acciones por paso. */
-.comms-links { padding: 14px 0; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
-.comms-links h3 { margin: 0 0 8px; font-size: .85rem; color: #243b53; }
-.comms-links p { margin: 2px 0; }
-.comms-links-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.comms-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
-.comms-step { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
-.comms-step:last-child { border-bottom: 0; }
-.comms-step-main { flex: 1 1 260px; min-width: 0; }
-.comms-step-main p { margin: 3px 0; }
-.comms-step-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; }
-.comms-step-editor { flex-basis: 100%; margin-top: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2, #f8fafc); }
+/* ═══ DATOS PARA LOS MENSAJES ═════════════════════════════════════════════ */
+.comms-datos { padding: 14px 0; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+.comms-datos h3 { margin: 0 0 10px; font-size: .85rem; color: #243b53; }
+.comms-datos-tabla td { padding: 7px 10px; vertical-align: middle; }
+.comms-datos-tabla td:first-child { font-weight: 600; }
+
+/* ═══ 12 TARJETAS DEL RECORRIDO ═══════════════════════════════════════════ */
+.comms-cards-titulo { margin: 4px 0 10px; font-size: .85rem; color: #243b53; }
+.comms-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 10px; }
+.comms-card { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; transition: border-color .15s, background-color .15s; }
+.comms-card-toggle { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.comms-card-toggle:disabled { cursor: default; }
+.comms-card-check { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 900; color: #fff; }
+.comms-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.comms-card-body strong { font-size: .92rem; color: var(--ink); }
+.comms-card-estado { font-size: .74rem; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.comms-card-subtitle { font-size: .8rem; color: var(--muted); }
+.comms-card-editar { position: absolute; top: 10px; right: 10px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: .72rem; font-weight: 700; color: var(--muted); cursor: pointer; }
+
+.comms-card.is-deseleccionado { background: #f8fafc; }
+.comms-card.is-deseleccionado .comms-card-estado { color: var(--muted); }
+
+.comms-card.is-seleccionado, .comms-card.is-enviado { border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 6%, var(--surface)); }
+.comms-card.is-seleccionado .comms-card-check, .comms-card.is-enviado .comms-card-check { background: var(--brand-primary); border-color: var(--brand-primary); }
+.comms-card.is-seleccionado .comms-card-estado, .comms-card.is-enviado .comms-card-estado { color: var(--brand-primary); }
+
+.comms-card.is-incompleto { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, var(--surface)); }
+.comms-card.is-incompleto .comms-card-check { background: var(--warning); border-color: var(--warning); }
+.comms-card.is-incompleto .comms-card-estado { color: var(--warning); }
+.comms-card.is-incompleto .comms-card-subtitle { color: var(--warning); font-weight: 600; }
+
+.comms-card.is-ocupado { opacity: .68; }
+
 .comms-rule + .comms-rule { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
 .comms-rule textarea { width: 100%; resize: vertical; }
 

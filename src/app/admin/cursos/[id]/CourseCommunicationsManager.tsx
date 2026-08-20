@@ -25,7 +25,7 @@ type Paso = {
   scheduledAt: string | null;
   active: boolean;
   blockedReason: string | null;
-  /** Plan estandar de este paso, para prellenar "Configurar este paso". */
+  /** Plan estandar de este paso, para configurar sin preguntar de mas. */
   defaultTrigger: Regla["trigger"];
   defaultOffsetMinutes: number;
   availableChannels: Array<"EMAIL" | "WHATSAPP">;
@@ -33,18 +33,23 @@ type Paso = {
 
 type Enlaces = { whatsappGroupUrl: string | null; courseCompleteUrl: string | null; surveyUrl: string | null };
 
+type Oferta = {
+  /** Campaña automática activa (SCHEDULED/RUNNING/COMPLETED). */
+  seleccionada: boolean;
+  /** Ya se envió: no se puede volver a activar desde aquí. */
+  enviada: boolean;
+  automaticScheduledAt: string | null;
+  url: string | null;
+  precio: number | null;
+  delayHoras: number;
+};
+
 /** Pasos que no pueden salir sin su enlace configurado. */
 const ENLACE_DE_PASO: Record<string, keyof Enlaces> = {
   whatsapp_group: "whatsappGroupUrl",
   course_complete: "courseCompleteUrl",
   course_follow_up: "courseCompleteUrl",
   survey: "surveyUrl",
-};
-
-const NOMBRE_ENLACE: Record<keyof Enlaces, string> = {
-  whatsappGroupUrl: "Grupo de WhatsApp",
-  courseCompleteUrl: "Curso completo",
-  surveyUrl: "Encuesta final",
 };
 
 const RELACION: Record<Regla["trigger"], string> = {
@@ -74,16 +79,20 @@ export function describirMomento(regla: Pick<Regla, "trigger" | "offsetMinutes">
   return `${cantidad} ${nombre} ${RELACION[regla.trigger]}`;
 }
 
+type Aviso = { ok: boolean; texto: string };
+
 /**
- * Control operativo del recorrido del curso.
+ * Control operativo del recorrido del curso (secciones N/O/P/Q del release
+ * de estabilización).
  *
- * Quien administra decide en los mismos terminos en los que piensa: este paso
- * se envia o no, y a que hora. No aparecen `ACTIVE`, `PAUSED` ni minutos de
- * desfase, porque para tomar esa decision no hacen falta y solo consiguen que
- * alguien no se atreva a tocarlo.
+ * Dos bloques: los datos que alimentan los mensajes (enlaces + oferta), y
+ * las 12 tarjetas del recorrido -las 11 reglas canónicas más la oferta
+ * institucional, en la misma cuadrícula-. Nada de aquí muestra planKey,
+ * ACTIVE/PAUSED, trigger ni offset: quien administra decide en los mismos
+ * términos en los que piensa, "esto se envía o no y cuándo".
  */
 export function CourseCommunicationsManager({
-  courseId, canEdit, pasos, reglas, enlaces, cursoPausado,
+  courseId, canEdit, pasos, reglas, enlaces, cursoPausado, oferta,
 }: {
   courseId: string;
   canEdit: boolean;
@@ -91,34 +100,52 @@ export function CourseCommunicationsManager({
   reglas: Regla[];
   enlaces: Enlaces;
   cursoPausado: boolean;
+  oferta: Oferta;
 }) {
   const [estado, setEstado] = useState<Record<string, boolean>>(
     Object.fromEntries(pasos.map((p) => [p.planKey, p.active])),
   );
+  const [ofertaSeleccionada, setOfertaSeleccionada] = useState(oferta.seleccionada);
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [aviso, setAviso] = useState<Aviso | null>(null);
   const [editando, setEditando] = useState<string | null>(null);
-  const [editandoEnlaces, setEditandoEnlaces] = useState(false);
-  const [valores, setValores] = useState<Enlaces>(enlaces);
   const router = useRouter();
 
-  async function alternar(planKey: string, activar: boolean) {
+  async function alternarPaso(paso: Paso, sinReglas: boolean) {
     if (!canEdit || ocupado) return;
-    setOcupado(planKey);
+    setOcupado(paso.planKey);
     setAviso(null);
     try {
-      const res = await fetch(`/api/admin/courses/${courseId}/communications/${planKey}`, {
+      if (sinReglas) {
+        // Primera selección: se configura con el plan estándar y los canales
+        // disponibles, sin pedir de más. Ajustar el detalle es "Editar", aparte.
+        const res = await fetch(`/api/admin/courses/${courseId}/communications/${paso.planKey}/configure`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channels: paso.availableChannels, offsetMinutes: paso.defaultOffsetMinutes, confirm: true }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) {
+          setAviso({ ok: false, texto: json?.error ?? "No se pudo activar este mensaje." });
+          return;
+        }
+        setAviso({ ok: true, texto: "Este mensaje se enviará." });
+        router.refresh();
+        return;
+      }
+      const activo = estado[paso.planKey] ?? paso.active;
+      const res = await fetch(`/api/admin/courses/${courseId}/communications/${paso.planKey}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: activar, confirm: true }),
+        body: JSON.stringify({ enabled: !activo, confirm: true }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
         setAviso({ ok: false, texto: json.error ?? "No se pudo guardar el cambio." });
         return;
       }
-      setEstado((previo) => ({ ...previo, [planKey]: activar }));
-      setAviso({ ok: true, texto: activar ? "Este paso volverá a enviarse." : "Este paso deja de enviarse." });
+      setEstado((previo) => ({ ...previo, [paso.planKey]: !activo }));
+      setAviso({ ok: true, texto: !activo ? "Este mensaje se enviará." : "Este mensaje deja de enviarse." });
     } catch {
       setAviso({ ok: false, texto: "No se pudo guardar el cambio." });
     } finally {
@@ -126,165 +153,327 @@ export function CourseCommunicationsManager({
     }
   }
 
-  async function guardarEnlaces() {
-    if (!canEdit || ocupado) return;
-    setOcupado("enlaces");
+  async function alternarOferta() {
+    if (!canEdit || ocupado || oferta.enviada) return;
+    setOcupado("oferta_institucional");
     setAviso(null);
     try {
-      const res = await fetch(`/api/admin/courses/${courseId}/communication-links`, {
-        method: "PATCH",
+      const res = await fetch("/api/admin/commerce/campaign", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...valores, confirm: true }),
+        body: JSON.stringify(ofertaSeleccionada ? { accion: "detener", courseId } : { accion: "activar", courseId }),
       });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        setAviso({ ok: false, texto: json.error ?? "Revisa las direcciones." });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setAviso({ ok: false, texto: json?.error ?? "No se pudo guardar el cambio." });
         return;
       }
-      setAviso({ ok: true, texto: "Enlaces guardados." });
-      setEditandoEnlaces(false);
-      // El estado "Configurado/Pendiente" y el blockedReason de cada paso los
-      // calcula el servidor: sin esto seguirian mostrando el enlace viejo.
+      setOfertaSeleccionada((previo) => !previo);
+      setAviso({ ok: true, texto: !ofertaSeleccionada ? "La oferta institucional se enviará." : "La oferta institucional deja de enviarse." });
       router.refresh();
     } catch {
-      setAviso({ ok: false, texto: "No se pudieron guardar los enlaces." });
+      setAviso({ ok: false, texto: "No se pudo guardar el cambio." });
     } finally {
       setOcupado(null);
     }
   }
 
+  const ofertaIncompleta = !oferta.url || oferta.precio === null;
+  const tarjetaOferta: TarjetaModelo = {
+    key: "oferta_institucional",
+    title: "Oferta institucional",
+    subtitle: oferta.enviada
+      ? "Ya se envió"
+      : ofertaSeleccionada && oferta.automaticScheduledAt
+        ? `Se enviará el ${new Date(oferta.automaticScheduledAt).toLocaleDateString("es-EC", { timeZone: "America/Guayaquil", day: "numeric", month: "short" })}`
+        : "Después del recorrido de 11 mensajes",
+    estado: oferta.enviada ? "enviado" : ofertaSeleccionada ? (ofertaIncompleta ? "incompleto" : "seleccionado") : "deseleccionado",
+    motivoIncompleto: ofertaIncompleta ? "Falta configurar la URL o el precio de la oferta." : null,
+    ocupado: ocupado === "oferta_institucional",
+    onClick: oferta.enviada ? undefined : () => void alternarOferta(),
+    onEditar: undefined,
+  };
+
   return (
-    <section className="panel">
-      <h2>Qué recibe cada inscrito</h2>
-      <p className="muted">
-        El recorrido completo desde que alguien se inscribe hasta que termina el curso.
-        {cursoPausado ? " Ahora mismo el curso está pausado, así que no sale ningún mensaje." : ""}
-      </p>
+    <>
+      <section className="panel">
+        <h2>Qué recibe cada inscrito</h2>
+        <p className="muted">
+          El recorrido completo desde que alguien se inscribe hasta que termina el curso.
+          {cursoPausado ? " Ahora mismo el curso está pausado, así que no sale ningún mensaje." : ""}
+        </p>
 
-      {/* ------------ enlaces ------------ */}
-      <div className="comms-links">
-        <h3>Enlaces del recorrido</h3>
-        {(Object.keys(NOMBRE_ENLACE) as Array<keyof Enlaces>).map((campo) => (
-          <p key={campo} className="muted">
-            {NOMBRE_ENLACE[campo]}: {valores[campo] ? <span>Configurado</span> : <strong>Pendiente</strong>}
-          </p>
-        ))}
-        {canEdit ? (
-          <button type="button" className="btn-sm ghost" onClick={() => setEditandoEnlaces((v) => !v)} aria-expanded={editandoEnlaces}>
-            {editandoEnlaces ? "Cerrar" : "Editar enlaces"}
-          </button>
-        ) : null}
+        <DatosParaLosMensajes courseId={courseId} canEdit={canEdit} enlaces={enlaces} oferta={oferta} onAviso={setAviso} />
 
-        {editandoEnlaces ? (
-          <div className="comms-links-form">
-            {(Object.keys(NOMBRE_ENLACE) as Array<keyof Enlaces>).map((campo) => (
-              <div className="form-row" key={campo}>
-                <label htmlFor={`enlace-${campo}`}>{NOMBRE_ENLACE[campo]}</label>
-                <input
-                  id={`enlace-${campo}`}
-                  type="url"
-                  value={valores[campo] ?? ""}
-                  placeholder="https://…"
-                  onChange={(event) => setValores((v) => ({ ...v, [campo]: event.target.value }))}
-                />
-              </div>
+        <h3 className="comms-cards-titulo">Mensajes de este curso</h3>
+        <div className="comms-cards">
+          {pasos.map((paso) => {
+            const delPaso = reglas.filter((r) => r.planKey === paso.planKey);
+            const sinReglas = delPaso.length === 0;
+            const campoEnlace = ENLACE_DE_PASO[paso.planKey];
+            const faltaEnlace = campoEnlace ? !enlaces[campoEnlace] : false;
+            const activo = estado[paso.planKey] ?? paso.active;
+            const motivoIncompleto = paso.blockedReason ?? (faltaEnlace ? "Falta configurar un enlace en Datos para los mensajes." : null);
+
+            const modelo: TarjetaModelo = {
+              key: paso.planKey,
+              title: paso.title,
+              subtitle: paso.scheduledAt
+                ? `Próximo envío: ${new Date(paso.scheduledAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil", dateStyle: "short", timeStyle: "short" })}`
+                : paso.when,
+              estado: activo ? (motivoIncompleto ? "incompleto" : "seleccionado") : "deseleccionado",
+              motivoIncompleto: activo ? motivoIncompleto : null,
+              ocupado: ocupado === paso.planKey,
+              onClick: () => void alternarPaso(paso, sinReglas),
+              onEditar: sinReglas ? undefined : () => setEditando(paso.planKey),
+            };
+            return <TarjetaMensaje key={paso.planKey} modelo={modelo} canEdit={canEdit} />;
+          })}
+          <TarjetaMensaje modelo={tarjetaOferta} canEdit={canEdit} />
+        </div>
+
+        {aviso ? <p className={`result-line ${aviso.ok ? "" : "is-error"}`} role="status">{aviso.texto}</p> : null}
+      </section>
+
+      {editando ? (
+        <div className="dialog-backdrop" role="presentation">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="editar-paso-titulo">
+            <h2 id="editar-paso-titulo">Editar: {pasos.find((p) => p.planKey === editando)?.title}</h2>
+            {reglas.filter((r) => r.planKey === editando).map((regla) => (
+              <ReglaEditor key={regla.id} regla={regla} canEdit={canEdit} onAviso={setAviso} />
             ))}
-            <button type="button" className="btn-sm" disabled={ocupado === "enlaces"} onClick={() => void guardarEnlaces()}>
-              {ocupado === "enlaces" ? "Guardando enlaces…" : "Guardar enlaces"}
-            </button>
+            <div className="dialog-actions">
+              <button type="button" className="btn-sm ghost" onClick={() => setEditando(null)}>Cerrar</button>
+            </div>
           </div>
-        ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+type TarjetaEstado = "seleccionado" | "deseleccionado" | "incompleto" | "enviado";
+
+type TarjetaModelo = {
+  key: string;
+  title: string;
+  subtitle: string;
+  estado: TarjetaEstado;
+  motivoIncompleto: string | null;
+  ocupado: boolean;
+  onClick: (() => void) | undefined;
+  onEditar: (() => void) | undefined;
+};
+
+const ETIQUETA_ESTADO: Record<TarjetaEstado, string> = {
+  seleccionado: "Se enviará",
+  deseleccionado: "No se enviará",
+  incompleto: "Falta configurar",
+  enviado: "Ya se envió",
+};
+
+/**
+ * Una de las 12 tarjetas. Azul = se enviará, gris = no se enviará, ámbar =
+ * seleccionado pero le falta algo. Nunca muestra planKey, ACTIVE/PAUSED,
+ * trigger, offset ni "Sin canales": si algo falta, lo dice en una frase.
+ */
+function TarjetaMensaje({ modelo, canEdit }: { modelo: TarjetaModelo; canEdit: boolean }) {
+  const clases = ["comms-card", `is-${modelo.estado}`, modelo.ocupado ? "is-ocupado" : ""].filter(Boolean).join(" ");
+  return (
+    <div className={clases}>
+      <button
+        type="button"
+        className="comms-card-toggle"
+        disabled={!canEdit || modelo.ocupado || !modelo.onClick}
+        aria-pressed={modelo.estado === "seleccionado" || modelo.estado === "incompleto" || modelo.estado === "enviado"}
+        aria-label={`${modelo.title}: ${ETIQUETA_ESTADO[modelo.estado]}`}
+        onClick={modelo.onClick}
+      >
+        <span className="comms-card-check" aria-hidden="true">{modelo.estado === "deseleccionado" ? "" : "✓"}</span>
+        <span className="comms-card-body">
+          <strong>{modelo.title}</strong>
+          <span className="comms-card-estado">{modelo.ocupado ? "Guardando…" : ETIQUETA_ESTADO[modelo.estado]}</span>
+          <span className="comms-card-subtitle">{modelo.motivoIncompleto ?? modelo.subtitle}</span>
+        </span>
+      </button>
+      {canEdit && modelo.onEditar ? (
+        <button type="button" className="comms-card-editar" aria-label={`Editar: ${modelo.title}`} onClick={modelo.onEditar}>
+          Editar
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * BLOQUE 1: DATOS PARA LOS MENSAJES.
+ *
+ * Cuatro filas, cada una con su propio modal compacto -no un formulario
+ * gigante compartido-. Guardar llama a la API segura de cada dato y ese
+ * mismo endpoint ya se encarga de proteger y reprogramar lo que dependía
+ * de él.
+ */
+function DatosParaLosMensajes({
+  courseId, canEdit, enlaces, oferta, onAviso,
+}: {
+  courseId: string;
+  canEdit: boolean;
+  enlaces: Enlaces;
+  oferta: Oferta;
+  onAviso: (aviso: Aviso) => void;
+}) {
+  const [modal, setModal] = useState<null | "whatsappGroupUrl" | "courseCompleteUrl" | "surveyUrl" | "oferta">(null);
+
+  const filas: Array<{ campo: "whatsappGroupUrl" | "courseCompleteUrl" | "surveyUrl" | "oferta"; nombre: string; configurado: boolean }> = [
+    { campo: "whatsappGroupUrl", nombre: "Grupo WhatsApp", configurado: Boolean(enlaces.whatsappGroupUrl) },
+    { campo: "courseCompleteUrl", nombre: "Curso completo", configurado: Boolean(enlaces.courseCompleteUrl) },
+    { campo: "surveyUrl", nombre: "Encuesta final", configurado: Boolean(enlaces.surveyUrl) },
+    { campo: "oferta", nombre: "Oferta institucional", configurado: Boolean(oferta.url) && oferta.precio !== null },
+  ];
+
+  return (
+    <div className="comms-datos">
+      <h3>Datos para los mensajes</h3>
+      <table className="data comms-datos-tabla">
+        <tbody>
+          {filas.map((fila) => (
+            <tr key={fila.campo}>
+              <td>{fila.nombre}</td>
+              <td><span className={fila.configurado ? "pill ok" : "pill"}>{fila.configurado ? "Configurado" : "Pendiente"}</span></td>
+              <td>{canEdit ? <button type="button" className="btn-sm ghost" onClick={() => setModal(fila.campo)}>Configurar</button> : null}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {modal && modal !== "oferta" ? (
+        <EnlaceModal courseId={courseId} campo={modal} valorActual={enlaces[modal] ?? ""} onClose={() => setModal(null)} onAviso={onAviso} />
+      ) : null}
+      {modal === "oferta" ? (
+        <OfertaModal courseId={courseId} oferta={oferta} onClose={() => setModal(null)} onAviso={onAviso} />
+      ) : null}
+    </div>
+  );
+}
+
+const NOMBRE_ENLACE: Record<"whatsappGroupUrl" | "courseCompleteUrl" | "surveyUrl", string> = {
+  whatsappGroupUrl: "Grupo WhatsApp",
+  courseCompleteUrl: "Curso completo",
+  surveyUrl: "Encuesta final",
+};
+
+function EnlaceModal({
+  courseId, campo, valorActual, onClose, onAviso,
+}: {
+  courseId: string;
+  campo: "whatsappGroupUrl" | "courseCompleteUrl" | "surveyUrl";
+  valorActual: string;
+  onClose: () => void;
+  onAviso: (aviso: Aviso) => void;
+}) {
+  const [valor, setValor] = useState(valorActual);
+  const [guardando, setGuardando] = useState(false);
+  const router = useRouter();
+
+  async function guardar() {
+    setGuardando(true);
+    try {
+      const res = await fetch(`/api/admin/courses/${courseId}/communication-links`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [campo]: valor, confirm: true }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        onAviso({ ok: false, texto: json?.error ?? "Revisa la dirección." });
+        return;
+      }
+      onAviso({ ok: true, texto: "Guardado." });
+      onClose();
+      router.refresh();
+    } catch {
+      onAviso({ ok: false, texto: "No se pudo guardar." });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="enlace-modal-titulo">
+        <h2 id="enlace-modal-titulo">{NOMBRE_ENLACE[campo]}</h2>
+        <label className="field">
+          <span>Dirección web</span>
+          <input type="url" value={valor} placeholder="https://…" disabled={guardando} onChange={(event) => setValor(event.target.value)} />
+        </label>
+        <div className="dialog-actions">
+          <button type="button" className="btn-sm ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
+          <button type="button" className="btn-sm" onClick={() => void guardar()} disabled={guardando}>{guardando ? "Guardando…" : "Guardar"}</button>
+        </div>
       </div>
+    </div>
+  );
+}
 
-      {/* ------------ pasos ------------ */}
-      <ol className="comms-steps">
-        {pasos.map((paso) => {
-          const activo = estado[paso.planKey] ?? paso.active;
-          const delPaso = reglas.filter((r) => r.planKey === paso.planKey);
-          const campoEnlace = ENLACE_DE_PASO[paso.planKey];
-          const faltaEnlace = campoEnlace ? !valores[campoEnlace] : false;
-          const sinReglas = delPaso.length === 0;
+function OfertaModal({
+  courseId, oferta, onClose, onAviso,
+}: {
+  courseId: string;
+  oferta: Oferta;
+  onClose: () => void;
+  onAviso: (aviso: Aviso) => void;
+}) {
+  const [url, setUrl] = useState(oferta.url ?? "");
+  const [precio, setPrecio] = useState(oferta.precio !== null ? String(oferta.precio) : "");
+  const [horas, setHoras] = useState(oferta.delayHoras);
+  const [guardando, setGuardando] = useState(false);
+  const router = useRouter();
 
-          return (
-            <li key={paso.planKey} className="comms-step">
-              <div className="comms-step-main">
-                <strong>{paso.title}</strong>
-                <p className="muted">{paso.when} · {delPaso.map((r) => (r.channel === "EMAIL" ? "Correo" : "WhatsApp")).join(" y ") || "Sin canales"}</p>
-                <p className="muted">{paso.detail}</p>
-                {paso.scheduledAt ? <p className="muted">Próximo envío: {new Date(paso.scheduledAt).toLocaleString("es-EC", { timeZone: "America/Guayaquil", dateStyle: "short", timeStyle: "short" })}</p> : null}
-                {paso.blockedReason ? <p className="result-line is-error">{paso.blockedReason}</p> : null}
-                {faltaEnlace ? (
-                  <p className="result-line is-error">
-                    Falta el enlace: {NOMBRE_ENLACE[campoEnlace]}{" "}
-                    {canEdit ? <button type="button" className="btn-sm ghost" onClick={() => setEditandoEnlaces(true)}>Configurar</button> : null}
-                  </p>
-                ) : null}
-              </div>
+  async function guardar() {
+    setGuardando(true);
+    try {
+      const res = await fetch(`/api/admin/courses/${courseId}/institutional-offer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ institutionalOfferUrl: url, institutionalOfferPrice: precio, institutionalOfferDelayHours: horas, confirm: true }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        onAviso({ ok: false, texto: json?.error ?? "Revisa los datos de la oferta." });
+        return;
+      }
+      onAviso({ ok: true, texto: "Guardado." });
+      onClose();
+      router.refresh();
+    } catch {
+      onAviso({ ok: false, texto: "No se pudo guardar." });
+    } finally {
+      setGuardando(false);
+    }
+  }
 
-              <div className="comms-step-actions">
-                <span className="muted">{sinReglas ? "No configurado" : activo ? "Enviar" : "No enviar"}</span>
-                {canEdit && !sinReglas ? (
-                  <button
-                    type="button"
-                    className={`btn-sm ${activo ? "" : "ghost"}`}
-                    aria-pressed={activo}
-                    aria-label={`${activo ? "Dejar de enviar" : "Enviar"}: ${paso.title}`}
-                    disabled={ocupado === paso.planKey}
-                    onClick={() => void alternar(paso.planKey, !activo)}
-                  >
-                    {ocupado === paso.planKey ? "Guardando…" : activo ? "No enviar" : "Enviar"}
-                  </button>
-                ) : null}
-                {canEdit && sinReglas ? (
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    aria-label={`Configurar este paso: ${paso.title}`}
-                    aria-expanded={editando === paso.planKey}
-                    onClick={() => setEditando(editando === paso.planKey ? null : paso.planKey)}
-                  >
-                    Configurar este paso
-                  </button>
-                ) : null}
-                {!sinReglas ? (
-                  <button
-                    type="button"
-                    className="btn-sm ghost"
-                    aria-label={`Editar: ${paso.title}`}
-                    aria-expanded={editando === paso.planKey}
-                    onClick={() => setEditando(editando === paso.planKey ? null : paso.planKey)}
-                  >
-                    Editar
-                  </button>
-                ) : null}
-              </div>
-
-              {editando === paso.planKey ? (
-                <div className="comms-step-editor">
-                  {sinReglas ? (
-                    <ConfigurarPasoForm
-                      courseId={courseId}
-                      planKey={paso.planKey}
-                      defaultTrigger={paso.defaultTrigger}
-                      defaultOffsetMinutes={paso.defaultOffsetMinutes}
-                      availableChannels={paso.availableChannels}
-                      canEdit={canEdit}
-                      onAviso={setAviso}
-                    />
-                  ) : (
-                    delPaso.map((regla) => (
-                      <ReglaEditor key={regla.id} regla={regla} canEdit={canEdit} onAviso={setAviso} />
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
-
-      {aviso ? <p className={`result-line ${aviso.ok ? "" : "is-error"}`} role="status">{aviso.texto}</p> : null}
-    </section>
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="oferta-modal-titulo">
+        <h2 id="oferta-modal-titulo">Oferta institucional</h2>
+        <label className="field">
+          <span>Dirección web de la oferta</span>
+          <input type="url" value={url} placeholder="https://…" disabled={guardando} onChange={(event) => setUrl(event.target.value)} />
+        </label>
+        <label className="field">
+          <span>Precio (USD)</span>
+          <input type="number" min={0} step="0.01" value={precio} disabled={guardando} onChange={(event) => setPrecio(event.target.value)} />
+        </label>
+        <label className="field">
+          <span>Horas después de terminar el curso</span>
+          <input type="number" min={0} value={horas} disabled={guardando} onChange={(event) => setHoras(Number(event.target.value))} />
+        </label>
+        <div className="dialog-actions">
+          <button type="button" className="btn-sm ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
+          <button type="button" className="btn-sm" onClick={() => void guardar()} disabled={guardando}>{guardando ? "Guardando…" : "Guardar"}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -301,7 +490,7 @@ function ReglaEditor({
 }: {
   regla: Regla;
   canEdit: boolean;
-  onAviso: (aviso: { ok: boolean; texto: string }) => void;
+  onAviso: (aviso: Aviso) => void;
 }) {
   const inicial = aHumano(regla.offsetMinutes);
   const [cantidad, setCantidad] = useState(inicial.cantidad);
@@ -386,112 +575,6 @@ function ReglaEditor({
       {canEdit ? (
         <button type="button" className="btn-sm" disabled={guardando} onClick={() => void guardar()}>
           {guardando ? "Guardando cambios…" : "Guardar cambios"}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-const NOMBRE_CANAL: Record<"EMAIL" | "WHATSAPP", string> = { EMAIL: "Correo", WHATSAPP: "WhatsApp" };
-
-/**
- * Crea las reglas que le faltan a un paso, sin salir de Comunicaciones.
- *
- * El contenido -asunto, cuerpo, plantilla de Meta- lo resuelve el servidor a
- * partir del plan estandar: aqui solo se eligen canales y, si hace falta,
- * cuando se envia. Por eso no hay ni un campo de texto libre.
- */
-function ConfigurarPasoForm({
-  courseId, planKey, defaultTrigger, defaultOffsetMinutes, availableChannels, canEdit, onAviso,
-}: {
-  courseId: string;
-  planKey: string;
-  defaultTrigger: Regla["trigger"];
-  defaultOffsetMinutes: number;
-  availableChannels: Array<"EMAIL" | "WHATSAPP">;
-  canEdit: boolean;
-  onAviso: (aviso: { ok: boolean; texto: string }) => void;
-}) {
-  const inicial = aHumano(defaultOffsetMinutes);
-  const [canales, setCanales] = useState<Record<"EMAIL" | "WHATSAPP", boolean>>({
-    EMAIL: availableChannels.includes("EMAIL"),
-    WHATSAPP: availableChannels.includes("WHATSAPP"),
-  });
-  const [cantidad, setCantidad] = useState(inicial.cantidad);
-  const [unidad, setUnidad] = useState(inicial.unidad);
-  const [guardando, setGuardando] = useState(false);
-  const router = useRouter();
-
-  async function configurar() {
-    if (!canEdit || guardando) return;
-    const elegidos = (Object.keys(canales) as Array<"EMAIL" | "WHATSAPP">).filter((canal) => canales[canal]);
-    if (elegidos.length === 0) {
-      onAviso({ ok: false, texto: "Elige al menos un canal." });
-      return;
-    }
-    setGuardando(true);
-    try {
-      const res = await fetch(`/api/admin/courses/${courseId}/communications/${planKey}/configure`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channels: elegidos, offsetMinutes: aMinutos(cantidad, unidad), confirm: true }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) {
-        onAviso({ ok: false, texto: json?.error ?? "No se pudo configurar el paso." });
-        return;
-      }
-      onAviso({ ok: true, texto: "Paso configurado." });
-      // pasos/reglas vienen del servidor: sin esto seguiria mostrando "No
-      // configurado" con el mismo formulario en vez del recorrido ya armado.
-      router.refresh();
-    } catch {
-      onAviso({ ok: false, texto: "No se pudo configurar el paso." });
-    } finally {
-      setGuardando(false);
-    }
-  }
-
-  return (
-    <div className="comms-rule">
-      <p className="muted">Se crea con el contenido estándar del plan. Después puedes editarlo o dejar de enviarlo como cualquier otro paso.</p>
-
-      <div className="form-row">
-        {availableChannels.map((canal) => (
-          <label key={canal}>
-            <input
-              type="checkbox"
-              checked={canales[canal]}
-              disabled={!canEdit}
-              onChange={(event) => setCanales((v) => ({ ...v, [canal]: event.target.checked }))}
-            />{" "}
-            {NOMBRE_CANAL[canal]}
-          </label>
-        ))}
-      </div>
-
-      <div className="form-row">
-        <label htmlFor={`config-cant-${planKey}`}>Cuándo</label>
-        <input
-          id={`config-cant-${planKey}`}
-          type="number"
-          min={0}
-          value={cantidad}
-          disabled={!canEdit}
-          onChange={(event) => setCantidad(Number(event.target.value))}
-        />
-        <label className="sr-only" htmlFor={`config-uni-${planKey}`}>Unidad</label>
-        <select id={`config-uni-${planKey}`} value={unidad} disabled={!canEdit} onChange={(event) => setUnidad(event.target.value as typeof unidad)}>
-          <option value="minutos">minutos</option>
-          <option value="horas">horas</option>
-          <option value="dias">días</option>
-        </select>
-        <span className="muted">{RELACION[defaultTrigger]}</span>
-      </div>
-
-      {canEdit ? (
-        <button type="button" className="btn-sm" disabled={guardando} onClick={() => void configurar()}>
-          {guardando ? "Configurando…" : "Configurar este paso"}
         </button>
       ) : null}
     </div>

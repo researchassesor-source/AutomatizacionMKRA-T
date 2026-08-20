@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/authorization";
 import { CONTENIDO } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
-import { asegurarCampana, encolarOferta, excluir, restaurar, seleccionar, sincronizarDestinatarios } from "@/lib/commerce/offer-campaign";
+import { activarOfertaAutomatica, asegurarCampana, detenerOfertaAutomatica, encolarOferta, excluir, restaurar, seleccionar, sincronizarDestinatarios } from "@/lib/commerce/offer-campaign";
 import { advertenciaComercial } from "@/lib/commerce/offer-eligibility";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,10 @@ export const dynamic = "force-dynamic";
 
 const accionSchema = z.discriminatedUnion("accion", [
   z.object({ accion: z.literal("crear"), courseId: z.string().min(1), audienceMode: z.enum(["HISTORICAL_MANUAL", "AUTOMATIC_COMMERCE"]) }),
+  // Tarjeta #12 en la UI unificada de comunicaciones (sección Q): seleccionar
+  // / deseleccionar, en los mismos términos que las otras once tarjetas.
+  z.object({ accion: z.literal("activar"), courseId: z.string().min(1) }),
+  z.object({ accion: z.literal("detener"), courseId: z.string().min(1) }),
   z.object({ accion: z.literal("sincronizar"), campaignId: z.string().min(1) }),
   z.object({ accion: z.literal("seleccionar"), campaignId: z.string().min(1), enrollmentIds: z.array(z.string().min(1)).min(1).max(500) }),
   z.object({ accion: z.literal("excluir"), campaignId: z.string().min(1), enrollmentIds: z.array(z.string().min(1)).min(1).max(500) }),
@@ -107,6 +111,16 @@ export async function POST(request: Request) {
     const campana = await asegurarCampana(datos.courseId, datos.audienceMode, actor);
     const sincronizados = await sincronizarDestinatarios(campana.id);
     return NextResponse.json({ ok: true, campaignId: campana.id, ...sincronizados });
+  }
+  if (datos.accion === "activar") {
+    const campana = await activarOfertaAutomatica(datos.courseId, actor);
+    if (!campana) return NextResponse.json({ error: "No se encontró el curso." }, { status: 404 });
+    const sincronizados = await sincronizarDestinatarios(campana.id);
+    return NextResponse.json({ ok: true, campaignId: campana.id, status: campana.status, ...sincronizados });
+  }
+  if (datos.accion === "detener") {
+    const campana = await detenerOfertaAutomatica(datos.courseId, actor);
+    return NextResponse.json({ ok: true, status: campana?.status ?? null });
   }
 
   const campana = await prisma.certificationOfferCampaign.findUnique({ where: { id: datos.campaignId } });

@@ -89,7 +89,7 @@ export async function previewBulkFinanceHandoff(courseId: string): Promise<BulkP
 }
 
 /** Códigos que significan "Finance mismo no responde", no "este registro tiene un problema". */
-const FALLAS_GLOBALES = new Set(["FINANCE_NOT_AVAILABLE", "FINANCE_AUTH_FAILED"]);
+const FALLAS_GLOBALES = new Set(["FINANCE_NOT_AVAILABLE", "FINANCE_AUTH_FAILED", "FINANCE_TRANSPORT_FAILED"]);
 
 export type BulkExecuteResult = {
   courseId: string;

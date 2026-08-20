@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
     lead: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
-  writeAudit: vi.fn(async () => undefined),
+  writeAudit: vi.fn(async (_input: any) => undefined),
   requireRole: vi.fn(async () => ({
     session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" },
     error: null,
@@ -153,6 +153,19 @@ describe("PATCH conversación: confirmPhoneUpdate ('usar este nuevo número y vi
     mocks.prisma.lead.findUnique.mockResolvedValue({ id: "lead-1", phone: "+593888888888" });
     await patch("conv-1", { leadId: "lead-1", confirmPhoneUpdate: true });
     expect(mocks.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "WHATSAPP_CONTACT_PHONE_UPDATED", entityType: "Lead", entityId: "lead-1" }));
+  });
+
+  /**
+   * Sección 9 de la continuación arquitectónica: un log de auditoría no es
+   * el lugar para un teléfono completo, ni el viejo ni el nuevo -- basta con
+   * saber QUE cambió (y de qué conversación) para investigar el caso.
+   */
+  it("la auditoría nunca guarda el teléfono, ni el viejo ni el nuevo", async () => {
+    mocks.prisma.lead.findUnique.mockResolvedValue({ id: "lead-1", phone: "+593888888888" });
+    await patch("conv-1", { leadId: "lead-1", confirmPhoneUpdate: true });
+    const llamada = mocks.writeAudit.mock.calls.find(([arg]: any) => arg.action === "WHATSAPP_CONTACT_PHONE_UPDATED");
+    expect(llamada?.[0].metadata).toEqual({ conversationId: "conv-1", telefonoActualizado: true });
+    expect(JSON.stringify(llamada?.[0])).not.toMatch(/\+593/);
   });
 
   it("si el nuevo número ya pertenece a OTRO contacto, responde 409 sin cambiar nada", async () => {

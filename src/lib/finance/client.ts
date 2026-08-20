@@ -34,6 +34,16 @@ export function financeEnrollmentUrl(inscripcionId: string): string {
   return base ? `${base}/inscripciones?open=${encodeURIComponent(inscripcionId)}` : "";
 }
 
+/**
+ * Finance no fue alcanzable: timeout, red caída, DNS, o un HTTP que ni
+ * siquiera llegó a responder success/error en JSON. Se distingue de un
+ * rechazo FUNCIONAL (Finance respondió, y dijo que no) porque en bulk una
+ * caída de transporte es un motivo para detener el lote entero -reintentar
+ * contra un servicio inalcanzable inscripción por inscripción no tiene
+ * sentido-, mientras que un rechazo funcional es solo de esa inscripción.
+ */
+class FinanceTransportError extends Error {}
+
 async function rawCall<T>(
   action: string,
   params: Record<string, unknown>,
@@ -57,14 +67,21 @@ async function rawCall<T>(
   if (serviceToken) body.serviceToken = serviceToken;
   // Sin plazo, una hoja de calculo lenta deja colgada la funcion hasta que la
   // plataforma la corta, y el cron pierde el resto del ciclo esperando.
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(FINANCE_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`Finance respondió ${response.status}.`);
+  let response: Response;
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(FINANCE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // Red, DNS, timeout del AbortSignal: Finance no fue alcanzable, no es
+    // que haya rechazado la petición.
+    throw new FinanceTransportError(error instanceof Error ? error.message : "No se pudo contactar a Finance.");
+  }
+  if (!response.ok) throw new FinanceTransportError(`Finance respondió ${response.status}.`);
   return (await response.json()) as FinanceResponse<T>;
 }
 
@@ -174,6 +191,16 @@ function classifyFinanceError(rawError: string | undefined): string {
   return "FINANCE_REQUEST_FAILED";
 }
 
+/**
+ * Clasifica una excepción capturada (no un `response.error` de texto libre):
+ * primero distingue transporte -Finance ni siquiera respondió-, y solo si no
+ * lo es cae al mapeo por mensaje de siempre.
+ */
+function classifyFinanceCallError(error: unknown): string {
+  if (error instanceof FinanceTransportError) return "FINANCE_TRANSPORT_FAILED";
+  return classifyFinanceError(error instanceof Error ? error.message : undefined);
+}
+
 export async function createInscripcion(input: FinanceEnrollmentInput): Promise<{ id: string }> {
   let response: FinanceResponse<unknown>;
   try {
@@ -184,7 +211,7 @@ export async function createInscripcion(input: FinanceEnrollmentInput): Promise<
   } catch (error) {
     // La autenticación (login) puede fallar antes de llegar a addInscripcion;
     // pasa por el mismo mapeo para que ambos caminos terminen en el mismo código.
-    throw new Error(classifyFinanceError(error instanceof Error ? error.message : undefined));
+    throw new Error(classifyFinanceCallError(error));
   }
   if (!response.success) throw new Error(classifyFinanceError(response.error));
   const data = response.data as { id?: string; ID?: string } | undefined;
@@ -214,7 +241,7 @@ export async function listActiveFinanceServices(): Promise<FinanceService[]> {
   try {
     response = await authedCall<unknown>("getServicios", {});
   } catch (error) {
-    throw new Error(classifyFinanceError(error instanceof Error ? error.message : undefined));
+    throw new Error(classifyFinanceCallError(error));
   }
   if (!response.success) throw new Error(classifyFinanceError(response.error));
   const filas = Array.isArray(response.data) ? (response.data as Record<string, unknown>[]) : [];

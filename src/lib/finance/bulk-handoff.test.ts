@@ -119,6 +119,22 @@ describe("executeBulkFinanceHandoff", () => {
     expect(mocks.confirmEnrollmentWithFinance).toHaveBeenCalledTimes(3);
   });
 
+  /**
+   * Sección 8/L de la continuación arquitectónica: un timeout o la red caída
+   * (FINANCE_TRANSPORT_FAILED) es tan global como Finance no disponible --
+   * reintentar contra un servicio inalcanzable inscripción por inscripción
+   * no tiene sentido. Un problema FUNCIONAL de una sola inscripción, en
+   * cambio, nunca detiene a las demás (ya cubierto arriba).
+   */
+  it("un fallo de TRANSPORTE (timeout/red caída) también detiene el lote como global", async () => {
+    mocks.prisma.enrollment.findMany.mockImplementation(async ({ where }: any) =>
+      where.status === "CANCELADO" ? [] : [enrollment({ id: "enr-1" }), enrollment({ id: "enr-2" }), enrollment({ id: "enr-3" }), enrollment({ id: "enr-4" })]);
+    mocks.confirmEnrollmentWithFinance.mockRejectedValue(new Error("FINANCE_TRANSPORT_FAILED"));
+    const resultado = await executeBulkFinanceHandoff("course-1", session);
+    expect(resultado.fallaGlobal).toBe("FINANCE_TRANSPORT_FAILED");
+    expect(mocks.confirmEnrollmentWithFinance).toHaveBeenCalledTimes(3);
+  });
+
   it("no manda las que ya están vinculadas, canceladas o requieren configuración", async () => {
     mocks.prisma.enrollment.findMany.mockImplementation(async ({ where }: any) =>
       where.status === "CANCELADO"

@@ -60,7 +60,10 @@ jobs:
       - name: Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Alineado con el runtime real de Production en Vercel: el gate
+          # tiene que validar la misma versión que compila de verdad, no una
+          # arbitraria.
+          node-version: "24"
           cache: "npm"
 
       - name: Instalar dependencias

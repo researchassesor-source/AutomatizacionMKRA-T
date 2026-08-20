@@ -164,6 +164,42 @@ describe("mapeo seguro de errores de Finance", () => {
     const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(request.idempotencyKey).toBe("enrollment-1");
   });
+
+  /**
+   * Sección 8 de la continuación arquitectónica: un fallo de TRANSPORTE
+   * (Finance ni siquiera respondió) tiene que distinguirse de un rechazo
+   * FUNCIONAL (Finance respondió y dijo que no), porque en el envío masivo
+   * el primero detiene el lote entero y el segundo no.
+   */
+  it("un timeout/red caída (fetch rechaza) => FINANCE_TRANSPORT_FAILED, no FINANCE_REQUEST_FAILED", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockRejectedValueOnce(new Error("fetch failed: ETIMEDOUT"));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_TRANSPORT_FAILED");
+  });
+
+  it("un HTTP no exitoso (502, por ejemplo) => FINANCE_TRANSPORT_FAILED", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_TRANSPORT_FAILED");
+  });
+
+  it("un fallo de transporte durante el LOGIN también se clasifica como transporte, no como auth", async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("network down"));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_TRANSPORT_FAILED");
+  });
+
+  it("un rechazo FUNCIONAL (Finance respondió success:false) nunca se clasifica como transporte", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, token: "test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: "Servicio de Finance no configurado para este curso." }), { status: 200 }));
+    const fresh = await freshClientWithFetch(fetchMock);
+    await expect(fresh.createInscripcion(input)).rejects.toThrow("FINANCE_SERVICE_NOT_CONFIGURED");
+  });
 });
 
 /**

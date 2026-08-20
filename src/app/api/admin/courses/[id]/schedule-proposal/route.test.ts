@@ -246,6 +246,35 @@ describe("POST schedule-proposal: 1/2/8 - cuarentena antes de mover la fecha, ca
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
   });
 
+  /**
+   * Prueba D de la continuación arquitectónica: cambiar la fecha de UNA
+   * sesión desplaza "sesión X de Y" para las demás -3 sesiones, cambiar la
+   * del medio puede reordenarlas-. Un mensaje de una sesión que WordPress NO
+   * tocó directamente tiene que quedar igual de protegido.
+   */
+  it("D: un mensaje de una sesión que WordPress NO tocó directamente igual queda protegido (todo el curso, no solo la sesión editada)", async () => {
+    const existing = [s("s1", "2026-08-18T00:00:00.000Z"), s("s2", "2026-08-19T00:00:00.000Z"), s("s3", "2026-08-20T00:00:00.000Z")];
+    messages.push({ id: "m-de-s1-no-tocada", courseSessionId: "s1", status: "PROGRAMADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: null });
+    mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1" });
+    mocks.tx.courseSession.findMany.mockResolvedValue(existing);
+
+    // Solo s2 cambia de HORA (sigue entre s1 y s3 al ordenar, así que no
+    // desplaza la posición de nadie): s1 y s3 se proponen exactamente igual.
+    await POST(postRequest({
+      confirm: "APPLY_WORDPRESS_SCHEDULE",
+      calendarRevision: calendarRevisionOf(existing),
+      sessions: [
+        { startAt: "2026-08-18T00:00:00.000Z", endAt: null },
+        { startAt: "2026-08-19T12:00:00.000Z", endAt: null },
+        { startAt: "2026-08-20T00:00:00.000Z", endAt: null },
+      ],
+    }), params());
+
+    const deS1 = messages.find((m) => m.id === "m-de-s1-no-tocada");
+    expect(deS1?.status).toBe("OMITIDO");
+    expect(deS1?.errorCode).toBe("SCHEDULE_RECONCILING");
+  });
+
   it("la cuarentena ocurre ANTES de mover la fecha de la sesión (orden de las llamadas)", async () => {
     const existing = [s("s1", "2026-08-18T00:00:00.000Z")];
     messages.push({ id: "m-pendiente", courseSessionId: "s1", status: "PROGRAMADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: null });

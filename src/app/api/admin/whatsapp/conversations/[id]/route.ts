@@ -177,7 +177,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         action: "WHATSAPP_CONTACT_PHONE_UPDATED",
         entityType: "Lead",
         entityId: lead.id,
-        metadata: { conversationId: id, telefonoAnterior: lead.phone },
+        // Nunca el número viejo ni el nuevo en claro: un log de auditoría no
+        // es el lugar para un teléfono completo. `conversationId` ya basta
+        // para reconstruir el caso si hace falta investigarlo.
+        metadata: { conversationId: id, telefonoActualizado: true },
       }).catch(() => undefined);
       return NextResponse.json({ ok: true, changed: true });
     }

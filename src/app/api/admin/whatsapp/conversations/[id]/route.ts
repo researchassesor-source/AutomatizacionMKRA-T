@@ -258,10 +258,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   /**
-   * Cerrar la atencion no reactivaba sola lo comercial que se habia callado
-   * mientras duro: se quedaba OMITIDO/HUMAN_HANDOFF_ACTIVE para siempre hasta
-   * que algo mas tocara ese curso por otro motivo. El asesor que cierra la
-   * conversacion espera que el contacto vuelva a recibir sus automatizaciones.
+   * HUMAN_HANDOFF ya no pausa ninguna automatizacion (ver `conversation.ts`),
+   * asi que esto ya no "reactiva" nada que el handoff hubiera callado. Sigue
+   * teniendo sentido: cerrar la atencion es un buen momento para poner al dia
+   * el calendario del curso de este contacto si algo cambio mientras tanto.
    */
   if (parsed.data.state === "RESOLVED") {
     const leadId = data.leadId !== undefined ? (data.leadId as string | null) : conversacion.leadId;

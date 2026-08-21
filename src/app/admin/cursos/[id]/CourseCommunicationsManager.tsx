@@ -111,14 +111,21 @@ export function CourseCommunicationsManager({
   const [editando, setEditando] = useState<string | null>(null);
   const router = useRouter();
 
-  async function alternarPaso(paso: Paso, sinReglas: boolean) {
+  /**
+   * `completo` decide el camino, no `sinReglas` (bug de la sección C: una
+   * tarjeta con un solo canal activo -de dos disponibles- se trataba como
+   * "ya configurada" y el clic solo la apagaba, sin completar lo que
+   * faltaba). Seleccionar (de cero, a medias, o con un canal pausado) SIEMPRE
+   * pide los `availableChannels` completos: el endpoint es idempotente por
+   * canal, así que lo que ya está ACTIVE no se toca. Solo una tarjeta YA
+   * completa se apaga con el clic.
+   */
+  async function alternarPaso(paso: Paso, completo: boolean) {
     if (!canEdit || ocupado) return;
     setOcupado(paso.planKey);
     setAviso(null);
     try {
-      if (sinReglas) {
-        // Primera selección: se configura con el plan estándar y los canales
-        // disponibles, sin pedir de más. Ajustar el detalle es "Editar", aparte.
+      if (!completo) {
         const res = await fetch(`/api/admin/courses/${courseId}/communications/${paso.planKey}/configure`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -133,19 +140,21 @@ export function CourseCommunicationsManager({
         router.refresh();
         return;
       }
-      const activo = estado[paso.planKey] ?? paso.active;
+      // Ya estaba completo (todos sus canales ACTIVE): deseleccionar apaga
+      // TODOS a la vez, nunca uno solo.
       const res = await fetch(`/api/admin/courses/${courseId}/communications/${paso.planKey}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !activo, confirm: true }),
+        body: JSON.stringify({ enabled: false, confirm: true }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
         setAviso({ ok: false, texto: json.error ?? "No se pudo guardar el cambio." });
         return;
       }
-      setEstado((previo) => ({ ...previo, [paso.planKey]: !activo }));
-      setAviso({ ok: true, texto: !activo ? "Este mensaje se enviará." : "Este mensaje deja de enviarse." });
+      setEstado((previo) => ({ ...previo, [paso.planKey]: false }));
+      setAviso({ ok: true, texto: "Este mensaje deja de enviarse." });
+      router.refresh();
     } catch {
       setAviso({ ok: false, texto: "No se pudo guardar el cambio." });
     } finally {
@@ -210,6 +219,9 @@ export function CourseCommunicationsManager({
           {pasos.map((paso) => {
             const delPaso = reglas.filter((r) => r.planKey === paso.planKey);
             const sinReglas = delPaso.length === 0;
+            // Todos los canales disponibles del paso tienen que estar ACTIVE
+            // para contar como completo -uno solo de dos no basta-.
+            const completo = paso.availableChannels.every((canal) => paso.channels.includes(canal));
             const campoEnlace = ENLACE_DE_PASO[paso.planKey];
             const faltaEnlace = campoEnlace ? !enlaces[campoEnlace] : false;
             const activo = estado[paso.planKey] ?? paso.active;
@@ -224,7 +236,7 @@ export function CourseCommunicationsManager({
               estado: activo ? (motivoIncompleto ? "incompleto" : "seleccionado") : "deseleccionado",
               motivoIncompleto: activo ? motivoIncompleto : null,
               ocupado: ocupado === paso.planKey,
-              onClick: () => void alternarPaso(paso, sinReglas),
+              onClick: () => void alternarPaso(paso, completo),
               onEditar: sinReglas ? undefined : () => setEditando(paso.planKey),
             };
             return <TarjetaMensaje key={paso.planKey} modelo={modelo} canEdit={canEdit} />;

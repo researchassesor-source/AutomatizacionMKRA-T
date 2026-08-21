@@ -4,20 +4,21 @@ import { markCourseAutomationReconcilePending, reconcileCourseDerivedState } fro
 import { VENTANA_ATENCION_MS } from "./conversation";
 
 /**
- * Recupera lo comercial que quedo callado por una atencion humana ya cerrada,
- * o por un contacto restaurado/reclasificado como REAL.
+ * Reevalua las automatizaciones de un contacto restaurado/reclasificado como
+ * REAL, o cuya atencion humana se acaba de cerrar.
  *
- * `automatizacionPermitida` calla los mensajes comerciales de ESTE contacto
- * mientras dura la condicion (OMITIDO, no CANCELADO: reprogramable). Pero
- * nada los reactiva solo: hace falta pedirle al motor que vuelva a evaluar
- * cada curso en el que el contacto tiene inscripcion.
+ * HUMAN_HANDOFF ya no calla ningun mensaje comercial (ver el comentario de
+ * cabecera de `conversation.ts`), asi que esto ya no "reactiva" nada que el
+ * handoff hubiera pausado. Sigue teniendo sentido igual: reclasificar o
+ * desarchivar un contacto puede volverlo elegible para reglas que antes no
+ * aplicaban, y cerrar una atencion humana es un buen momento para poner al
+ * dia el calendario del curso si cambio mientras tanto. Pide al motor que
+ * vuelva a evaluar cada curso en el que el contacto tiene inscripcion.
  *
- * Antes, un fallo de `rescheduleCourseAutomations` aqui se ignoraba en
- * silencio Y `reprogramados++` se ejecutaba de todos modos -- quien llamaba
- * (el cierre de un handoff, la restauracion de un contacto) creia que la
- * recuperacion habia funcionado aunque hubiera fallado de verdad. Ahora se
- * marca el curso pendiente ANTES de intentarlo y solo se cuenta como
- * recuperado lo que realmente se reconcilio; lo que falla queda para que el
+ * Un fallo de `reconcileCourseDerivedState` aqui NO cuenta como recuperado:
+ * quien llama (el cierre de un handoff, la restauracion de un contacto) no
+ * debe creer que la reconciliacion funciono si en realidad fallo. Se marca
+ * el curso pendiente ANTES de intentarlo; lo que falla queda para que el
  * cron lo recoja despues.
  */
 export async function recuperarAutomatizacionesDelContacto(leadId: string, ahora = new Date()): Promise<number> {
@@ -41,12 +42,15 @@ const LOTE_MAXIMO = 5;
 /**
  * Libera atenciones humanas abandonadas.
  *
- * Si nadie hace clic en "Cerrar atencion", HUMAN_HANDOFF bloquearia lo
- * comercial de ese contacto para siempre. Pero "abandonada" no es lo mismo
- * que "vieja": `handoffAt` no se mueve mientras dura la atencion (a
- * proposito, para no falsear cuando empezo), asi que una conversacion con
- * idas y vueltas activas hace HORAS igual tendria un `handoffAt` de hace mas
- * de 24 h. Cerrarla solo por eso interrumpiria una atencion en curso.
+ * HUMAN_HANDOFF ya no pausa ninguna automatizacion (ver `conversation.ts`),
+ * pero el estado sigue gobernando la asignacion y la interfaz: si nadie hace
+ * clic en "Finalizar atencion", el Inbox seguiria mostrando esta
+ * conversacion como atendida por un asesor para siempre. Pero "abandonada"
+ * no es lo mismo que "vieja": `handoffAt` no se mueve mientras dura la
+ * atencion (a proposito, para no falsear cuando empezo), asi que una
+ * conversacion con idas y vueltas activas hace HORAS igual tendria un
+ * `handoffAt` de hace mas de 24 h. Cerrarla solo por eso interrumpiria una
+ * atencion en curso.
  *
  * Lo que importa es la ULTIMA actividad real: el mayor entre lo que escribio
  * el contacto (`lastInboundAt`) y la ultima respuesta HUMANA que salio

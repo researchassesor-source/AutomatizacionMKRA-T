@@ -52,6 +52,23 @@ async function clasificarInscripciones(courseId: string): Promise<{ courseTitle:
     if (enrollment.financeInscripcionId) {
       return { enrollmentId: enrollment.id, leadName: enrollment.lead.fullName, status: "YA_VINCULADO" };
     }
+    /**
+     * Sin financeServiceId es su propio motivo, distinto de una fecha o
+     * modalidad faltante -- una brecha de configuración esperada, no un
+     * error de transporte (Sección G del cierre de producción). Se
+     * clasifica ANTES de intentar construir el payload, sin llamar a
+     * Finance: antes esto solo se descubría al ejecutar de verdad (Finance
+     * lo rechaza en tiempo real), así que la vista previa lo mostraba como
+     * "por enviar" y el error recién aparecía al confirmar. No es matching
+     * aproximado ni se infiere nada por nombre: sigue siendo el mismo id
+     * exclusivamente, solo que su ausencia se detecta antes en vez de
+     * después. buildFinanceEnrollmentInput conserva su contrato de siempre
+     * (nunca inventa un id, deja pasar null explícito) para el envío
+     * individual, que sigue dejando que Finance sea quien decida.
+     */
+    if (!enrollment.course.financeServiceId) {
+      return { enrollmentId: enrollment.id, leadName: enrollment.lead.fullName, status: "REQUIERE_CONFIGURACION", motivo: "Pendiente de configurar en Finance." };
+    }
     try {
       buildFinanceEnrollmentInput(enrollment);
       return { enrollmentId: enrollment.id, leadName: enrollment.lead.fullName, status: "POR_ENVIAR" };

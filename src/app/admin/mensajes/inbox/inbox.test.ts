@@ -303,13 +303,32 @@ describe("gestión de la conversación", () => {
     expect(inbox).toContain('{ state: "HUMAN_HANDOFF" }');
   });
 
-  it("explica qué implica la atención humana", () => {
-    expect(inbox).toContain("los mensajes comerciales automáticos se pausan");
-    expect(inbox).toContain("Los recordatorios operativos continúan");
+  /**
+   * Cierre de producción: HUMAN_HANDOFF ya no pausa ninguna automatización
+   * (ver conversation.ts). El aviso anterior afirmaba justo lo contrario
+   * ("los mensajes comerciales automáticos se pausan"), así que quedaba
+   * falso apenas se desplegara el cambio de Sección E.
+   */
+  it("explica que atender aquí no pausa ninguna automatización", () => {
+    expect(inbox).toContain("Las automatizaciones de este contacto siguen su curso mientras dure la atención: atender aquí no pausa ningún mensaje.");
+    expect(inbox).not.toContain("se pausan");
   });
 
   it("ofrece elegir inscripción solo cuando hay más de una", () => {
     expect(inbox).toContain("inscripciones.length > 1");
+  });
+
+  /**
+   * Sección I del cierre de producción: "Cerrar atención" se leía como si
+   * borrara o cerrara la conversación misma. El único cambio permitido es
+   * cosmético -el texto del botón y su confirmación-, nunca la mecánica: el
+   * PATCH sigue siendo el mismo `{ state: "RESOLVED" }` de siempre, que no
+   * borra nada y (desde la Sección E) tampoco toca ninguna automatización.
+   */
+  it("'Finalizar atención' reemplaza a 'Cerrar atención', sin cambiar qué hace el botón", () => {
+    expect(inbox).toContain("Finalizar atención");
+    expect(inbox).not.toContain("Cerrar atención");
+    expect(inbox).toContain('actualizarConversacion({ state: "RESOLVED" }, "Atención finalizada.")');
   });
 
   it("enlaza a la ficha completa del contacto", () => {

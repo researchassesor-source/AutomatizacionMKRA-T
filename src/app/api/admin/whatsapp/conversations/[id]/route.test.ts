@@ -84,10 +84,10 @@ beforeEach(() => {
 });
 
 /**
- * Sección 38: cerrar la atención a mano no reactivaba lo comercial que se
- * había callado durante el handoff. Quedaba OMITIDO/HUMAN_HANDOFF_ACTIVE
- * hasta que algo más tocara ese curso por otro motivo, sin relación alguna
- * con este cierre.
+ * Cerrar la atención pone al día el calendario del curso del contacto, por
+ * si algo cambió mientras duraba (HUMAN_HANDOFF ya no calla ninguna
+ * automatización — ver `conversation.ts` — así que esto ya no "reactiva"
+ * nada que el handoff hubiera pausado).
  */
 describe("PATCH conversación: cerrar atención recupera lo comercial del contacto", () => {
   it("RESOLVED sobre una conversación vinculada reprograma los cursos del contacto vinculado", async () => {

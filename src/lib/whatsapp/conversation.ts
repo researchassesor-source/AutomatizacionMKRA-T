@@ -3,11 +3,21 @@ import type { ConversationState } from "@prisma/client";
 /**
  * Reglas de una conversacion de WhatsApp: ventana de atencion y handoff.
  *
- * Todo aqui es una funcion pura sobre datos ya leidos. La interfaz, el endpoint
- * de respuesta y el motor de automatizaciones hacen las mismas dos preguntas
- * —¿puedo escribir texto libre? ¿esta esta persona siendo atendida?— y tres
- * copias que pueden discrepar es como se acaba enviando texto libre fuera de
- * plazo, que Meta rechaza, o un mensaje comercial encima de un asesor.
+ * Todo aqui es una funcion pura sobre datos ya leidos. La interfaz y el
+ * endpoint de respuesta hacen la misma pregunta —¿puedo escribir texto
+ * libre?— y dos copias que pueden discrepar es como se acaba enviando texto
+ * fuera de plazo, que Meta rechaza.
+ *
+ * Cierre de producción: HUMAN_HANDOFF ya NO calla ninguna automatización (ver
+ * `scheduleEnrollmentAutomations`/`sendMessage` en el motor). Es una decisión
+ * de producto deliberada, no un bug: un humano puede atender en cualquier
+ * momento sin pausar el journey, comercial u operativo. El estado se
+ * mantiene solo para interfaz, asignación de asesor y auditoría — por eso
+ * este módulo ya no expone una función de "automatización permitida": no
+ * hay ninguna decisión de negocio que tomar sobre ese estado, solo mostrarlo.
+ * `whatsappCustomerServiceWindow`/`admiteTextoLibre` siguen intactas: esa es
+ * la ventana real de 24 h de Meta para texto libre humano, un límite del
+ * proveedor, no una política del CRM.
  */
 
 /** Meta abre 24 horas desde el ULTIMO mensaje del usuario, no desde el primero. */
@@ -53,48 +63,6 @@ export function admiteTextoLibre(ventana: VentanaAtencion): boolean {
 }
 
 /**
- * Momentos que NO se callan durante una atencion humana.
- *
- * Son los que dan acceso al curso. Si alguien escribe una duda diez minutos
- * antes de su sesion y por eso deja de recibir el enlace, la conversacion le
- * habra costado la clase. El asesor no compite con estos: no venden nada.
- */
-const MOMENTOS_OPERATIVOS: ReadonlySet<string> = new Set([
-  "reminder_24h",
-  "reminder_2h",
-  "reminder_15m",
-  "session_live",
-  "late_access",
-  "thank_you",
-]);
-
-/**
- * Momentos comerciales, que si se callan mientras hay un asesor.
- *
- * `welcome` y `whatsapp_group` entran aqui por ser conversacionales: dar la
- * bienvenida automatica a quien ya esta hablando con una persona suena a que
- * nadie le esta leyendo.
- */
-export function esMomentoOperativo(planKey: string | null | undefined): boolean {
-  return planKey ? MOMENTOS_OPERATIVOS.has(planKey) : false;
-}
-
-/**
- * ¿Puede salir esta automatizacion con la conversacion en este estado?
- *
- * Falla hacia el lado seguro para el contacto: en duda, el mensaje operativo
- * sale. Perder un enlace de acceso es un dano concreto; un comercial de mas es
- * una molestia, y es la que se evita.
- */
-export function automatizacionPermitida(
-  estado: ConversationState | null | undefined,
-  planKey: string | null | undefined,
-): boolean {
-  if (estado !== "HUMAN_HANDOFF") return true;
-  return esMomentoOperativo(planKey);
-}
-
-/**
  * ¿Un mensaje entrante debe abrir atencion humana?
  *
  * Solo desde AUTOMATION. Si ya hay handoff no se reabre —seria ruido en la
@@ -103,15 +71,4 @@ export function automatizacionPermitida(
  */
 export function debeAbrirHandoff(estado: ConversationState | null | undefined): boolean {
   return estado !== "HUMAN_HANDOFF";
-}
-
-/**
- * Al cerrar la atencion, ¿desde cuando puede volver a salir lo comercial?
- *
- * Desde el momento del cierre, nunca hacia atras. Reanudar y recibir de golpe
- * el seguimiento de anteayer convierte el cierre en una descarga de mensajes
- * viejos, que es exactamente lo que el handoff evitaba.
- */
-export function reanudarDesde(cerradoAt: Date): Date {
-  return cerradoAt;
 }

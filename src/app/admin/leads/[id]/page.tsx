@@ -82,12 +82,14 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       utmCampaign: item.utmCampaign, utmContent: item.utmContent, utmTerm: item.utmTerm,
       landingUrl: item.landingUrl, referrer: item.referrer,
       course: {
+        id: item.course.id,
         title: item.course.title,
         officialCourseUrl: item.course.officialCourseUrl,
         moodleCourseUrl: item.course.moodleCourseUrl,
         modality: item.course.modality,
         startDate: first?.startAt.toISOString() ?? null,
         endDate: last ? (last.endAt ?? last.startAt).toISOString() : null,
+        financeServiceId: item.course.financeServiceId,
       },
     };
   });

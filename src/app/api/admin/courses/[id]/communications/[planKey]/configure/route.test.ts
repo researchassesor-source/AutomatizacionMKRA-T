@@ -194,6 +194,55 @@ describe("idempotencia", () => {
     expect(json.revived).toEqual(["WHATSAPP"]);
   });
 
+  /**
+   * Sección C del cierre de producción: el caso real reportado. `welcome`
+   * tenía correo ACTIVE y NUNCA una regla de WhatsApp -- seleccionar la
+   * tarjeta debía crear el canal que faltaba, no limitarse a alternar lo que
+   * ya existía.
+   */
+  it("un paso a medias (correo ACTIVE, WhatsApp inexistente): crea solo el canal que falta, no toca el que ya está bien", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{ id: "rule-email", channel: "EMAIL", status: "ACTIVE" }]);
+    const res = await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.created).toEqual(["WHATSAPP"]);
+    expect(json.alreadyConfigured).toEqual(["EMAIL"]);
+    expect(mocks.prisma.automationRule.create).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.automationRule.create.mock.calls[0][0].data.channel).toBe("WHATSAPP");
+    // El correo ya ACTIVE no recibe ningún update: su contenido (posiblemente
+    // editado) no se pisa solo porque el otro canal se está completando.
+    expect(mocks.prisma.automationRule.update).not.toHaveBeenCalled();
+  });
+
+  it("un canal PAUSED se reanuda sin pisar su contenido, y cuenta aparte de 'creado' o 'revivido'", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{ id: "rule-paused", channel: "WHATSAPP", status: "PAUSED" }]);
+    const res = await peticion("course-1", "welcome", { channels: ["WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.reactivated).toEqual(["WHATSAPP"]);
+    expect(json.created).toEqual([]);
+    expect(json.revived).toEqual([]);
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledWith({
+      where: { id: "rule-paused" },
+      data: { status: "ACTIVE", activatedAt: expect.any(Date) },
+    });
+    // Reanudar es SOLO el estado: nunca escribe asunto, cuerpo, plantilla ni offset.
+    const dataEscrita = mocks.prisma.automationRule.update.mock.calls[0][0].data;
+    expect(Object.keys(dataEscrita).sort()).toEqual(["activatedAt", "status"]);
+  });
+
+  it("correo ACTIVE, WhatsApp PAUSED: pedir ambos canales crea nada, solo reanuda WhatsApp", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-email", channel: "EMAIL", status: "ACTIVE" },
+      { id: "rule-wa", channel: "WHATSAPP", status: "PAUSED" },
+    ]);
+    const res = await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.alreadyConfigured).toEqual(["EMAIL"]);
+    expect(json.reactivated).toEqual(["WHATSAPP"]);
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledTimes(1);
+  });
+
   it("dos peticiones concurrentes por el mismo canal: la segunda choca contra el unique y se trata como ya configurada, no como error", async () => {
     const choqueUnico = Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
     mocks.prisma.automationRule.create.mockRejectedValueOnce(choqueUnico);
@@ -207,6 +256,104 @@ describe("idempotencia", () => {
   it("un error de base de datos que no es de unicidad no se traga: se propaga", async () => {
     mocks.prisma.automationRule.create.mockRejectedValueOnce(new Error("conexión perdida"));
     await expect(peticion("course-1", "whatsapp_group", { channels: ["WHATSAPP"], confirm: true })).rejects.toThrow("conexión perdida");
+  });
+});
+
+/**
+ * Último blocker del hotfix: DRAFT es un AutomationStatus real (junto a
+ * ACTIVE/PAUSED/ARCHIVED) que no tenía rama propia y caía en
+ * `alreadyConfigured` sin activarse nunca -- a diferencia de PAUSED, que sí
+ * tenía la suya. Una tarjeta a medias con un canal en DRAFT (por ejemplo,
+ * creado a mano y nunca terminado) se quedaba "Falta configurar" para
+ * siempre, sin importar cuántas veces se le diera clic.
+ */
+describe("DRAFT: un canal nunca activado se completa y activa, no queda huérfano", () => {
+  it("1: EMAIL DRAFT se activa con activatedAt fresco, sin tocar subject/body/offset", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-draft-email", channel: "EMAIL", status: "DRAFT", waTemplateName: null, waTemplateLanguage: null, waTemplateBodyVars: null, waTemplateUrlVar: null },
+    ]);
+    const res = await peticion("course-1", "welcome", { channels: ["EMAIL"], confirm: true });
+    const json = await res.json();
+    expect(json.activated).toEqual(["EMAIL"]);
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledWith({
+      where: { id: "rule-draft-email" },
+      data: { status: "ACTIVE", activatedAt: expect.any(Date) },
+    });
+    // Nunca escribe subject/body/offsetMinutes: lo que ya estaba editado queda intacto.
+    const dataEscrita = mocks.prisma.automationRule.update.mock.calls[0][0].data;
+    expect(Object.keys(dataEscrita).sort()).toEqual(["activatedAt", "status"]);
+  });
+
+  it("2: WHATSAPP DRAFT con binding canónico ya presente se activa sin pisarlo", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{
+      id: "rule-draft-wa-completa", channel: "WHATSAPP", status: "DRAFT",
+      waTemplateName: "plantilla_ya_configurada", waTemplateLanguage: "es", waTemplateBodyVars: ["nombre"], waTemplateUrlVar: "https://ejemplo.test",
+    }]);
+    const res = await peticion("course-1", "welcome", { channels: ["WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.activated).toEqual(["WHATSAPP"]);
+    // El único update es status+activatedAt: ningún campo de plantilla se reescribe.
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledWith({
+      where: { id: "rule-draft-wa-completa" },
+      data: { status: "ACTIVE", activatedAt: expect.any(Date) },
+    });
+  });
+
+  it("3: WHATSAPP DRAFT con metadata de plantilla faltante completa SOLO los campos que faltan, con el binding canónico", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{
+      id: "rule-draft-wa-incompleta", channel: "WHATSAPP", status: "DRAFT",
+      waTemplateName: null, waTemplateLanguage: null, waTemplateBodyVars: null, waTemplateUrlVar: null,
+    }]);
+    const res = await peticion("course-1", "whatsapp_group", { channels: ["WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.activated).toEqual(["WHATSAPP"]);
+    const data = mocks.prisma.automationRule.update.mock.calls[0][0].data;
+    expect(data.status).toBe("ACTIVE");
+    expect(data.waTemplateName).toBe(WHATSAPP_TEMPLATES.whatsapp_group.name);
+    expect(data.waTemplateLanguage).toBe(WHATSAPP_TEMPLATES.whatsapp_group.language);
+    expect(data.waTemplateBodyVars).toEqual(WHATSAPP_TEMPLATES.whatsapp_group.bodyVars);
+  });
+
+  it("3b: un solo campo faltante (nombre presente, idioma null) solo completa el idioma", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([{
+      id: "rule-draft-wa-parcial", channel: "WHATSAPP", status: "DRAFT",
+      waTemplateName: "un_nombre_ya_puesto", waTemplateLanguage: null, waTemplateBodyVars: ["nombre"], waTemplateUrlVar: null,
+    }]);
+    await peticion("course-1", "whatsapp_group", { channels: ["WHATSAPP"], confirm: true });
+    const data = mocks.prisma.automationRule.update.mock.calls[0][0].data;
+    expect(data.waTemplateName).toBeUndefined(); // no se toca: ya tenía uno.
+    expect(data.waTemplateLanguage).toBe(WHATSAPP_TEMPLATES.whatsapp_group.language); // se completa.
+    expect(data.waTemplateBodyVars).toBeUndefined(); // ya tenía uno (aunque distinto): no se toca.
+  });
+
+  it("4: una vez ACTIVE, un reintento no duplica ni vuelve a tocar la regla", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-ya-activa", channel: "WHATSAPP", status: "ACTIVE", waTemplateName: "x", waTemplateLanguage: "es", waTemplateBodyVars: [], waTemplateUrlVar: null },
+    ]);
+    const res = await peticion("course-1", "welcome", { channels: ["WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.alreadyConfigured).toEqual(["WHATSAPP"]);
+    expect(json.activated).toEqual([]);
+    expect(mocks.prisma.automationRule.update).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+  });
+
+  it("5: correo ACTIVE + WhatsApp DRAFT -- tras configurar, ambos quedan ACTIVE y la tarjeta queda completa", async () => {
+    mocks.prisma.automationRule.findMany.mockResolvedValue([
+      { id: "rule-email", channel: "EMAIL", status: "ACTIVE", waTemplateName: null, waTemplateLanguage: null, waTemplateBodyVars: null, waTemplateUrlVar: null },
+      { id: "rule-wa-draft", channel: "WHATSAPP", status: "DRAFT", waTemplateName: null, waTemplateLanguage: null, waTemplateBodyVars: null, waTemplateUrlVar: null },
+    ]);
+    const res = await peticion("course-1", "welcome", { channels: ["EMAIL", "WHATSAPP"], confirm: true });
+    const json = await res.json();
+    expect(json.alreadyConfigured).toEqual(["EMAIL"]);
+    expect(json.activated).toEqual(["WHATSAPP"]);
+    expect(mocks.prisma.automationRule.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.automationRule.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "rule-wa-draft" },
+      data: expect.objectContaining({ status: "ACTIVE" }),
+    }));
   });
 });
 

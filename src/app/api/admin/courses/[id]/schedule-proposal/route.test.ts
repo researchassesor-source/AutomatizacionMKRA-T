@@ -50,6 +50,7 @@ function params() {
 type StoredMessage = {
   id: string;
   courseSessionId: string | null;
+  channel?: "EMAIL" | "WHATSAPP";
   status: string;
   errorCode: string | null;
   errorMessage: string | null;
@@ -399,6 +400,152 @@ describe("POST schedule-proposal: 3/4 - reconciliación durable si rescheduleCou
     // igual: es lo único que puede recuperar un SCHEDULE_RECONCILING que
     // haya quedado de un intento anterior fallido.
     expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
+  });
+});
+
+/**
+ * Cierre de producción: la transición real de "IA para la Planificación
+ * Educativa" en ra-training.com, de 18/19/20 a 26/27/28 de agosto (Sección
+ * A del parser prueba que el HTML real de esas tres fechas produce
+ * exactamente estos ISO; aquí se prueba que esos ISO, ya aplicados, mueven
+ * TODAS las capas derivadas -sesiones, Course.startsAt/endsAt, cola
+ * PROGRAMADO de ambos canales, #12, el flag de reconciliación- y ninguna
+ * toca lo ya enviado).
+ */
+describe("POST schedule-proposal: transición real 18/19/20 → 26/27/28 (Sección A+B, cierre de producción)", () => {
+  it("actualiza las tres sesiones preservando id, Course.startsAt/endsAt, la cola de ambos canales, respeta lo ya enviado, reprograma #12 y limpia el flag al terminar con éxito", async () => {
+    const existing = [
+      s("s1", "2026-08-18T00:30:00.000Z"),
+      s("s2", "2026-08-19T00:30:00.000Z"),
+      s("s3", "2026-08-20T00:30:00.000Z"),
+    ];
+    // Exactamente lo que produce proponerCalendario sobre el HTML real
+    // capturado en course-schedule-parser.test.ts para 26/27/28 de agosto,
+    // 7:00-9:00 pm Ecuador.
+    const nuevasFechas = [
+      { startAt: "2026-08-27T00:00:00.000Z", endAt: "2026-08-27T02:00:00.000Z" }, // 26 ago 19:00-21:00 EC
+      { startAt: "2026-08-28T00:00:00.000Z", endAt: "2026-08-28T02:00:00.000Z" }, // 27 ago 19:00-21:00 EC
+      { startAt: "2026-08-29T00:00:00.000Z", endAt: "2026-08-29T02:00:00.000Z" }, // 28 ago 19:00-21:00 EC
+    ];
+    messages.push(
+      { id: "m-email-pendiente", courseSessionId: "s1", channel: "EMAIL", status: "PROGRAMADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: new Date() },
+      { id: "m-wa-pendiente", courseSessionId: "s3", channel: "WHATSAPP", status: "PROGRAMADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: new Date() },
+      { id: "m-ya-enviado", courseSessionId: "s2", channel: "WHATSAPP", status: "ENVIADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: null },
+    );
+    const snapshotEnviado = { ...messages[2] };
+    // Lectura POSTERIOR a la transacción (reconcileCourseDerivedState): ya ve
+    // las sesiones con las fechas nuevas, para calcular Course.startsAt/endsAt.
+    mocks.prisma.course.findUnique.mockResolvedValue({
+      id: "course-1",
+      startsAt: new Date("2026-08-18T00:30:00.000Z"),
+      endsAt: new Date("2026-08-20T00:30:00.000Z"),
+      streamUrl: null,
+      sessions: [
+        { id: "s1", title: null, startAt: new Date(nuevasFechas[0].startAt), endAt: new Date(nuevasFechas[0].endAt), streamUrl: null, timezone: null },
+        { id: "s2", title: null, startAt: new Date(nuevasFechas[1].startAt), endAt: new Date(nuevasFechas[1].endAt), streamUrl: null, timezone: null },
+        { id: "s3", title: null, startAt: new Date(nuevasFechas[2].startAt), endAt: new Date(nuevasFechas[2].endAt), streamUrl: null, timezone: null },
+      ],
+    });
+    mocks.tx.courseSession.findMany.mockResolvedValue(existing);
+
+    const response = await POST(postRequest({
+      confirm: "APPLY_WORDPRESS_SCHEDULE",
+      calendarRevision: calendarRevisionOf(existing),
+      sessions: nuevasFechas,
+    }), params());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.pending).toBe(false);
+
+    // 1/2: las tres sesiones existentes se actualizan por posición cronológica,
+    // preservando su id -- ninguna se crea ni se borra (mismo conteo).
+    expect(body.updated).toBe(3);
+    expect(body.removed).toBe(0);
+    expect(body.created).toBe(0);
+    expect(mocks.tx.courseSession.update).toHaveBeenCalledWith({ where: { id: "s1" }, data: { startAt: new Date(nuevasFechas[0].startAt), endAt: new Date(nuevasFechas[0].endAt) } });
+    expect(mocks.tx.courseSession.update).toHaveBeenCalledWith({ where: { id: "s2" }, data: { startAt: new Date(nuevasFechas[1].startAt), endAt: new Date(nuevasFechas[1].endAt) } });
+    expect(mocks.tx.courseSession.update).toHaveBeenCalledWith({ where: { id: "s3" }, data: { startAt: new Date(nuevasFechas[2].startAt), endAt: new Date(nuevasFechas[2].endAt) } });
+    expect(mocks.tx.courseSession.deleteMany).not.toHaveBeenCalled();
+    expect(mocks.tx.courseSession.create).not.toHaveBeenCalled();
+
+    // 5/6: Course.startsAt = primera sesión real (26); Course.endsAt = fin de
+    // la última (28, 21:00 EC).
+    expect(body.reconciled.startsAt).toBe("2026-08-27T00:00:00.000Z");
+    expect(body.reconciled.endsAt).toBe("2026-08-29T02:00:00.000Z");
+    expect(mocks.prisma.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { startsAt: new Date("2026-08-27T00:00:00.000Z"), endsAt: new Date("2026-08-29T02:00:00.000Z") },
+    });
+
+    // 7/8: PROGRAMADO de los dos canales queda en cuarentena esperando el
+    // recálculo (rescheduleCourseAutomations, ya probado a fondo en engine.ts,
+    // se llama aquí como spy -- lo que se prueba es que la orquestación SÍ lo
+    // invoca sobre este curso).
+    expect(mocks.rescheduleCourseAutomations).toHaveBeenCalledWith("course-1", expect.any(Date));
+    const email = messages.find((m) => m.id === "m-email-pendiente");
+    const wa = messages.find((m) => m.id === "m-wa-pendiente");
+    expect(email?.status).toBe("OMITIDO");
+    expect(email?.errorCode).toBe("SCHEDULE_RECONCILING");
+    expect(wa?.status).toBe("OMITIDO");
+    expect(wa?.errorCode).toBe("SCHEDULE_RECONCILING");
+
+    // 9: lo ya ENVIADO, de cualquier canal, no se toca.
+    expect(messages.find((m) => m.id === "m-ya-enviado")).toEqual(snapshotEnviado);
+
+    // 11: oferta institucional #12 se reprograma como parte del mismo paquete.
+    expect(mocks.reprogramarOfertaAutomatica).toHaveBeenCalledWith("course-1", expect.anything());
+
+    // 12: el flag de reconciliación pendiente se limpia SOLO tras terminar
+    // todo el paquete con éxito (rescheduleCourseAutomations + reglas fijas +
+    // #12), no antes.
+    expect(mocks.prisma.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { automationReconcilePendingAt: null, automationReconcileReason: null },
+    });
+  });
+
+  it("13: si el recálculo derivado falla, el calendario queda igual de aplicado y ambos canales quedan a salvo en cuarentena, no perdidos", async () => {
+    const existing = [
+      s("s1", "2026-08-18T00:30:00.000Z"),
+      s("s2", "2026-08-19T00:30:00.000Z"),
+      s("s3", "2026-08-20T00:30:00.000Z"),
+    ];
+    const nuevasFechas = [
+      { startAt: "2026-08-27T00:00:00.000Z", endAt: "2026-08-27T02:00:00.000Z" },
+      { startAt: "2026-08-28T00:00:00.000Z", endAt: "2026-08-28T02:00:00.000Z" },
+      { startAt: "2026-08-29T00:00:00.000Z", endAt: "2026-08-29T02:00:00.000Z" },
+    ];
+    messages.push(
+      { id: "m-email-pendiente", courseSessionId: "s1", channel: "EMAIL", status: "PROGRAMADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: new Date() },
+      { id: "m-wa-pendiente", courseSessionId: "s3", channel: "WHATSAPP", status: "PROGRAMADO", errorCode: null, errorMessage: null, cancelledAt: null, nextAttemptAt: new Date() },
+    );
+    mocks.prisma.course.findUnique.mockResolvedValue({ id: "course-1", startsAt: null, endsAt: null, streamUrl: null, sessions: [] });
+    mocks.tx.courseSession.findMany.mockResolvedValue(existing);
+    mocks.rescheduleCourseAutomations.mockRejectedValue(new Error("timeout"));
+
+    const response = await POST(postRequest({
+      confirm: "APPLY_WORDPRESS_SCHEDULE",
+      calendarRevision: calendarRevisionOf(existing),
+      sessions: nuevasFechas,
+    }), params());
+    const body = await response.json();
+
+    // El calendario SÍ se aplicó -- no es "no se aplicó ningún cambio".
+    expect(response.status).toBe(200);
+    expect(body.updated).toBe(3);
+    expect(mocks.tx.courseSession.update).toHaveBeenCalledTimes(3);
+    // La reconciliación derivada queda pendiente; el cron la recupera después.
+    expect(body.pending).toBe(true);
+    expect(body.reconciled).toEqual({ ok: false, pending: true });
+    // Ambos canales quedan OMITIDO/recuperable, nunca CANCELADO ni perdidos.
+    expect(messages.find((m) => m.id === "m-email-pendiente")?.status).toBe("OMITIDO");
+    expect(messages.find((m) => m.id === "m-wa-pendiente")?.status).toBe("OMITIDO");
+    // El flag de reconciliación pendiente sigue marcado (nunca se limpió).
+    expect(mocks.prisma.course.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ automationReconcilePendingAt: null }) }),
+    );
   });
 });
 

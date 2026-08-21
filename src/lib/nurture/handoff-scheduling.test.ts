@@ -20,12 +20,17 @@ import { scheduleEnrollmentAutomations } from "./engine";
 import { WHATSAPP_AUTOMATION_PLAN, templateFieldsFor } from "./default-automations-whatsapp";
 
 /**
- * Handoff humano: que se calla y que no cuando hay un asesor escribiendo.
+ * Cierre de producción: atención humana y automatizaciones coexisten.
  *
- * El equilibrio importa en las dos direcciones. Un mensaje comercial encima de
- * una conversacion real hace que el CRM parezca no estar leyendo. Pero callar
- * un recordatorio de acceso deja a alguien sin su clase por haber preguntado
- * una duda, y eso es mucho peor.
+ * Antes, un asesor escribiendo callaba lo comercial de esa persona
+ * (HUMAN_HANDOFF gateaba `scheduleEnrollmentAutomations`). Es una decisión de
+ * producto revertida deliberadamente: un humano puede atender en cualquier
+ * momento sin pausar el journey, comercial u operativo.
+ * `scheduleEnrollmentAutomations` ya ni siquiera consulta la conversación del
+ * contacto — no hay ninguna decisión que tomar sobre ese estado aquí. Ver el
+ * comentario de cabecera de `conversation.ts`. El mock de `conversation`
+ * sigue declarado a propósito: varias pruebas lo dejan devolviendo
+ * HUMAN_HANDOFF para demostrar que, aunque lo hiciera, no cambiaría nada.
  */
 const NOW = new Date("2026-08-20T15:00:00.000Z");
 const SESION = new Date("2026-08-25T00:30:00.000Z");
@@ -52,8 +57,8 @@ function regla(planKey: string) {
   };
 }
 
-/** Un operativo y un comercial: lo justo para ver la diferencia. */
-const REGLAS = [regla("reminder_24h"), regla("course_follow_up")];
+/** Un operativo, un comercial y un conversacional: los tres deben salir siempre. */
+const REGLAS = [regla("reminder_24h"), regla("course_follow_up"), regla("welcome")];
 
 function inscripcion(telefono: string | null = TELEFONO) {
   return {
@@ -114,78 +119,42 @@ beforeEach(() => {
   mocks.prisma.leadEvent.create.mockResolvedValue({});
 });
 
-describe("sin atención humana", () => {
-  it("salen los dos: el operativo y el comercial", async () => {
+describe("HUMAN_HANDOFF nunca calla una automatización al programar", () => {
+  it("sin conversación conocida, salen el operativo, el comercial y el conversacional", async () => {
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(momentosProgramados()).toEqual(expect.arrayContaining(["reminder_24h", "course_follow_up"]));
+    expect(momentosProgramados()).toEqual(expect.arrayContaining(["reminder_24h", "course_follow_up", "welcome"]));
   });
 
-  it("una conversación en AUTOMATION no cambia nada", async () => {
-    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "AUTOMATION" });
-    await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(momentosProgramados()).toContain("course_follow_up");
-  });
-});
-
-describe("con atención humana abierta", () => {
-  beforeEach(() => {
-    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "HUMAN_HANDOFF" });
-  });
-
-  it("el recordatorio de sesión SIGUE saliendo", async () => {
-    // Es la mitad que importa: quien pregunta una duda no puede quedarse sin
-    // el aviso de su propia clase.
-    await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(momentosProgramados()).toContain("reminder_24h");
-  });
-
-  it("el seguimiento comercial NO sale", async () => {
-    await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(momentosProgramados()).not.toContain("course_follow_up");
-  });
-
-  it("se consulta la conversación por el teléfono del contacto", async () => {
-    await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(mocks.prisma.conversation.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { phone: TELEFONO } }),
-    );
-  });
-
-  it("se consulta UNA vez, no una por regla", async () => {
-    // Once reglas y una sola respuesta: consultar por regla seria multiplicar
-    // la misma pregunta en cada programacion.
-    await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(mocks.prisma.conversation.findUnique).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("casos en los que no se calla nada", () => {
-  it("un contacto sin teléfono ni siquiera consulta la conversación", async () => {
-    // Sin telefono no hay conversacion posible. Consultar con `undefined`
-    // devolveria la primera fila que hubiera y aplicaria el handoff de otra
-    // persona; por eso la consulta se salta por completo.
-    //
-    // (Estas reglas son de WhatsApp, asi que sin telefono tampoco hay mensajes
-    // que programar: el motor no tiene a donde enviarlos.)
-    mocks.prisma.enrollment.findUnique.mockResolvedValue(inscripcion(null));
+  it("ya no consulta la conversación del contacto: no hay handoff que evaluar aquí", async () => {
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
     expect(mocks.prisma.conversation.findUnique).not.toHaveBeenCalled();
   });
 
-  it("una atención ya cerrada deja pasar todo otra vez", async () => {
-    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "RESOLVED" });
+  it("aunque la conversación esté en HUMAN_HANDOFF, el operativo sigue saliendo (como siempre)", async () => {
+    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "HUMAN_HANDOFF" });
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(momentosProgramados()).toContain("course_follow_up");
+    expect(momentosProgramados()).toContain("reminder_24h");
   });
 
-  it("el handoff de una persona no afecta a otra", async () => {
-    // El estado se resuelve por telefono, asi que otra inscripcion con otro
-    // numero consulta su propia conversacion.
-    mocks.prisma.conversation.findUnique.mockImplementation(async ({ where }: any) => (
-      where.phone === TELEFONO ? { state: "HUMAN_HANDOFF" } : null
-    ));
-    mocks.prisma.enrollment.findUnique.mockResolvedValue(inscripcion("+593988888888"));
+  it("aunque la conversación esté en HUMAN_HANDOFF, el comercial y lo conversacional TAMBIÉN salen (cambio deliberado)", async () => {
+    mocks.prisma.conversation.findUnique.mockResolvedValue({ state: "HUMAN_HANDOFF" });
     await scheduleEnrollmentAutomations("enrollment-1", NOW);
-    expect(momentosProgramados()).toContain("course_follow_up");
+    expect(momentosProgramados()).toEqual(expect.arrayContaining(["course_follow_up", "welcome"]));
+  });
+
+  it("una conversación en AUTOMATION o RESOLVED tampoco cambia nada", async () => {
+    for (const state of ["AUTOMATION", "RESOLVED"]) {
+      mensajes = [];
+      mocks.prisma.conversation.findUnique.mockResolvedValue({ state });
+      await scheduleEnrollmentAutomations("enrollment-1", NOW);
+      expect(momentosProgramados()).toContain("course_follow_up");
+    }
+  });
+
+  it("un contacto sin teléfono simplemente no tiene a dónde mandar los de WhatsApp", async () => {
+    mocks.prisma.enrollment.findUnique.mockResolvedValue(inscripcion(null));
+    await scheduleEnrollmentAutomations("enrollment-1", NOW);
+    expect(momentosProgramados()).toEqual([]);
+    expect(mocks.prisma.conversation.findUnique).not.toHaveBeenCalled();
   });
 });

@@ -54,12 +54,14 @@ type Enrollment = {
   landingUrl: string | null;
   referrer: string | null;
   course: {
+    id: string;
     title: string;
     officialCourseUrl: string;
     moodleCourseUrl: string | null;
     modality: string | null;
     startDate: string | null;
     endDate: string | null;
+    financeServiceId: string | null;
   };
 };
 
@@ -269,6 +271,22 @@ export function LeadDetailManager({
           }
           if (item.status !== "INTERESADO" || item.financeStatus === "ENVIANDO") {
             return item.financeStatus === "ENVIANDO" ? <button key={item.id} type="button" className="btn-sm ghost" disabled>Enviando a Finance…</button> : null;
+          }
+          if (!item.course.financeServiceId) {
+            // Un botón que parece listo y falla al hacer clic es peor que no
+            // mostrarlo: este curso todavía no tiene un servicio de Finance
+            // asignado, así que se enlaza directo a configurarlo en vez de
+            // ofrecer una acción que va a rechazar la petición.
+            return (
+              <a
+                key={item.id}
+                className="btn-sm ghost"
+                href={`/admin/cursos?configurarFinance=${item.course.id}`}
+                aria-label={`Configurar Finance para ${item.course.title}`}
+              >
+                Configurar Finance
+              </a>
+            );
           }
           const isBusy = busyFinanceId === item.id;
           return <button key={item.id} type="button" className="btn-sm ghost" disabled={isBusy} onClick={() => linkWithFinance(item)} aria-label={`Vincular con Finance: ${item.course.title}`}>{isBusy ? "Enviando a Finance…" : item.financeStatus === "ERROR" ? "Reintentar" : "Vincular con Finance"}</button>;

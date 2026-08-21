@@ -19,7 +19,7 @@ import { executeBulkFinanceHandoff, previewBulkFinanceHandoff } from "./bulk-han
 
 const session = { userId: "u1", email: "tecnico@example.test", role: "ADMIN" } as any;
 
-function enrollment(overrides: Partial<{ id: string; status: string; financeInscripcionId: string | null; leadName: string; modality: string | null; sessions: any[] }> = {}) {
+function enrollment(overrides: Partial<{ id: string; status: string; financeInscripcionId: string | null; leadName: string; modality: string | null; financeServiceId: string | null; sessions: any[] }> = {}) {
   return {
     id: overrides.id ?? "enr-1",
     status: overrides.status ?? "INSCRITO",
@@ -31,6 +31,11 @@ function enrollment(overrides: Partial<{ id: string; status: string; financeInsc
       title: "Curso de prueba",
       slug: "curso-de-prueba",
       modality: overrides.modality === undefined ? "Virtual" : overrides.modality,
+      // Vinculado por defecto: los cursos SIN financeServiceId tienen su
+      // propio describe más abajo, para no mezclar esa clasificación con lo
+      // que estas pruebas realmente ejercitan (concurrencia, fallos por
+      // registro vs. globales).
+      financeServiceId: overrides.financeServiceId === undefined ? "SRV-1" : overrides.financeServiceId,
       price: null,
       sessions: overrides.sessions ?? [{ startAt: new Date("2026-09-01T00:30:00.000Z"), endAt: new Date("2026-09-01T02:00:00.000Z"), timezone: "America/Guayaquil" }],
     },
@@ -69,6 +74,21 @@ describe("previewBulkFinanceHandoff", () => {
     const preview = await previewBulkFinanceHandoff("course-1");
     expect(preview.requierenConfiguracion).toBe(1);
     expect(preview.items[0]).toMatchObject({ status: "REQUIERE_CONFIGURACION", motivo: expect.stringContaining("modalidad") });
+  });
+
+  /**
+   * Sección G del cierre de producción: un curso sin financeServiceId es una
+   * brecha de configuración esperada -no una falla de transporte-, y se
+   * detecta localmente sin llamar a Finance. Antes esto se clasificaba como
+   * POR_ENVIAR y el error genérico solo aparecía al ejecutar de verdad.
+   */
+  it("clasifica un curso sin financeServiceId como REQUIERE_CONFIGURACION, no como POR_ENVIAR ni error genérico", async () => {
+    mocks.prisma.enrollment.findMany.mockImplementation(async ({ where }: any) =>
+      where.status === "CANCELADO" ? [] : [enrollment({ financeServiceId: null })]);
+    const preview = await previewBulkFinanceHandoff("course-1");
+    expect(preview.porEnviar).toBe(0);
+    expect(preview.requierenConfiguracion).toBe(1);
+    expect(preview.items[0]).toMatchObject({ status: "REQUIERE_CONFIGURACION", motivo: "Pendiente de configurar en Finance." });
   });
 
   it("clasifica una inscripción cancelada aparte, sin importar el filtro principal", async () => {

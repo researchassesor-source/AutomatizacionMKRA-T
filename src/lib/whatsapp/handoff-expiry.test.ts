@@ -47,13 +47,14 @@ beforeEach(() => {
 });
 
 /**
- * Sección 38 del release de estabilización: HUMAN_HANDOFF callaba lo
- * comercial de un contacto para siempre si nadie hacía clic en "Cerrar
- * atención". Se libera sola pasadas 24 h de INACTIVIDAD real (no 24 h desde
- * que se abrió: `handoffAt` no se mueve mientras dura la atención, así que
- * una conversación con actividad activa hace horas igual tendría un
- * `handoffAt` viejo — cerrarla solo por eso interrumpiría una atención en
- * curso).
+ * HUMAN_HANDOFF ya no calla ninguna automatización, pero sigue gobernando la
+ * asignación y el Inbox: sin esto, una atención abandonada seguiría
+ * mostrándose como atendida por un asesor para siempre si nadie hace clic en
+ * "Finalizar atención". Se libera sola pasadas 24 h de INACTIVIDAD real (no
+ * 24 h desde que se abrió: `handoffAt` no se mueve mientras dura la
+ * atención, así que una conversación con actividad activa hace horas igual
+ * tendría un `handoffAt` viejo — cerrarla solo por eso interrumpiría una
+ * atención en curso).
  */
 describe("expirarAtencionesHumanas", () => {
   it("consulta conversaciones HUMAN_HANDOFF con handoffAt de hace 24h o más (prefiltro), en lotes de 5", async () => {

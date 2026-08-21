@@ -207,10 +207,10 @@ describe("otras causas por las que una regla de WhatsApp puede quedar fuera (con
     expect(messages).toHaveLength(0);
   });
 
-  it("HUMAN_HANDOFF activo: un momento comercial se salta (welcome no es operativo)", async () => {
+  it("HUMAN_HANDOFF activo: un momento comercial se programa igual (cierre de producción, ya no se calla)", async () => {
     mocks.prisma.conversation.findUnique.mockResolvedValueOnce({ state: "HUMAN_HANDOFF" });
     const message = await schedule(emailRule("welcome"));
-    expect(message).toBeUndefined();
+    expect(message.status).toBe("PROGRAMADO");
   });
 
   it("contacto sin teléfono: una regla de WhatsApp no tiene a dónde enviarse", async () => {

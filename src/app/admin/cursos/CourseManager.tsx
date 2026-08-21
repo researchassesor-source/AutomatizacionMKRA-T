@@ -64,11 +64,14 @@ export function CourseManager({
   canEdit,
   startCreating,
   closeHref,
+  openFinanceForCourseId,
 }: {
   courses: CourseRow[];
   canEdit: boolean;
   startCreating: boolean;
   closeHref: string;
+  /** Enlace directo desde fuera (p.ej. "Configurar Finance" en la ficha de un contacto). */
+  openFinanceForCourseId?: string | null;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<CourseRow | null>(null);
@@ -84,6 +87,21 @@ export function CourseManager({
       setEditing(null);
     }
   }, [canEdit, startCreating]);
+
+  useEffect(() => {
+    if (!openFinanceForCourseId || !canEdit) return;
+    const course = courses.find((item) => item.id === openFinanceForCourseId);
+    if (!course) return;
+    setEditing(course);
+    setCreating(false);
+    setConfigurandoFinance(true);
+    // Limpia el parámetro: sin esto, cerrar el modal y navegar de vuelta a
+    // esta misma pantalla lo reabriría solo, sin que nadie lo pidiera de nuevo.
+    // Una vez limpio, `openFinanceForCourseId` llega `null` y la guarda de
+    // arriba evita que este efecto vuelva a dispararse por un refresh de
+    // `courses` o un cambio de identidad de `router`.
+    router.replace(closeHref, { scroll: false });
+  }, [openFinanceForCourseId, canEdit, courses, closeHref, router]);
 
   function closeEditor() {
     setEditing(null);
@@ -229,12 +247,26 @@ export function CourseManager({
             {[
               ["isPublished", "Publicado", current.isPublished],
               ["acceptsRegistrations", "Acepta registros", current.acceptsRegistrations],
-              ["isFree", "Gratuito", current.isFree],
               ["isLeadMagnet", "Recurso de captación", current.isLeadMagnet],
               ["hasCertificate", "Incluye certificado", current.hasCertificate],
             ].map(([name, label, checked]) => (
               <label className="checkbox" key={String(name)}><input name={String(name)} type="checkbox" defaultChecked={Boolean(checked)} /><span>{String(label)}</span></label>
             ))}
+            {/*
+              Sección H del cierre de producción: "Gratuito" decide si el
+              recorrido puede empezar al registrarse (Paid First lo consulta
+              directo, ver courseAccessEligibility). No se infiere de price ni
+              de WordPress -sigue siendo una decisión manual-, así que el
+              único cambio permitido aquí es explicar qué controla, no tocar
+              su lógica ni su valor.
+            */}
+            <label className="checkbox">
+              <input name="isFree" type="checkbox" defaultChecked={Boolean(current.isFree)} />
+              <span>Gratuito</span>
+            </label>
+            <small className="muted">
+              Si está activo, las automatizaciones del curso pueden empezar al registrarse. Si el curso es de pago, el journey empieza cuando el pago queda verificado.
+            </small>
           </div>
           <div className="card-actions">
             <button type="submit" className="btn-sm" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>

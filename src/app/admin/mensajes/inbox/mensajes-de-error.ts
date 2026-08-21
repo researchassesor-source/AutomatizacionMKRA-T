@@ -62,6 +62,7 @@ export function etiquetaDeEstado(estado: string | null): string {
     case "ENTREGADO": return "Entregado";
     case "LEIDO": return "Leído";
     case "FALLIDO": return "No se pudo enviar";
+    case "REBOTADO": return "Rebotó";
     case "OMITIDO": return "Omitido";
     case "CANCELADO": return "Cancelado";
     case "SIMULADO": return "Simulado";

@@ -21,12 +21,20 @@ type AdminLink = { href: string; label: string; icon: AdminIconName };
  *
  * Lo que decide que se ve es la VISTA, no el rol: asi el perfil tecnico puede
  * comprobar exactamente lo que vera direccion sin cambiar de cuenta.
+ *
+ * Ultimo hotfix: "Inbox WhatsApp" vivia dentro de Sistema, asi que solo se
+ * veia con `view === "tecnica"`. El permiso de backend (OPERACION, que ya
+ * incluye DIRECCION) siempre lo permitio -esto era puramente un problema de
+ * navegacion-, asi que Direccion nunca podia LLEGAR a una pantalla a la que
+ * ya tenia acceso. Se mueve a Trabajo, justo despues de Comunicaciones;
+ * "Integraciones" sigue solo en Sistema/Tecnica.
  */
 const TRABAJO: AdminLink[] = [
   { href: "/admin", label: "Inicio", icon: "overview" },
   { href: "/admin/leads", label: "Contactos", icon: "contacts" },
   { href: "/admin/cursos", label: "Cursos", icon: "courses" },
   { href: "/admin/mensajes", label: "Comunicaciones", icon: "messages" },
+  { href: "/admin/mensajes?vista=inbox", label: "Inbox WhatsApp", icon: "messages" },
   { href: "/admin/revisar", label: "Revisar", icon: "alert" },
   { href: "/admin/redes", label: "Publicaciones", icon: "social" },
 ];
@@ -36,7 +44,6 @@ const GESTION_LINKS: AdminLink[] = [
 ];
 
 const SISTEMA: AdminLink[] = [
-  { href: "/admin/mensajes?vista=inbox", label: "Inbox WhatsApp", icon: "messages" },
   { href: "/admin/mensajes?vista=integraciones", label: "Integraciones", icon: "activity" },
   { href: "/admin/automatizaciones", label: "Automatizaciones", icon: "calendar" },
   { href: "/admin/cursos?vista=catalogo", label: "Catálogo", icon: "courses" },

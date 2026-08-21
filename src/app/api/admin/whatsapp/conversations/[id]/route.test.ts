@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
     $transaction: vi.fn(),
   },
   writeAudit: vi.fn(async (_input: any) => undefined),
-  requireRole: vi.fn(async () => ({
+  requireRole: vi.fn(async (): Promise<{ session: { userId: string; email: string; role: string } | null; error: Response | null }> => ({
     session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" },
     error: null,
   })),
@@ -68,6 +68,20 @@ function conversacionDetalle(overrides: Partial<{ leadId: string | null }> = {})
   };
 }
 
+/**
+ * El GET real llama a `outboundMessage.findMany` DOS veces por petición -una
+ * para el historial real (status en ESTADOS_HISTORIAL_REAL), otra para los
+ * próximos automáticos (status PROGRAMADO)-. Un `mockResolvedValue` plano
+ * devolvería lo mismo a las dos, así que los fixtures de salientes se
+ * inyectan por el WHERE real, igual que hace el propio Prisma.
+ */
+function mockSalientes(reales: any[], programados: any[] = []) {
+  mocks.prisma.outboundMessage.findMany.mockImplementation(async ({ where }: any) => {
+    if (where.status === "PROGRAMADO") return programados;
+    return reales;
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({ session: { userId: "admin-1", email: "admin@ra-training.com", role: "ADMIN" }, error: null });
@@ -78,7 +92,7 @@ beforeEach(() => {
   mocks.prisma.lead.update.mockResolvedValue({});
   mocks.prisma.inboundMessage.updateMany.mockResolvedValue({ count: 0 });
   mocks.prisma.inboundMessage.findMany.mockResolvedValue([]);
-  mocks.prisma.outboundMessage.findMany.mockResolvedValue([]);
+  mockSalientes([], []);
   mocks.prisma.$transaction.mockImplementation(async (operations: Promise<unknown>[]) => Promise.all(operations));
   mocks.recuperarAutomatizacionesDelContacto.mockResolvedValue(0);
 });
@@ -231,10 +245,10 @@ describe("GET conversación: el detalle refleja si está vinculada (recarga tras
     mocks.prisma.inboundMessage.findMany.mockResolvedValue([
       { id: "in-1", type: "text", text: "hola", mediaMeta: null, contextMessageId: null, occurredAt: new Date("2026-08-20T09:00:00Z"), readAt: null, providerMessageId: "wamid.IN" },
     ]);
-    mocks.prisma.outboundMessage.findMany.mockResolvedValue([
+    mockSalientes([
       {
         id: "out-1", body: "hola, ¿en qué te ayudo?", status: "ACEPTADO", origin: "HUMAN",
-        scheduledAt: new Date("2026-08-20T09:05:00Z"), acceptedAt: new Date("2026-08-20T09:05:00Z"),
+        scheduledAt: new Date("2026-08-20T09:05:00Z"), acceptedAt: new Date("2026-08-20T09:05:00Z"), sentAt: null, failedAt: null, bouncedAt: null,
         errorCode: null, providerMessageId: "wamid.OUT", humanActor: { id: "admin-1", name: "Admin" },
       },
     ]);
@@ -243,5 +257,135 @@ describe("GET conversación: el detalle refleja si está vinculada (recarga tras
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0]).toMatchObject({ direction: "INBOUND", origin: "CONTACT" });
     expect(body.messages[1]).toMatchObject({ direction: "OUTBOUND", origin: "HUMAN", actor: "Admin" });
+  });
+});
+
+/**
+ * Último hotfix: caso real confirmado en Production. La conversación de hoy
+ * (20/08, 20:59-21:01) quedaba enterrada porque el chat mezclaba PROGRAMADO
+ * futuros (25/08...30/08) usando su `scheduledAt` como si ya hubieran
+ * pasado. Ahora viven aparte, en `scheduledMessages`, y nunca entran a
+ * `messages` ni alteran su orden.
+ */
+describe("GET conversación: mensajes reales vs. próximos automáticos (hotfix WhatsApp Inbox)", () => {
+  const CLIENTE_2059 = { id: "in-hola", type: "text", text: "Hola", mediaMeta: null, contextMessageId: null, occurredAt: new Date("2026-08-20T20:59:00Z"), readAt: null, providerMessageId: "wamid.IN.1" };
+
+  function saliente(overrides: Partial<{ id: string; body: string; status: string; origin: "HUMAN" | "AUTOMATION"; scheduledAt: Date; acceptedAt: Date | null; sentAt: Date | null; failedAt: Date | null; bouncedAt: Date | null; humanActor: { id: string; name: string } | null }>) {
+    return {
+      id: overrides.id ?? "out-x",
+      body: overrides.body ?? "texto",
+      status: overrides.status ?? "ACEPTADO",
+      origin: overrides.origin ?? "HUMAN",
+      scheduledAt: overrides.scheduledAt ?? new Date("2026-08-20T21:00:00Z"),
+      acceptedAt: overrides.acceptedAt ?? null,
+      sentAt: overrides.sentAt ?? null,
+      failedAt: overrides.failedAt ?? null,
+      bouncedAt: overrides.bouncedAt ?? null,
+      errorCode: null,
+      providerMessageId: `wamid.${overrides.id ?? "out-x"}`,
+      humanActor: overrides.humanActor === undefined ? null : overrides.humanActor,
+    };
+  }
+
+  beforeEach(() => {
+    mocks.prisma.conversation.findUnique.mockResolvedValue(conversacionDetalle({ leadId: "lead-1" }));
+  });
+
+  it("1: el entrante 'Hola' del cliente aparece en messages", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([CLIENTE_2059]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages.some((m: any) => m.text === "Hola" && m.direction === "INBOUND")).toBe(true);
+  });
+
+  it("2: la respuesta humana ACEPTADO aparece en messages", async () => {
+    mockSalientes([saliente({ id: "out-asesor", body: "Hola Angel en que podemos ayudarte", status: "ACEPTADO", origin: "HUMAN", acceptedAt: new Date("2026-08-20T21:00:00Z"), humanActor: { id: "admin-1", name: "Asesor" } })]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0]).toMatchObject({ direction: "OUTBOUND", origin: "HUMAN", text: "Hola Angel en que podemos ayudarte" });
+  });
+
+  it("3: el automático ACEPTADO (Grupo WhatsApp) aparece en messages", async () => {
+    mockSalientes([saliente({ id: "out-grupo", body: "Únete al grupo de WhatsApp", status: "ACEPTADO", origin: "AUTOMATION", acceptedAt: new Date("2026-08-20T21:00:30Z") })]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0]).toMatchObject({ direction: "OUTBOUND", origin: "AUTOMATION" });
+  });
+
+  it("4: un PROGRAMADO futuro (30/08) NO aparece en messages", async () => {
+    // La consulta real de `messages` ya filtra por status en el WHERE, así
+    // que un PROGRAMADO nunca llega a `reales`: se simula devolviendo la
+    // lista vacía para ese lado, exactamente lo que Prisma haría.
+    mockSalientes([], [saliente({ id: "out-30ago", body: "Encuesta final", status: "PROGRAMADO", origin: "AUTOMATION", scheduledAt: new Date("2026-08-30T18:00:00Z") })]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages).toHaveLength(0);
+    expect(body.messages.some((m: any) => m.id === "out-30ago")).toBe(false);
+  });
+
+  it("5: ese mismo PROGRAMADO futuro sí aparece en scheduledMessages", async () => {
+    mockSalientes([], [saliente({ id: "out-30ago", body: "Encuesta final", status: "PROGRAMADO", scheduledAt: new Date("2026-08-30T18:00:00Z") })]);
+    const body = await (await get("conv-1")).json();
+    expect(body.scheduledMessages).toHaveLength(1);
+    expect(body.scheduledMessages[0]).toMatchObject({ id: "out-30ago", scheduledAt: "2026-08-30T18:00:00.000Z" });
+  });
+
+  it("6: OMITIDO, CANCELADO y SIMULADO no aparecen en el chat real", async () => {
+    // Los tres quedan fuera del propio WHERE de Prisma (status no está en
+    // ESTADOS_HISTORIAL_REAL): se confirma que la consulta de `messages`
+    // nunca los pide devolviendo vacío, igual que la base real haría.
+    mockSalientes([], []);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages).toHaveLength(0);
+  });
+
+  it("7: el orden real (cliente 20:59, asesor 21:00, automático 21:00, asesor 21:01) se respeta", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([CLIENTE_2059]);
+    mockSalientes([
+      saliente({ id: "out-asesor-1", body: "Hola Angel en que podemos ayudarte", origin: "HUMAN", acceptedAt: new Date("2026-08-20T21:00:00Z"), humanActor: { id: "a1", name: "Asesor" } }),
+      saliente({ id: "out-grupo", body: "Grupo WhatsApp", origin: "AUTOMATION", acceptedAt: new Date("2026-08-20T21:00:15Z") }),
+      saliente({ id: "out-asesor-2", body: "Hola de nuevo en que puedo ayudarte", origin: "HUMAN", acceptedAt: new Date("2026-08-20T21:01:00Z"), humanActor: { id: "a1", name: "Asesor" } }),
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages.map((m: any) => m.id)).toEqual(["in-hola", "out-asesor-1", "out-grupo", "out-asesor-2"]);
+  });
+
+  it("8: el programado del 30/08 no altera cuál es el último mensaje real", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([CLIENTE_2059]);
+    mockSalientes(
+      [saliente({ id: "out-asesor-2", body: "Hola de nuevo en que puedo ayudarte", origin: "HUMAN", acceptedAt: new Date("2026-08-20T21:01:00Z"), humanActor: { id: "a1", name: "Asesor" } })],
+      [saliente({ id: "out-30ago", body: "Encuesta final", status: "PROGRAMADO", scheduledAt: new Date("2026-08-30T18:00:00Z") })],
+    );
+    const body = await (await get("conv-1")).json();
+    const ultimoReal = body.messages[body.messages.length - 1];
+    expect(ultimoReal.id).toBe("out-asesor-2");
+    expect(new Date(ultimoReal.at).getTime()).toBeLessThan(new Date("2026-08-30T00:00:00Z").getTime());
+  });
+
+  it("12: aunque no haya ningún programado, el contrato siempre trae scheduledMessages (nunca undefined)", async () => {
+    const body = await (await get("conv-1")).json();
+    expect(body.scheduledMessages).toEqual([]);
+    expect(body.messages).toEqual([]);
+  });
+
+  it("REBOTADO también es historial real, con su propio bouncedAt como posición", async () => {
+    mockSalientes([saliente({ id: "out-rebotado", body: "texto", status: "REBOTADO", origin: "AUTOMATION", bouncedAt: new Date("2026-08-20T21:02:00Z") })]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0]).toMatchObject({ status: "REBOTADO", at: "2026-08-20T21:02:00.000Z" });
+  });
+
+  it("20: GET sigue exigiendo el mismo rol OPERACION existente (sin tocar el guard del backend)", async () => {
+    mocks.requireRole.mockResolvedValue({ session: null, error: new Response("no autorizado", { status: 401 }) });
+    const res = await get("conv-1");
+    expect(res.status).toBe(401);
+    expect(mocks.prisma.conversation.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("el label de un automático programado sale del catálogo de pasos, no del planKey en crudo", async () => {
+    mockSalientes([], [
+      { id: "out-24h", body: "x", status: "PROGRAMADO", origin: "AUTOMATION", scheduledAt: new Date("2026-08-25T19:00:00Z"), acceptedAt: null, sentAt: null, failedAt: null, bouncedAt: null, errorCode: null, providerMessageId: null, humanActor: null, automationRule: { planKey: "reminder_24h" } },
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.scheduledMessages[0].label).toBe("Recordatorio");
+    expect(body.scheduledMessages[0]).not.toHaveProperty("planKey");
   });
 });

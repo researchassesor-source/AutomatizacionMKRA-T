@@ -5,20 +5,37 @@ import { writeAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/authorization";
 import { GESTION, OPERACION } from "@/lib/auth/roles";
 import { checkRateLimit, requestKey } from "@/lib/rate-limit";
-import { ventanaDe } from "@/lib/whatsapp/conversation-service";
+import { TIMELINE_STEPS } from "@/lib/course-timeline";
+import { ESTADOS_HISTORIAL_REAL, outboundEfectivoAt, ventanaDe } from "@/lib/whatsapp/conversation-service";
 import { recuperarAutomatizacionesDelContacto } from "@/lib/whatsapp/handoff-expiry";
 
 export const dynamic = "force-dynamic";
 
 /** Tope duro: una conversacion larga no puede traerse entera de una vez. */
 const MAX_MENSAJES = 100;
+/** Tope duro para los proximos automaticos: una vista previa, no la cola entera. */
+const MAX_PROGRAMADOS = 50;
+
+/** Nombre legible de un paso del recorrido, para no mostrar su planKey en crudo. */
+function etiquetaDePaso(planKey: string | null | undefined): string {
+  return TIMELINE_STEPS.find((step) => step.planKey === planKey)?.title ?? "Mensaje automático";
+}
 
 /**
  * Detalle de una conversacion y acciones sobre ella.
  *
- * El historial mezcla dos tablas —lo que entra y lo que sale— en una sola
- * lista ordenada por tiempo, que es como se lee una conversacion. Cada entrada
- * dice de donde viene: del contacto, de un asesor o de una automatizacion.
+ * `messages` es el chat real -lo que ya paso o se intento de verdad-, mezcla
+ * dos tablas (lo que entra y lo que sale) en una sola lista ordenada por
+ * tiempo, que es como se lee una conversacion. Cada entrada dice de donde
+ * viene: del contacto, de un asesor o de una automatizacion.
+ *
+ * Ultimo hotfix: un OutboundMessage PROGRAMADO (todavia no enviado) caia en
+ * esta misma lista, usando su `scheduledAt` -una fecha futura- como si fuera
+ * cuando "paso". El chat terminaba mostrando fechas de dentro de varios dias
+ * despues de la conversacion real de hoy, y el scroll-al-final aterrizaba ahi
+ * en vez de en el ultimo mensaje real. Los PROGRAMADO futuros ahora viven
+ * aparte, en `scheduledMessages`, y nunca se mezclan con `messages` ni
+ * afectan su orden, su limite o el scroll.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(request, OPERACION);
@@ -45,7 +62,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   });
   if (!conversacion) return NextResponse.json({ error: "No se encontró la conversación." }, { status: 404 });
 
-  const [entrantes, salientes] = await Promise.all([
+  const ahora = new Date();
+  // De la conversacion, o del contacto vinculado: los automaticos son
+  // anteriores a que existiera la conversacion y no la referencian.
+  const deLaConversacionODelContacto = { OR: [{ conversationId: id }, ...(conversacion.lead ? [{ leadId: conversacion.lead.id }] : [])] };
+
+  const [entrantes, salientes, programados] = await Promise.all([
     prisma.inboundMessage.findMany({
       where: { fromPhone: conversacion.phone },
       select: { id: true, type: true, text: true, mediaMeta: true, contextMessageId: true, occurredAt: true, readAt: true, providerMessageId: true },
@@ -53,19 +75,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       take: MAX_MENSAJES,
     }),
     prisma.outboundMessage.findMany({
-      where: {
-        channel: "WHATSAPP",
-        // De la conversacion, o del contacto vinculado: los automaticos son
-        // anteriores a que existiera la conversacion y no la referencian.
-        OR: [{ conversationId: id }, ...(conversacion.lead ? [{ leadId: conversacion.lead.id }] : [])],
-      },
+      where: { channel: "WHATSAPP", status: { in: [...ESTADOS_HISTORIAL_REAL] }, ...deLaConversacionODelContacto },
       select: {
-        id: true, body: true, status: true, origin: true, scheduledAt: true, acceptedAt: true,
+        id: true, body: true, status: true, origin: true, scheduledAt: true,
+        acceptedAt: true, sentAt: true, failedAt: true, bouncedAt: true,
         errorCode: true, providerMessageId: true,
         humanActor: { select: { id: true, name: true } },
       },
       orderBy: { scheduledAt: "desc" },
       take: MAX_MENSAJES,
+    }),
+    prisma.outboundMessage.findMany({
+      where: { channel: "WHATSAPP", status: "PROGRAMADO", scheduledAt: { gt: ahora }, ...deLaConversacionODelContacto },
+      select: { id: true, scheduledAt: true, automationRule: { select: { planKey: true } } },
+      orderBy: { scheduledAt: "asc" },
+      take: MAX_PROGRAMADOS,
     }),
   ]);
 
@@ -88,7 +112,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       id: m.id,
       direction: "OUTBOUND" as const,
       origin: m.origin === "HUMAN" ? ("HUMAN" as const) : ("AUTOMATION" as const),
-      at: (m.acceptedAt ?? m.scheduledAt).toISOString(),
+      at: outboundEfectivoAt(m).toISOString(),
       type: "text",
       text: m.body,
       attachment: null,
@@ -116,6 +140,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     window: ventanaDe(conversacion.lastInboundAt),
     messages: historial,
     truncated: entrantes.length === MAX_MENSAJES || salientes.length === MAX_MENSAJES,
+    scheduledMessages: programados.map((m) => ({
+      id: m.id,
+      label: etiquetaDePaso(m.automationRule?.planKey),
+      scheduledAt: m.scheduledAt.toISOString(),
+    })),
+    scheduledTruncated: programados.length === MAX_PROGRAMADOS,
   });
 }
 

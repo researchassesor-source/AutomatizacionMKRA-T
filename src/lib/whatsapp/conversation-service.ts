@@ -37,6 +37,45 @@ export function plantillaUsableEnBandeja(clave: string): FalloRespuesta | null {
   return null;
 }
 
+/**
+ * Estados de OutboundMessage que representan una accion REAL sobre WhatsApp:
+ * se intento o se logro entregar, no una intencion futura ni algo que nunca
+ * salio.
+ *
+ * REBOTADO se suma al conjunto que ya sugeria el pedido (ENVIANDO, ACEPTADO,
+ * ENVIADO, ENTREGADO, LEIDO, FALLIDO): un rebote es Meta rechazando en firme
+ * un mensaje que si se intento enviar -tiene su propio `bouncedAt`-, asi que
+ * es tan real como un FALLIDO y merece el mismo trato (aparecer en el chat
+ * con su propio estado de error), no desaparecer silenciosamente.
+ *
+ * Deliberadamente NO incluye PROGRAMADO (todavia no paso), OMITIDO/CANCELADO
+ * (se decidio no mandarlo) ni SIMULADO (no toco WhatsApp de verdad): mezclar
+ * cualquiera de estos con el historial real es exactamente el bug que este
+ * conjunto existe para evitar.
+ */
+export const ESTADOS_HISTORIAL_REAL = ["ENVIANDO", "ACEPTADO", "ENVIADO", "ENTREGADO", "LEIDO", "REBOTADO", "FALLIDO"] as const;
+
+/**
+ * Momento real en que un saliente ocurrio (o se intento), para ubicarlo en el
+ * historial.
+ *
+ * `readAt`/`deliveredAt` quedan fuera a proposito: son ESTADOS posteriores
+ * del mismo mensaje, no otro momento en el que reubicarlo -un mensaje leido
+ * dos dias despues no "se mueve" a esa fecha en el chat-. `scheduledAt` es el
+ * ultimo recurso (p.ej. ENVIANDO, que puede no tener aun ningun timestamp
+ * propio) y para los estados reales nunca cae en el futuro, porque el
+ * despachador solo los toca en o despues de su hora programada.
+ */
+export function outboundEfectivoAt(m: {
+  scheduledAt: Date;
+  acceptedAt: Date | null;
+  sentAt: Date | null;
+  failedAt: Date | null;
+  bouncedAt: Date | null;
+}): Date {
+  return m.acceptedAt ?? m.sentAt ?? m.failedAt ?? m.bouncedAt ?? m.scheduledAt;
+}
+
 /** Ventana de la conversacion, calculada siempre en el mismo sitio. */
 export function ventanaDe(lastInboundAt: Date | null | undefined, ahora = new Date()) {
   const ventana = whatsappCustomerServiceWindow(lastInboundAt, ahora);

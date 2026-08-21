@@ -40,6 +40,106 @@ describe("integración con el panel existente", () => {
   });
 });
 
+/**
+ * Último hotfix: caso real de Production, un chat cuyos mensajes futuros
+ * PROGRAMADO enterraban la conversación real de hoy. `messages` y
+ * `scheduledMessages` viajan aparte desde el backend; aquí se comprueba que
+ * el frontend los trata como dos cosas distintas -mismo bubble para humano
+ * y automático (ambos "R.A. Training"), etiqueta que dice cuál es cuál, y
+ * los próximos automáticos fuera del contenedor con scroll-.
+ */
+describe("hotfix WhatsApp Inbox: chat real vs. próximos automáticos", () => {
+  it("13: un INBOUND se pinta a la izquierda (is-inbound)", () => {
+    expect(inbox).toContain('m.direction === "INBOUND" ? "is-inbound" : "is-outbound"');
+  });
+
+  it("14: un HUMAN se pinta a la derecha, con la etiqueta 'Asesor'", () => {
+    expect(inbox).toContain('m.origin === "HUMAN" ? "is-human" : ""');
+    expect(inbox).toContain('m.origin === "HUMAN" ? `Asesor${m.actor ? ` · ${m.actor}` : ""}`');
+  });
+
+  it("15: un AUTOMATION se pinta a la derecha también, con la etiqueta 'Automatización'", () => {
+    // Mismo lado que HUMAN (is-outbound): la diferencia es solo la etiqueta.
+    const inicio = inbox.indexOf('className={`bubble $');
+    const cuerpo = inbox.slice(inicio, inbox.indexOf("bubble-kind"));
+    expect(cuerpo).toContain('m.direction === "INBOUND" ? "is-inbound" : "is-outbound"');
+    expect(inbox).toContain('"Automatización"');
+  });
+
+  it("16: los próximos automáticos se muestran fuera del chat, en su propio bloque colapsable", () => {
+    expect(inbox).toContain('<details className="inbox-scheduled">');
+    expect(inbox).toContain("Próximos automáticos · {detalle.scheduledMessages.length}");
+    // No es un tercer estado del mismo bubble: es una lista aparte.
+    expect(inbox).toContain("inbox-scheduled-list");
+  });
+
+  it("17: el bloque de próximos automáticos vive fuera del contenedor con scroll (chatRef)", () => {
+    const inicioScheduled = inbox.indexOf('<details className="inbox-scheduled">');
+    const inicioChat = inbox.indexOf('className="inbox-messages" ref={chatRef}');
+    expect(inicioScheduled).toBeGreaterThan(-1);
+    expect(inicioChat).toBeGreaterThan(-1);
+    // El bloque colapsable termina (su </details>) ANTES de que empiece el
+    // div con scroll: son hermanos, no está anidado dentro.
+    const cierreScheduled = inbox.indexOf("</details>", inicioScheduled);
+    expect(cierreScheduled).toBeLessThan(inicioChat);
+  });
+
+  it("nunca se muestra 'Programado' como estado dentro del chat real", () => {
+    // detalle.messages solo contiene historial real (el backend ya lo
+    // filtra); etiquetaDeEstado("PROGRAMADO") no debería ni poder llegar a
+    // pintarse ahí, pero además el propio literal no aparece junto al bubble.
+    const inicio = inbox.indexOf('className="inbox-messages" ref={chatRef}');
+    const cuerpo = inbox.slice(inicio, inbox.indexOf("inbox-composer"));
+    expect(cuerpo).not.toContain('"Programado"');
+  });
+
+  it("REBOTADO tiene su propia etiqueta legible, no cae en el genérico vacío", () => {
+    expect(etiquetaDeEstado("REBOTADO")).toBe("Rebotó");
+    expect(etiquetaDeEstado("REBOTADO")).not.toBe("");
+  });
+});
+
+/**
+ * Sección Dirección del último hotfix: Inbox WhatsApp vivía solo dentro de
+ * "Sistema", visible únicamente en la vista técnica. El permiso de backend
+ * (OPERACION, que ya incluye DIRECCION) siempre lo permitió: era un problema
+ * de navegación, no de permisos, y por eso este archivo NO toca requireRole
+ * ni ningún guard del backend.
+ */
+describe("navegación: Inbox WhatsApp visible también en Dirección", () => {
+  it("18: 'Inbox WhatsApp' vive en la navegación de trabajo (TRABAJO), no dentro de Sistema", () => {
+    const inicioTrabajo = nav.indexOf("const TRABAJO: AdminLink[] = [");
+    const cierreTrabajo = nav.indexOf("];", inicioTrabajo);
+    const bloqueTrabajo = nav.slice(inicioTrabajo, cierreTrabajo);
+    expect(bloqueTrabajo).toContain("/admin/mensajes?vista=inbox");
+
+    const inicioSistema = nav.indexOf("const SISTEMA: AdminLink[] = [");
+    const cierreSistema = nav.indexOf("];", inicioSistema);
+    const bloqueSistema = nav.slice(inicioSistema, cierreSistema);
+    expect(bloqueSistema).not.toContain("/admin/mensajes?vista=inbox");
+  });
+
+  it("TRABAJO se renderiza siempre, sin depender de view === \"tecnica\"", () => {
+    expect(nav).toContain("{renderLinks(TRABAJO)}");
+    // La única sección con esa condición sigue siendo Sistema.
+    const condicionadas = nav.match(/view === "tecnica" \? \([\s\S]*?renderLinks\((\w+)\)/);
+    expect(condicionadas?.[1]).toBe("SISTEMA");
+  });
+
+  it("un solo enlace: 'Inbox WhatsApp' no aparece duplicado en ningún otro lado", () => {
+    expect((nav.match(/\/admin\/mensajes\?vista=inbox/g) ?? []).length).toBe(1);
+  });
+
+  it("19: Integraciones sigue solo en Sistema, oculta fuera de la vista técnica", () => {
+    const inicioSistema = nav.indexOf("const SISTEMA: AdminLink[] = [");
+    const cierreSistema = nav.indexOf("];", inicioSistema);
+    expect(nav.slice(inicioSistema, cierreSistema)).toContain("/admin/mensajes?vista=integraciones");
+    const inicioTrabajo = nav.indexOf("const TRABAJO: AdminLink[] = [");
+    const cierreTrabajo = nav.indexOf("];", inicioTrabajo);
+    expect(nav.slice(inicioTrabajo, cierreTrabajo)).not.toContain("vista=integraciones");
+  });
+});
+
 describe("plantillas ofrecidas", () => {
   it("son las once del journey, nunca la oferta institucional", () => {
     // El servidor tambien la rechaza, pero ofrecer un boton que siempre falla

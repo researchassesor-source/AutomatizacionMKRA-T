@@ -15,7 +15,7 @@ type Resumen = {
   assignedTo: { id: string; name: string } | null;
   lastInboundAt: string | null;
   unreadCount: number;
-  lastMessage: { preview: string; at: string } | null;
+  lastMessage: { preview: string; at: string; direction: "INBOUND" | "OUTBOUND"; origin: "CONTACT" | "HUMAN" | "AUTOMATION" } | null;
   window: Ventana;
 };
 type Mensaje = {
@@ -29,6 +29,8 @@ type Mensaje = {
   status: string | null;
   actor: string | null;
 };
+/** Un automático que todavía no salió: vive fuera del chat real. */
+type MensajeProgramado = { id: string; label: string; scheduledAt: string };
 type Inscripcion = { id: string; status: string; course: { id: string; title: string } };
 type Detalle = {
   conversation: {
@@ -41,6 +43,7 @@ type Detalle = {
   };
   window: Ventana;
   messages: Mensaje[];
+  scheduledMessages: MensajeProgramado[];
 };
 
 const FILTROS = [
@@ -57,6 +60,15 @@ const POLLING_MS = 12_000;
 
 function hora(iso: string): string {
   return new Date(iso).toLocaleString("es-EC", { timeZone: "America/Guayaquil", dateStyle: "short", timeStyle: "short" });
+}
+
+const formatoFechaCorta = new Intl.DateTimeFormat("es-EC", { day: "numeric", month: "short", timeZone: "America/Guayaquil" });
+const formatoHoraCorta = new Intl.DateTimeFormat("es-EC", { timeStyle: "short", timeZone: "America/Guayaquil" });
+
+/** "25 ago · 7:00 p. m.", para los próximos automáticos. */
+function fechaCorta(iso: string): string {
+  const fecha = new Date(iso);
+  return `${formatoFechaCorta.format(fecha)} · ${formatoHoraCorta.format(fecha)}`;
 }
 
 /** Inicial para el avatar de la lista: primera letra visible, en mayúscula. */
@@ -389,7 +401,12 @@ export function WhatsAppInbox() {
                         {item.unreadCount > 0 ? <span className="badge" role="img" aria-label={`${item.unreadCount} sin leer`}>{item.unreadCount}</span> : null}
                       </span>
                       <span className="muted">{item.phonePartial} · {ESTADO_TEXTO[item.state]}</span>
-                      {item.lastMessage ? <span className="inbox-preview">{item.lastMessage.preview}</span> : null}
+                      {item.lastMessage ? (
+                        <span className="inbox-preview">
+                          {item.lastMessage.direction === "OUTBOUND" ? (item.lastMessage.origin === "HUMAN" ? "Tú: " : "Automático: ") : ""}
+                          {item.lastMessage.preview}
+                        </span>
+                      ) : null}
                       <span className="muted">
                         {item.lastMessage ? hora(item.lastMessage.at) : "—"} · {item.window.open ? "Ventana abierta" : "Ventana cerrada"}
                         {item.assignedTo ? ` · ${item.assignedTo.name}` : ""}
@@ -439,6 +456,25 @@ export function WhatsAppInbox() {
                 <p className="muted inbox-note">
                   Las automatizaciones de este contacto siguen su curso mientras dure la atención: atender aquí no pausa ningún mensaje.
                 </p>
+              ) : null}
+
+              {/*
+                Fuera del contenedor con scroll a propósito: los próximos
+                automáticos no son parte del chat real y no deben afectar ni
+                su orden ni el scroll-al-final.
+              */}
+              {detalle.scheduledMessages.length > 0 ? (
+                <details className="inbox-scheduled">
+                  <summary>Próximos automáticos · {detalle.scheduledMessages.length}</summary>
+                  <ul className="inbox-scheduled-list">
+                    {detalle.scheduledMessages.map((s) => (
+                      <li key={s.id}>
+                        <strong>{s.label}</strong>
+                        <span className="muted">{fechaCorta(s.scheduledAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               ) : null}
 
               <div className="inbox-messages" ref={chatRef} onScroll={alScroll} role="log" aria-label="Mensajes">

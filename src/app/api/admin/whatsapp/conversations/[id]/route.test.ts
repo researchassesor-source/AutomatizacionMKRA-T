@@ -389,3 +389,81 @@ describe("GET conversación: mensajes reales vs. próximos automáticos (hotfix 
     expect(body.scheduledMessages[0]).not.toHaveProperty("planKey");
   });
 });
+
+/**
+ * Bloque 2 del hotfix de multimedia entrante: extensión ADITIVA de
+ * `attachment` con `mediaUrl` (la ruta propia del proxy, nunca el media_id
+ * de Meta en crudo). Un mensaje TEXT no cambia en nada -sigue con
+ * attachment: null-, y el resto de `mediaMeta` sigue viajando igual que
+ * antes de este cambio.
+ */
+describe("GET conversación: attachment.mediaUrl (Bloque 2 - proxy de multimedia entrante)", () => {
+  beforeEach(() => {
+    mocks.prisma.conversation.findUnique.mockResolvedValue(conversacionDetalle({ leadId: "lead-1" }));
+  });
+
+  it("TEXT no cambia: attachment sigue siendo exactamente null", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([
+      { id: "in-txt", type: "text", text: "hola", mediaMeta: null, contextMessageId: null, occurredAt: new Date("2026-08-20T09:00:00Z"), readAt: null, providerMessageId: "wamid.TXT" },
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages[0].attachment).toBeNull();
+  });
+
+  it("IMAGE con media_id: attachment trae mediaUrl apuntando al proxy propio por el id del mensaje, y conserva el resto de mediaMeta", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([
+      { id: "in-img-1", type: "image", text: "mira esto", mediaMeta: { id: "media-de-meta-123", mime_type: "image/jpeg", sha256: "abc", caption: "mira esto" }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:00:00Z"), readAt: null, providerMessageId: "wamid.IMG" },
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages[0].attachment).toMatchObject({
+      id: "media-de-meta-123",
+      mime_type: "image/jpeg",
+      mediaUrl: "/api/admin/whatsapp/media/in-img-1",
+    });
+  });
+
+  it("mediaUrl usa el id del InboundMessage (in-img-1), nunca el media_id crudo de Meta (media-de-meta-123) como parte visible de la ruta más allá de estar oculto dentro", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([
+      { id: "in-img-1", type: "image", text: null, mediaMeta: { id: "media-de-meta-123", mime_type: "image/jpeg" }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:00:00Z"), readAt: null, providerMessageId: "wamid.IMG" },
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages[0].attachment.mediaUrl).not.toContain("media-de-meta-123");
+    expect(body.messages[0].attachment.mediaUrl).toBe("/api/admin/whatsapp/media/in-img-1");
+  });
+
+  it("un tipo desconocido con fallback (unsupportedType, sin id) conserva mediaMeta pero NO agrega mediaUrl", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([
+      { id: "in-raro", type: "algo_nuevo_de_meta", text: null, mediaMeta: { unsupportedType: "algo_nuevo_de_meta" }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:00:00Z"), readAt: null, providerMessageId: "wamid.RARO" },
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages[0].attachment).toEqual({ unsupportedType: "algo_nuevo_de_meta" });
+    expect(body.messages[0].attachment).not.toHaveProperty("mediaUrl");
+  });
+
+  it("AUDIO/VIDEO/DOCUMENT/STICKER también reciben mediaUrl cuando traen media_id", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([
+      { id: "in-aud", type: "audio", text: null, mediaMeta: { id: "m-aud", mime_type: "audio/ogg" }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:00:00Z"), readAt: null, providerMessageId: "wamid.AUD" },
+      { id: "in-vid", type: "video", text: null, mediaMeta: { id: "m-vid", mime_type: "video/mp4" }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:01:00Z"), readAt: null, providerMessageId: "wamid.VID" },
+      { id: "in-doc", type: "document", text: null, mediaMeta: { id: "m-doc", mime_type: "application/pdf", filename: "a.pdf" }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:02:00Z"), readAt: null, providerMessageId: "wamid.DOC" },
+      { id: "in-stk", type: "sticker", text: null, mediaMeta: { id: "m-stk", mime_type: "image/webp", animated: false }, contextMessageId: null, occurredAt: new Date("2026-08-20T09:03:00Z"), readAt: null, providerMessageId: "wamid.STK" },
+    ]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages.map((m: any) => m.attachment.mediaUrl)).toEqual([
+      "/api/admin/whatsapp/media/in-aud",
+      "/api/admin/whatsapp/media/in-vid",
+      "/api/admin/whatsapp/media/in-doc",
+      "/api/admin/whatsapp/media/in-stk",
+    ]);
+  });
+
+  it("los mensajes salientes (humano o automático) nunca traen attachment, con o sin este cambio", async () => {
+    mocks.prisma.inboundMessage.findMany.mockResolvedValue([]);
+    mockSalientes([{
+      id: "out-1", body: "hola", status: "ACEPTADO", origin: "HUMAN",
+      scheduledAt: new Date("2026-08-20T09:05:00Z"), acceptedAt: new Date("2026-08-20T09:05:00Z"), sentAt: null, failedAt: null, bouncedAt: null,
+      errorCode: null, providerMessageId: "wamid.OUT", humanActor: { id: "a1", name: "Asesor" },
+    }]);
+    const body = await (await get("conv-1")).json();
+    expect(body.messages[0].attachment).toBeNull();
+  });
+});

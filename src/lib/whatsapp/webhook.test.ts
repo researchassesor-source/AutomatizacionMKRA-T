@@ -169,3 +169,92 @@ describe("lectura del payload", () => {
     expect(parsed.statuses).toHaveLength(0);
   });
 });
+
+function inboundPayload(message: Record<string, unknown>) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [{ changes: [{ field: "messages", value: { messages: [message] } }] }],
+  };
+}
+
+/**
+ * Bloque 2 del hotfix de multimedia entrante: estos tests CONGELAN el
+ * comportamiento que `contenidoDeMensaje` ya tenía antes de este cambio -no
+ * se tocó su lógica-. Sirven de base segura antes de construir el proxy de
+ * descarga sobre el media_id que aquí se confirma que ya se guarda para los
+ * cinco tipos objetivo.
+ */
+describe("contenido de mensajes multimedia (comportamiento ya existente de contenidoDeMensaje)", () => {
+  it("IMAGE: type, media id, mime_type, sha256 y caption", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.IMG", from: "593999999999", type: "image", timestamp: "1786000000",
+      image: { id: "media-img-1", mime_type: "image/jpeg", sha256: "sha-img", caption: "mira esto" },
+    }));
+    expect(parsed.inbound).toHaveLength(1);
+    expect(parsed.inbound[0]).toMatchObject({ type: "image", providerMessageId: "wamid.IMG", text: "mira esto" });
+    expect(parsed.inbound[0].mediaMeta).toEqual({ id: "media-img-1", mime_type: "image/jpeg", sha256: "sha-img", caption: "mira esto" });
+  });
+
+  it("AUDIO: type, media id, mime_type y sha256 (sin caption, como llegan las notas de voz)", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.AUD", from: "593999999999", type: "audio", timestamp: "1786000000",
+      audio: { id: "media-aud-1", mime_type: "audio/ogg; codecs=opus", sha256: "sha-aud" },
+    }));
+    expect(parsed.inbound[0]).toMatchObject({ type: "audio", providerMessageId: "wamid.AUD" });
+    expect(parsed.inbound[0].text).toBeUndefined();
+    expect(parsed.inbound[0].mediaMeta).toEqual({ id: "media-aud-1", mime_type: "audio/ogg; codecs=opus", sha256: "sha-aud" });
+  });
+
+  it("VIDEO: type, media id, mime_type y caption", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.VID", from: "593999999999", type: "video", timestamp: "1786000000",
+      video: { id: "media-vid-1", mime_type: "video/mp4", sha256: "sha-vid", caption: "mira este video" },
+    }));
+    expect(parsed.inbound[0]).toMatchObject({ type: "video", text: "mira este video" });
+    expect(parsed.inbound[0].mediaMeta).toMatchObject({ id: "media-vid-1", mime_type: "video/mp4", sha256: "sha-vid" });
+  });
+
+  it("DOCUMENT: type, media id, mime_type, filename y caption cuando existe", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.DOC", from: "593999999999", type: "document", timestamp: "1786000000",
+      document: { id: "media-doc-1", mime_type: "application/pdf", sha256: "sha-doc", filename: "contrato.pdf", caption: "aquí está" },
+    }));
+    expect(parsed.inbound[0]).toMatchObject({ type: "document", text: "aquí está" });
+    expect(parsed.inbound[0].mediaMeta).toEqual({ id: "media-doc-1", mime_type: "application/pdf", sha256: "sha-doc", filename: "contrato.pdf", caption: "aquí está" });
+  });
+
+  it("DOCUMENT sin caption: filename se conserva igual, sin texto inventado", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.DOC2", from: "593999999999", type: "document", timestamp: "1786000000",
+      document: { id: "media-doc-2", mime_type: "application/pdf", filename: "reporte.pdf" },
+    }));
+    expect(parsed.inbound[0].text).toBeUndefined();
+    expect(parsed.inbound[0].mediaMeta).toMatchObject({ id: "media-doc-2", filename: "reporte.pdf" });
+  });
+
+  it("STICKER: type, media id, mime_type, sha256 y animated", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.STK", from: "593999999999", type: "sticker", timestamp: "1786000000",
+      sticker: { id: "media-stk-1", mime_type: "image/webp", sha256: "sha-stk", animated: false },
+    }));
+    expect(parsed.inbound[0]).toMatchObject({ type: "sticker" });
+    expect(parsed.inbound[0].mediaMeta).toEqual({ id: "media-stk-1", mime_type: "image/webp", sha256: "sha-stk", animated: false });
+  });
+
+  it("un tipo desconocido conserva el fallback actual (unsupportedType), sin romper el lote", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.RARO", from: "593999999999", type: "algo_nuevo_de_meta", timestamp: "1786000000",
+    }));
+    expect(parsed.inbound[0]).toMatchObject({ type: "algo_nuevo_de_meta" });
+    expect(parsed.inbound[0].mediaMeta).toEqual({ unsupportedType: "algo_nuevo_de_meta" });
+  });
+
+  it("TEXT sigue exactamente igual (sin mediaMeta)", () => {
+    const parsed = parseWebhookPayload(inboundPayload({
+      id: "wamid.TXT", from: "593999999999", type: "text", timestamp: "1786000000",
+      text: { body: "hola" },
+    }));
+    expect(parsed.inbound[0]).toMatchObject({ type: "text", text: "hola" });
+    expect(parsed.inbound[0].mediaMeta).toBeUndefined();
+  });
+});

@@ -2438,6 +2438,35 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .bubble-text { margin: .15rem 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .87rem; }
 .bubble-meta, .bubble-kind { margin: 0; font-size: .72rem; opacity: .75; }
 .bubble.is-outbound.is-human .bubble-meta, .bubble.is-outbound.is-human .bubble-kind { color: rgba(255,255,255,.82); }
+
+/* Multimedia entrante (Bloque 3): extensión natural de la burbuja, no una tarjeta aparte. */
+.bubble-image, .bubble-sticker { display: block; margin: .3rem 0; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.bubble-image img { display: block; max-width: min(100%, 260px); max-height: 320px; border-radius: .6rem; object-fit: cover; }
+.bubble-sticker img { display: block; width: 120px; height: 120px; object-fit: contain; }
+.bubble-audio { display: block; width: 280px; max-width: 100%; margin: .3rem 0; }
+.bubble-video { display: block; width: 100%; max-width: min(100%, 320px); max-height: 320px; margin: .3rem 0; border-radius: .6rem; background: #000; }
+.bubble-document {
+  display: flex; align-items: center; gap: .55rem; max-width: min(100%, 280px); margin: .3rem 0; padding: .5rem .65rem;
+  border-radius: .6rem; border: 1px solid var(--color-border-subtle); background: var(--surface);
+  text-decoration: none; color: inherit;
+}
+.bubble-document-icon { flex: 0 0 auto; font-size: 1.4rem; }
+.bubble-document-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.bubble-document-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.bubble-document-action { flex: 0 0 auto; font-size: .75rem; font-weight: 600; color: var(--brand-primary); }
+.bubble.is-outbound.is-human .bubble-document { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.32); color: #fff; }
+.bubble.is-outbound.is-human .bubble-document-action { color: #fff; }
+.bubble-media-error { margin: .15rem 0; font-size: .78rem; opacity: .75; }
+
+/* Ampliar imagen/sticker: mismo <dialog> nativo que ya usa "Vincular contacto". */
+.media-viewer { width: min(92vw, 900px); max-height: min(92svh, 900px); padding: 0; border: 0; border-radius: 12px; background: transparent; }
+.media-viewer::backdrop { background: rgba(8, 29, 58, .78); }
+.media-viewer img { display: block; width: 100%; height: 100%; max-height: 92svh; object-fit: contain; }
+.media-viewer-close {
+  position: fixed; top: 18px; right: 18px; display: grid; place-items: center;
+  width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(8, 29, 58, .55); color: #fff; font-size: 1.3rem; line-height: 1; cursor: pointer;
+}
 .inbox-composer {
   display: flex; flex-direction: column; gap: .5rem;
   padding: .85rem 1rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-elevated);
@@ -2491,6 +2520,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .inbox-list { max-height: none; }
   .bubble { max-width: 92%; }
   .inbox-avatar { width: 2.1rem; height: 2.1rem; font-size: .82rem; }
+  .bubble-image img, .bubble-video, .bubble-document, .bubble-audio { max-width: 100%; }
+  .media-viewer-close { top: 10px; right: 10px; }
 }
 
 /* Línea de actividad del contacto. */

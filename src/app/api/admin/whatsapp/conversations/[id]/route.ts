@@ -21,6 +21,24 @@ function etiquetaDePaso(planKey: string | null | undefined): string {
   return TIMELINE_STEPS.find((step) => step.planKey === planKey)?.title ?? "Mensaje automático";
 }
 
+/** Mismos 5 tipos que ya sabe descargar el proxy del Bloque 2. */
+const TIPOS_MEDIA_CON_PROXY = new Set(["image", "audio", "video", "document", "sticker"]);
+
+/**
+ * `attachment` sigue siendo exactamente `mediaMeta` (solo metadatos, nunca el
+ * archivo ni el payload del proveedor) para todo lo que ya funcionaba. Lo
+ * único que se agrega es `mediaUrl`, y solo cuando hay un id de Meta
+ * utilizable: la ruta propia del Bloque 2, nunca el media_id en crudo.
+ */
+function construirAttachment(m: { id: string; type: string; mediaMeta: unknown }): Record<string, unknown> | null {
+  if (!m.mediaMeta || typeof m.mediaMeta !== "object" || Array.isArray(m.mediaMeta)) {
+    return (m.mediaMeta as Record<string, unknown> | null) ?? null;
+  }
+  const meta = m.mediaMeta as Record<string, unknown>;
+  if (!TIPOS_MEDIA_CON_PROXY.has(m.type) || typeof meta.id !== "string") return meta;
+  return { ...meta, mediaUrl: `/api/admin/whatsapp/media/${m.id}` };
+}
+
 /**
  * Detalle de una conversacion y acciones sobre ella.
  *
@@ -101,8 +119,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       at: m.occurredAt.toISOString(),
       type: m.type,
       text: m.text,
-      // Solo metadatos: nunca el archivo ni el payload del proveedor.
-      attachment: m.mediaMeta ?? null,
+      // Solo metadatos (nunca el archivo ni el payload del proveedor), más
+      // mediaUrl del proxy propio cuando el tipo y el media_id lo permiten.
+      attachment: construirAttachment(m),
       replyTo: m.contextMessageId,
       read: Boolean(m.readAt),
       status: null,

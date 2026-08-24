@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import Link from "next/link";
 import { PLANTILLAS_DE_BANDEJA } from "@/lib/whatsapp/inbox-templates";
 import { etiquetaDeEstado, etiquetaDeTipo, mensajeDeError } from "./mensajes-de-error";
+import { WhatsAppMediaMessage, tieneMediaRenderizable } from "./WhatsAppMediaMessage";
 
 type Ventana = { open: boolean; expiresAt: string | null; remainingSeconds: number; reason: string | null };
 type Resumen = {
@@ -493,7 +494,8 @@ export function WhatsAppInbox() {
                           {" · "}{hora(m.at)}
                         </p>
                       ) : null}
-                      {etiquetaTipo ? <p className="bubble-kind">{etiquetaTipo}</p> : null}
+                      {etiquetaTipo && !tieneMediaRenderizable(m.direction, m.type, m.attachment) ? <p className="bubble-kind">{etiquetaTipo}</p> : null}
+                      {m.direction === "INBOUND" ? <WhatsAppMediaMessage type={m.type} attachment={m.attachment} /> : null}
                       {/* Texto plano: nunca HTML del contacto. */}
                       {m.text ? <p className="bubble-text">{m.text}</p> : null}
                       {m.status ? <p className="bubble-meta">{etiquetaDeEstado(m.status)}</p> : null}

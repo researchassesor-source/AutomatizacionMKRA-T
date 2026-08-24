@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { etiquetaDeEstado, etiquetaDeTipo, mensajeDeError } from "./mensajes-de-error";
+import { tieneMediaRenderizable } from "./WhatsAppMediaMessage";
 import { PLANTILLAS_DE_BANDEJA } from "@/lib/whatsapp/inbox-templates";
 import { WHATSAPP_TEMPLATES } from "@/lib/whatsapp/templates";
 
@@ -15,6 +16,7 @@ import { WHATSAPP_TEMPLATES } from "@/lib/whatsapp/templates";
 const inbox = readFileSync(join(process.cwd(), "src/app/admin/mensajes/inbox/WhatsAppInbox.tsx"), "utf8");
 const pagina = readFileSync(join(process.cwd(), "src/app/admin/mensajes/page.tsx"), "utf8");
 const nav = readFileSync(join(process.cwd(), "src/app/admin/AdminNav.tsx"), "utf8");
+const mediaMessage = readFileSync(join(process.cwd(), "src/app/admin/mensajes/inbox/WhatsAppMediaMessage.tsx"), "utf8");
 
 describe("integración con el panel existente", () => {
   it("es una vista más de /admin/mensajes, no otra aplicación", () => {
@@ -552,5 +554,212 @@ describe("rediseño visual de la bandeja (sección U)", () => {
     const bloque = css.slice(css.indexOf(".inbox-info {"), css.indexOf(".inbox-info {") + 400);
     expect(bloque).toMatch(/display:\s*none/);
     expect(bloque).toMatch(/position:\s*fixed/);
+  });
+});
+
+/**
+ * Bloque 3 del hotfix de multimedia entrante: render de image/audio/video/
+ * document/sticker dentro de la burbuja, usando exclusivamente
+ * attachment.mediaUrl (el proxy propio y autenticado del Bloque 2). Ningún
+ * test de aquí abajo toca backend, webhook, proxy ni conversations/[id]:
+ * esos ya quedaron congelados y probados en el Bloque 2.
+ */
+describe("Bloque 3: multimedia entrante en la burbuja", () => {
+  const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+
+  describe("tieneMediaRenderizable (contrato real, con la función importada)", () => {
+    it("solo es true en INBOUND, con un tipo de los 5 soportados y mediaUrl string", () => {
+      expect(tieneMediaRenderizable("INBOUND", "image", { mediaUrl: "/api/admin/whatsapp/media/in-1" })).toBe(true);
+      expect(tieneMediaRenderizable("INBOUND", "audio", { mediaUrl: "/api/admin/whatsapp/media/in-2" })).toBe(true);
+      expect(tieneMediaRenderizable("INBOUND", "video", { mediaUrl: "/api/admin/whatsapp/media/in-3" })).toBe(true);
+      expect(tieneMediaRenderizable("INBOUND", "document", { mediaUrl: "/api/admin/whatsapp/media/in-4" })).toBe(true);
+      expect(tieneMediaRenderizable("INBOUND", "sticker", { mediaUrl: "/api/admin/whatsapp/media/in-5" })).toBe(true);
+    });
+
+    it("false en OUTBOUND aunque (por error de datos) trajera mediaUrl: esta fase es solo INBOUND", () => {
+      expect(tieneMediaRenderizable("OUTBOUND", "image", { mediaUrl: "/api/admin/whatsapp/media/in-1" })).toBe(false);
+    });
+
+    it("false para TEXT y para tipos no soportados (location, contacts, reaction, fallback)", () => {
+      expect(tieneMediaRenderizable("INBOUND", "text", { mediaUrl: "/x" })).toBe(false);
+      expect(tieneMediaRenderizable("INBOUND", "location", { mediaUrl: "/x" })).toBe(false);
+      expect(tieneMediaRenderizable("INBOUND", "algo_nuevo_de_meta", { mediaUrl: "/x" })).toBe(false);
+    });
+
+    it("false sin mediaUrl (attachment null, vacío, o con un mediaUrl que no es string) — nunca lanza", () => {
+      expect(tieneMediaRenderizable("INBOUND", "image", null)).toBe(false);
+      expect(tieneMediaRenderizable("INBOUND", "image", {})).toBe(false);
+      expect(tieneMediaRenderizable("INBOUND", "image", { mediaUrl: 123 })).toBe(false);
+      expect(tieneMediaRenderizable("INBOUND", "image", { mediaUrl: "" })).toBe(false);
+      expect(tieneMediaRenderizable("INBOUND", "image", { mediaUrl: null })).toBe(false);
+      expect(() => tieneMediaRenderizable("INBOUND", "image", { mediaUrl: { raro: true } })).not.toThrow();
+    });
+  });
+
+  describe("integración en WhatsAppInbox.tsx", () => {
+    it("el render de multimedia está acotado a INBOUND: nunca se llama para un saliente", () => {
+      expect(inbox).toContain('m.direction === "INBOUND" ? <WhatsAppMediaMessage type={m.type} attachment={m.attachment} /> : null');
+    });
+
+    it("la etiqueta genérica (bubble-kind) solo actúa como fallback: se apaga cuando hay media real que mostrar", () => {
+      expect(inbox).toContain("{etiquetaTipo && !tieneMediaRenderizable(m.direction, m.type, m.attachment) ? <p className=\"bubble-kind\">{etiquetaTipo}</p> : null}");
+    });
+
+    it("no se duplica el caption: WhatsAppMediaMessage no lee ni pinta attachment.caption ni m.text", () => {
+      // El caption ya lo pinta bubble-text con m.text (el backend pone el
+      // mismo valor ahí); el componente de media no debe repetirlo.
+      expect(mediaMessage).not.toContain("attachment?.caption");
+      expect(mediaMessage).not.toContain(".caption");
+    });
+
+    it("TEXT sigue exactamente igual: bubble-text no cambió de posición ni de condición", () => {
+      expect(inbox).toContain('{m.text ? <p className="bubble-text">{m.text}</p> : null}');
+    });
+  });
+
+  describe("seguridad: mismo origen, sin tokens, sin Graph API, sin dangerouslySetInnerHTML", () => {
+    it("el único origen de archivo es attachment.mediaUrl, nunca un id ni una URL de Meta", () => {
+      expect(mediaMessage).toContain("attachment?.mediaUrl");
+      expect(mediaMessage).not.toContain("graph.facebook.com");
+      expect(mediaMessage).not.toContain("lookaside.fbsbx.com");
+      expect(mediaMessage).not.toMatch(/attachment\?\.id\b/);
+    });
+
+    it("no maneja tokens ni secretos", () => {
+      expect(mediaMessage).not.toMatch(/accessToken|appSecret|verifyToken|Bearer/);
+    });
+
+    it("no interpreta HTML del contacto", () => {
+      expect(mediaMessage).not.toContain("dangerouslySetInnerHTML");
+    });
+  });
+
+  describe("IMAGE y STICKER", () => {
+    it("usan mediaUrl como src, con carga diferida", () => {
+      expect(mediaMessage).toContain('<img src={mediaUrl} alt="" loading="lazy" onError={() => setError(true)} />');
+    });
+
+    it("clic abre la ampliación; el visor se cierra con botón X o Escape (mismo patrón que ContactoSinVincular)", () => {
+      expect(mediaMessage).toContain("onClick={() => setAmpliada(true)}");
+      expect(mediaMessage).toContain("dialogRef.current?.showModal()");
+      expect(mediaMessage).toContain('if (event.key === "Escape")');
+      expect(mediaMessage).toContain("media-viewer-close");
+      expect(mediaMessage).toContain("onCancel={(event) => {");
+    });
+
+    it("sticker usa una clase propia, más pequeña que una imagen normal", () => {
+      expect(mediaMessage).toContain('className={type === "sticker" ? "bubble-sticker" : "bubble-image"}');
+      expect(css).toContain(".bubble-sticker img { display: block; width: 120px; height: 120px; object-fit: contain; }");
+    });
+
+    it("fallback legible si la imagen no carga (URL expirada, tipo no soportado)", () => {
+      expect(mediaMessage).toContain('image: "No se pudo cargar esta imagen."');
+      expect(mediaMessage).toContain('sticker: "No se pudo cargar este sticker."');
+    });
+  });
+
+  describe("AUDIO", () => {
+    it("usa <audio controls preload=\"metadata\"> con mediaUrl como src, sin autoplay", () => {
+      expect(mediaMessage).toContain('<audio className="bubble-audio" controls preload="metadata" src={mediaUrl} onError={() => setError(true)}>');
+      expect(mediaMessage).not.toContain("autoPlay");
+    });
+
+    it("fallback legible si el audio no carga", () => {
+      expect(mediaMessage).toContain('audio: "Audio no disponible."');
+    });
+  });
+
+  describe("VIDEO", () => {
+    it("usa <video controls preload=\"metadata\" playsInline> con mediaUrl como src, sin autoplay", () => {
+      expect(mediaMessage).toContain('<video className="bubble-video" controls preload="metadata" playsInline src={mediaUrl} onError={() => setError(true)}>');
+      expect(mediaMessage).not.toContain("autoPlay");
+    });
+
+    it("fallback legible si el video no carga", () => {
+      expect(mediaMessage).toContain('video: "Video no disponible."');
+    });
+  });
+
+  describe("DOCUMENT", () => {
+    it("tarjeta con icono, filename y acción 'Abrir' usando mediaUrl como href", () => {
+      expect(mediaMessage).toContain('<a className="bubble-document" href={mediaUrl} target="_blank" rel="noopener noreferrer">');
+      expect(mediaMessage).toContain("Abrir");
+    });
+
+    it("filename ausente cae en 'Documento', sin inventar una extensión", () => {
+      expect(mediaMessage).toContain('const nombre = texto(attachment?.filename) ?? "Documento";');
+    });
+
+    it("un filename largo no rompe el contrato: no se trunca en JS, el desborde lo resuelve el CSS", () => {
+      // El nombre completo sigue en el DOM (accesible/copiable); lo visual lo
+      // resuelve text-overflow, no un .slice() sobre el string real.
+      expect(mediaMessage).not.toMatch(/nombre\.slice\(/);
+      expect(css).toContain(".bubble-document-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }");
+    });
+
+    it("el link abre en pestaña nueva sin exponer la conversación (noopener noreferrer)", () => {
+      expect(mediaMessage).toContain('rel="noopener noreferrer"');
+    });
+  });
+
+  describe("sin mediaUrl: cada tipo cae en la etiqueta/fallback ya existente, nunca crashea", () => {
+    it("el guard `if (!mediaUrl) return null` es lo primero que se evalúa, antes de mirar el tipo", () => {
+      const inicio = mediaMessage.indexOf("export function WhatsAppMediaMessage");
+      const cuerpo = mediaMessage.slice(inicio, mediaMessage.indexOf('type === "image"', inicio));
+      expect(cuerpo).toContain("if (!mediaUrl) return null;");
+    });
+
+    it("un attachment inesperado (objeto raro, null, mediaUrl no-string) jamás lanza una excepción", () => {
+      for (const attachment of [null, {}, { mediaUrl: 42 }, { mediaUrl: null }, { unsupportedType: "algo" }]) {
+        expect(() => tieneMediaRenderizable("INBOUND", "image", attachment)).not.toThrow();
+      }
+    });
+  });
+
+  describe("responsive: la multimedia no rompe el ancho del chat", () => {
+    it("imagen, video, documento y audio usan max-width relativo a la burbuja, nunca un ancho fijo mayor", () => {
+      expect(css).toContain("max-width: min(100%, 260px)");
+      expect(css).toContain("max-width: min(100%, 320px)");
+      expect(css).toContain("max-width: min(100%, 280px)");
+    });
+
+    it("en pantallas angostas, la multimedia se limita al 100% del contenedor", () => {
+      const inicioMedia = css.indexOf("@media (max-width: 900px)");
+      expect(css.slice(inicioMedia)).toContain(".bubble-image img, .bubble-video, .bubble-document, .bubble-audio { max-width: 100%; }");
+    });
+
+    it("el nombre de archivo largo no desborda: overflow-wrap/ellipsis ya cubierto arriba, aquí se confirma que la tarjeta tiene un tope de ancho", () => {
+      expect(css).toContain(".bubble-document {");
+      const bloque = css.slice(css.indexOf(".bubble-document {"), css.indexOf(".bubble-document {") + 260);
+      expect(bloque).toContain("max-width: min(100%, 280px)");
+    });
+  });
+
+  describe("no regresión: nada del resto de la bandeja cambió de mecánica", () => {
+    it("el composer sigue siendo solo texto: ningún input de archivo, cámara o grabación de audio", () => {
+      expect(inbox).not.toMatch(/type="file"|getUserMedia|MediaRecorder|<input[^>]*accept=/);
+    });
+
+    it("no se agregó storage adicional ni blobs manuales en el frontend", () => {
+      expect(inbox).not.toContain("URL.createObjectURL");
+      expect(mediaMessage).not.toContain("URL.createObjectURL");
+    });
+
+    it("scheduledMessages y el bloque de próximos automáticos siguen fuera del chat con scroll", () => {
+      expect(inbox).toContain('<details className="inbox-scheduled">');
+      const inicioScheduled = inbox.indexOf('<details className="inbox-scheduled">');
+      const inicioChat = inbox.indexOf('className="inbox-messages" ref={chatRef}');
+      expect(inbox.indexOf("</details>", inicioScheduled)).toBeLessThan(inicioChat);
+    });
+
+    it("el envío humano de texto sigue intacto: misma identidad de intento, mismo endpoint /reply", () => {
+      expect(inbox).toContain("if (!intento.current) intento.current =");
+      expect(inbox).toContain("/reply");
+    });
+
+    it("HUMAN_HANDOFF y sus acciones (finalizar/reabrir) siguen intactas", () => {
+      expect(inbox).toContain('{ state: "RESOLVED" }');
+      expect(inbox).toContain('{ state: "HUMAN_HANDOFF" }');
+    });
   });
 });

@@ -53,6 +53,7 @@ export function WhatsAppMediaMessage({ type, attachment }: { type: string; attac
           onClick={() => setAmpliada(true)}
         >
           {/* biome-ignore lint/a11y/useAltText: alt vacio a proposito: el texto real ya vive en m.text/bubble-kind, no hay descripcion propia de Meta que repetir. */}
+          {/* biome-ignore lint/performance/noImgElement: src es el proxy autenticado propio (Bloque 2), no un asset estatico; pasarlo por next/image agregaria un salto de fetch server-side adicional cruzando el limite de auth, sin necesidad real para una miniatura de chat ya acotada por CSS. */}
           <img src={mediaUrl} alt="" loading="lazy" onError={() => setError(true)} />
         </button>
         {ampliada ? <VisorImagen src={mediaUrl} onClose={() => setAmpliada(false)} /> : null}
@@ -129,6 +130,7 @@ function VisorImagen({ src, onClose }: { src: string; onClose: () => void }) {
     >
       <button type="button" className="media-viewer-close" onClick={onClose} aria-label="Cerrar imagen ampliada">×</button>
       {/* biome-ignore lint/a11y/useAltText: misma imagen que en la burbuja, ya sin descripcion propia que ofrecer. */}
+      {/* biome-ignore lint/performance/noImgElement: misma razon que la miniatura: mediaUrl es el proxy autenticado propio, no un asset estatico para next/image. */}
       <img src={src} alt="" />
     </dialog>
   );

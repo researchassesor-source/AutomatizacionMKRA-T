@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkCronAuth } from "@/lib/cron-auth";
+import { debeEjecutarCronTick, respuestaCronTickSaltado } from "@/lib/cron-cadence";
 import { ejecutarTick } from "@/lib/cron-tick";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,9 @@ export const maxDuration = 60;
 async function ejecutar(request: Request, rawBody?: string) {
   if (!checkCronAuth(request, rawBody)) {
     return NextResponse.json({ error: "no autorizado" }, { status: 401 });
+  }
+  if (!debeEjecutarCronTick({ url: request.url })) {
+    return NextResponse.json(respuestaCronTickSaltado());
   }
   const resultado = await ejecutarTick();
   // 200 aunque un subsistema falle: el reloj respondio y el detalle va en el

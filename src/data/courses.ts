@@ -77,6 +77,21 @@ const catalogCommercialFacts: Record<string, {
     isFree: false,
     benefits: ["Aulas virtuales", "Recursos", "Actividades", "Certificado avalado"],
   },
+  "litigacion-penal-con-enfoque-intercultural": {
+    price: 10,
+    isFree: true,
+    benefits: ["Enfoque intercultural", "Herramientas jurídicas", "Formación especializada"],
+  },
+  "domina-el-sri-desde-cero": {
+    price: 10,
+    isFree: true,
+    benefits: ["Fundamentos del SRI", "Obligaciones tributarias", "Declaraciones y anexos"],
+  },
+  "archicad-bim-desde-cero-representacion-tecnica-y-modelado-digital": {
+    price: 30,
+    isFree: true,
+    benefits: ["Modelado BIM", "Documentación automatizada", "Coordinación y visualización", "Flujo de trabajo profesional"],
+  },
   "ia-desarrollo-tesis": { price: 30, isFree: false, benefits: [] },
   "ia-investigacion-contenido-marketing": { price: 30, isFree: false, benefits: [] },
 };
